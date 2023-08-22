@@ -1,0 +1,11 @@
+--extra-index-url https://data.pyg.org/whl/torch-2.0.1%2Bcu117.html
+torch==2.0.1
+torch-geometric
+torch_sparse
+torch_scatter
+networkx
+numpy
+pandas
+joblib
+pathlib
+sklearn
