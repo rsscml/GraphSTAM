@@ -1724,6 +1724,7 @@ class graphmodel():
               min_delta, 
               model_prefix,
               loss_type = 'Quantile',
+              delta = 1.0,
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
