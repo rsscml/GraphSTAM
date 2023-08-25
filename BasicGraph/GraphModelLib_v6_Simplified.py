@@ -762,10 +762,10 @@ class STGNN(torch.nn.Module):
         else:
             raise "Invalid model_option. model_option: [BASIC]"
             
-    def forward(self, data):
+    def forward(self, x_dict, edge_index_dict):
     
         # gnn layer
-        x = self.gnn_layer(data.x_dict, data.edge_index_dict)
+        x = self.gnn_layer(x_dict, edge_index_dict)
         x = x.relu()
         
         if self.apply_norm_layers:
@@ -781,8 +781,11 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-                
-            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
+
+            if self.n_quantiles > 1:
+                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
+            else:
+                out = torch.reshape(out, (-1, self.n_pred))
                 
         return out
     
@@ -1040,7 +1043,7 @@ class graphmodel():
 
     def onehot_encode(self, df):
         
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + + self.global_context_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
@@ -1108,7 +1111,7 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list:
+            for col in self.global_context_col_list + self.global_context_onehot_cols:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -1185,8 +1188,7 @@ class graphmodel():
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
-        
-        
+
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
@@ -1219,8 +1221,15 @@ class graphmodel():
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         
         self.node_features = {}
+        self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
+
+        for node in self.global_context_col_list:
+            onehot_cols_prefix = str(node) + '_'
+            onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
+            self.node_features[node] = onehot_col_features
+            self.global_context_onehot_cols += onehot_col_features
 
         for node in self.node_cols:
             if node not in self.cat_col_list:
@@ -1278,14 +1287,7 @@ class graphmodel():
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get node features
-        
-        # target
-        #rolling_stat_lag_cols = []
-        #for col in self.rolling_stat_cols:
-        #    rolling_stat_lag_cols.append(self.lead_lag_features_dict[col])
-        
-        #rolling_feats = list(itertools.chain.from_iterable(rolling_stat_lag_cols))
-            
+
         data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col] + self.rolling_stat_cols].to_numpy(), dtype=torch.float)
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
@@ -1308,10 +1310,14 @@ class graphmodel():
             
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
-                feats_df = df_snap[[col]]
-                feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
-                feats_df = feats_df.drop_duplicates()
-                data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
+            onehot_cols_prefix = str(col) + '_'
+            onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
+            #feats_df = df_snap[[col]]
+            #feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
+            #feats_df = feats_df.drop_duplicates()
+            #data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
+            feats_df = df_snap[onehot_col_features].drop_duplicates()
+            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
         
@@ -1365,13 +1371,14 @@ class graphmodel():
             data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
                  
         # static nodes only required in this kind of connection
-        
+        """
         for col in self.static_cat_col_list:
             feats_df = df_snap[[col]]
             feats_df[f'dummy_static_{col}'] = 1  # assign a constant as dummy feature
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
-                
+        """
+
         # directed edges are from covariates to target
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
@@ -1688,7 +1695,7 @@ class graphmodel():
                            target_node = self.target_col,
                            context_nodes = self.global_context_col_list,
                            device = self.device,
-                           n_quantiles = len(self.forecast_quantiles), 
+                           n_quantiles = max(len(self.forecast_quantiles),1),
                            num_layers = num_layers,
                            alpha = 0.5, 
                            dropout = dropout,
@@ -1705,7 +1712,8 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            out = self.model(sample_batch.to(self.device))
+            sample_batch = sample_batch.to(self.device)
+            out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
             
         # parameters count
         try:
@@ -1766,17 +1774,26 @@ class graphmodel():
                 optimizer.zero_grad()
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
-                out = self.model(batch)
+                out = self.model(batch.x_dict, batch.edge_index_dict)
                 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss_type == 'Quantile':
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    try:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                    except:
+                        loss = loss_fn.loss(torch.unsqueeze(out, dim=1), batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                 elif self.loss_type == 'Huber':
-                    loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
+                    try:
+                        loss = loss_fn(out[:, -1, :], batch[self.target_col].y)
+                    except:
+                        loss = loss_fn(out, batch[self.target_col].y)
                     mask = batch[self.target_col].y_mask
                 else:
-                    loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
+                    try:
+                        loss = loss_fn.loss(out[:, -1, :], batch[self.target_col].y)
+                    except:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = batch[self.target_col].y_mask
                 
                 if sample_weights:
@@ -1800,17 +1817,26 @@ class graphmodel():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
-                    out = self.model(batch)
+                    out = self.model(batch.x_dict, batch.edge_index_dict)
                     
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss_type == 'Quantile':
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        try:
+                            loss = loss_fn.loss(out, batch[self.target_col].y)
+                        except:
+                            loss = loss_fn.loss(torch.unsqueeze(out, dim=1), batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                     elif self.loss_type == 'Huber':
-                        loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
+                        try:
+                            loss = loss_fn(out[:, -1, :], batch[self.target_col].y)
+                        except:
+                            loss = loss_fn(out, batch[self.target_col].y)
                         mask = batch[self.target_col].y_mask
                     else:
-                        loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
+                        try:
+                            loss = loss_fn.loss(out[:, -1, :], batch[self.target_col].y)
+                        except:
+                            loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = batch[self.target_col].y_mask
                     
                     if sample_weights:
@@ -1897,7 +1923,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch)
+                    out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
 
@@ -1924,9 +1950,9 @@ class graphmodel():
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
             
-            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-            
             if self.loss_type == 'Quantile':
+                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
                     output_arr = output_arr[:,:,q_index] 
@@ -1937,7 +1963,10 @@ class graphmodel():
                     q_lower_weight = 1 - q_upper_weight
                     output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
             else:
-                output_arr = output_arr[:,:,0] 
+                try:
+                    output_arr = output_arr[:, :, 0]
+                except:
+                    pass
                 
             # show current o/p
             scaled_output = self.process_output(base_df, output_arr)
@@ -1976,7 +2005,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch)
+                    out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
 
@@ -2001,19 +2030,25 @@ class graphmodel():
             
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-            
-        assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-            
-        try:
-            q_index = self.forecast_quantiles(select_quantile)
-            output_arr = output_arr[-self.n_prediction_nodes:,:,q_index] 
-        except:
-            q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-            q_lower = int(q_upper - 1)
-            q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-            q_lower_weight = 1 - q_upper_weight
-            output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
-                
+
+        if self.loss_type == 'Quantile':
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+
+            try:
+                q_index = self.forecast_quantiles(select_quantile)
+                output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+        else:
+            try:
+                output_arr = output_arr[:, :, 0]
+            except:
+                pass
+
         # show current o/p
         scaled_output = self.process_output(base_df, output_arr)
             

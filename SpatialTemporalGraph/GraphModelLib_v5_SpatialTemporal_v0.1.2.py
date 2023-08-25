@@ -822,10 +822,10 @@ class STGNN(torch.nn.Module):
         else:
             raise "Invalid model_option. model_option: [BASIC, LSTM, LSTMATTENTION, ATTENTION]"
             
-    def forward(self, x_dict, edge_index_dict):
+    def forward(self, data):
     
         # gnn layer
-        x = self.gnn_layer(x_dict, edge_index_dict)
+        x = self.gnn_layer(data.x_dict, data.edge_index_dict)
         x = x.relu()
         
         if self.apply_norm_layers:
@@ -849,11 +849,8 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+                
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
 
         elif self.model_option == "LSTM":
             
@@ -866,7 +863,7 @@ class STGNN(torch.nn.Module):
             node_embed_seq = torch.concat(node_embed_batches, dim=1)
             
             # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
+            res_x = self.target_transform(data.x_dict[self.target_node][:, -1:])
             res_x = res_x.relu()
             if self.apply_norm_layers:
                 res_x = self.layer_norm2(res_x)
@@ -896,11 +893,8 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+                
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
 
         elif self.model_option == "LSTMATTENTION":
             
@@ -913,7 +907,7 @@ class STGNN(torch.nn.Module):
             node_embed_seq = torch.concat(node_embed_batches, dim=1)
             
             # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
+            res_x = self.target_transform(data.x_dict[self.target_node][:, -1:])
             res_x = res_x.relu()
             if self.apply_norm_layers:
                 res_x = self.layer_norm2(res_x)
@@ -950,11 +944,8 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+                
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
         
         elif self.model_option == "ATTENTION":
             
@@ -967,7 +958,7 @@ class STGNN(torch.nn.Module):
             node_embed_seq = torch.concat(node_embed_batches, dim=1)
             
             # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
+            res_x = self.target_transform(data.x_dict[self.target_node][:, -1:])
             res_x = res_x.relu()
             if self.apply_norm_layers:
                 res_x = self.layer_norm2(res_x)
@@ -998,11 +989,8 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+                
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
 
         return out
 
@@ -1254,7 +1242,7 @@ class graphmodel():
         # exclude static & global cols as they use numeric & dummy feature later on
         #df = pd.concat([df[self.cat_col_list], pd.get_dummies(data=df, columns=self.cat_col_list, prefix_sep='_')], axis=1, join='inner')
         
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
@@ -1307,11 +1295,19 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols:
+            for col in self.global_context_col_list:
+                x[col] = x[col].fillna(method='ffill')
+                x[col] = x[col].fillna(method='bfill')
+                
+            for col in self.global_context_onehot_cols:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
             
             for col in self.static_cat_col_list:
+                x[col] = x[col].fillna(method='ffill')
+                x[col] = x[col].fillna(method='bfill')
+                
+            for col in self.static_onehot_cols:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
             
@@ -1358,7 +1354,7 @@ class graphmodel():
         # convert all bool columns to 1/0 (problem on linux only)
         #print("converting bool to int")
         
-        for col in self.known_onehot_cols+self.unknown_onehot_cols:
+        for col in self.known_onehot_cols+self.unknown_onehot_cols+self.static_onehot_cols+self.global_context_onehot_cols:
             if df[col].dtypes.name == 'bool':
                 df[col] = df[col]*1.0
             else:
@@ -1414,15 +1410,8 @@ class graphmodel():
         self.node_features = {}
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
+        self.static_onehot_cols = []
         self.global_context_onehot_cols = []
-
-        for node in self.global_context_col_list:
-            # one-hot col names
-            onehot_cols_prefix = str(node) + '_'
-            onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
-            self.node_features[node] = onehot_col_features
-            self.global_context_onehot_cols += onehot_col_features
-
         for node in self.node_cols:
             if node not in self.cat_col_list:
                 self.node_features[node] = [node]
@@ -1438,7 +1427,19 @@ class graphmodel():
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
-
+            elif node in self.static_cat_col_list:
+                # one-hot col names
+                onehot_cols_prefix = str(node)+'_' 
+                onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
+                self.node_features[node] = onehot_col_features
+                self.static_onehot_cols += onehot_col_features
+            elif node in self.global_context_col_list:
+                # one-hot col names
+                onehot_cols_prefix = str(node)+'_' 
+                onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
+                self.node_features[node] = onehot_col_features
+                self.global_context_onehot_cols += onehot_col_features
+    
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
         
         return df
@@ -1526,7 +1527,7 @@ class graphmodel():
         # add back un-onehot encoded stat columns for edge indices manipulation
         #static_df = df_hist[[self.id_col]+self.global_context_col_list+self.static_cat_col_list].drop_duplicates()
         
-        static_df = df_snap[[self.id_col]+self.global_context_col_list+self.global_context_onehot_cols+self.static_cat_col_list].drop_duplicates()
+        static_df = df_snap[[self.id_col]+self.global_context_col_list+self.static_cat_col_list].drop_duplicates()
         
         squeezed_df = squeezed_df.merge(static_df, on=self.id_col, how='inner')
         
@@ -1624,18 +1625,19 @@ class graphmodel():
         next_snaps_list = sorted(sqdf['next_snap'].unique().tolist())
         
         # global context node features (one-hot features)
+        
         for col in snap_global_context_col_list:
-            orig_col = col.lstrip('snap_id_')
-            onehot_cols_prefix = str(orig_col) + '_'
-            onehot_col_features = [c for c in sqdf.columns.tolist() if str(c).startswith(onehot_cols_prefix)]
-            feats_df = sqdf[[col] + onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
-            #feats_df = sqdf[[col]]
-            #feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
-            #feats_df = feats_df.drop_duplicates()
-            #data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
+                #onehot_cols_prefix = str(col)+'_' 
+                #onehot_col_features = [c for c in sqdf.columns.tolist() if str(c).startswith(onehot_cols_prefix)]
+                #feats_df = sqdf[[col]+onehot_col_features].drop_duplicates()
+                #data[col].x = torch.tensor(np.sum(feats_df[onehot_col_features].to_numpy(), axis=1, keepdims=True), dtype=torch.float)
+                feats_df = sqdf[[col]]
+                feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
+                feats_df = feats_df.drop_duplicates()
+                data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
+        
         for col in snap_global_context_col_list:
             col_unique_values = sorted(sqdf[col].unique().tolist())
             
@@ -1689,7 +1691,7 @@ class graphmodel():
             data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
                  
         # static nodes only required in this kind of connection
-        """
+        
         for col in snap_static_cat_col_list:
             #feat_cols_prefix = str(col)+'_'
             #feat_col_features = [c for c in self.static_numeric_feats if str(c).startswith(feat_cols_prefix)]
@@ -1699,8 +1701,7 @@ class graphmodel():
             feats_df[f'dummy_static_{col}'] = 1  # assign a constant as dummy feature
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
-        """
-
+                
         #for col in self.static_cat_col_list:
         #    # directional edges from static col to target nodes
         #    
@@ -1769,7 +1770,7 @@ class graphmodel():
 
         # temporal edges from prev covar nodes to next snap_id_col
         
-        """
+        '''
         if self.max_history > 1:
             for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
                 snapid_key_pairs = sqdf.groupby(self.id_col)['snap_id_col'].apply(lambda x: list(zip(x.tolist(), x.tolist()[1:])))
@@ -1779,8 +1780,14 @@ class graphmodel():
                 data[snapid_edge_name].edge_index = torch.tensor(snapid_edges.transpose(), dtype=torch.long)
         else:
             pass
-        """
-
+        '''
+        
+        # add reverse edges if selected
+        #if not self.directed_graph:
+        #    data = T.ToUndirected()(data)
+        #else:
+        #    pass
+        
         # validate dataset
         print("validate snapshot graph ...")    
         data.validate(raise_on_error=True)
@@ -2059,7 +2066,7 @@ class graphmodel():
                            seq_len = self.max_history,
                            device = self.device,
                            heads = attention_heads,
-                           n_quantiles = max(1, len(self.forecast_quantiles)),
+                           n_quantiles = len(self.forecast_quantiles), 
                            num_layers = num_layers,
                            lstm_layers = lstm_layers,
                            alpha = 0.5, 
@@ -2077,8 +2084,7 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            sample_batch = sample_batch.to(self.device)
-            out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
+            out = self.model(sample_batch.to(self.device))
             
         # parameters count
         try:
@@ -2138,33 +2144,18 @@ class graphmodel():
                 optimizer.zero_grad()
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
-                out = self.model(batch.x_dict, batch.edge_index_dict)
+                out = self.model(batch)
                 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss_type == 'Quantile':
-                    try:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, :, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn.loss(torch.unsqueeze(out[-self.n_prediction_nodes:, :], dim=1),
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:, :], dim=2)
+                    loss = loss_fn.loss(out[-self.n_prediction_nodes:,:,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                    mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:,:], dim=2)
                 elif self.loss_type == 'Huber':
-                    try:
-                        loss = loss_fn(out[-self.n_prediction_nodes:, -1, :],
-                                       batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn(out[-self.n_prediction_nodes:, :],
-                                       batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                    loss = loss_fn(out[-self.n_prediction_nodes:,-1,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:,:]
                 else:
-                    try:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, -1, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                    loss = loss_fn.loss(out[-self.n_prediction_nodes:,-1,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:,:]
                 
                 """
                 # compute loss masking out N/A targets -- all snapshot
@@ -2216,33 +2207,18 @@ class graphmodel():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
-                    out = self.model(batch.x_dict, batch.edge_index_dict)
+                    out = self.model(batch)
                     
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss_type == 'Quantile':
-                        try:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, :, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn.loss(torch.unsqueeze(out[-self.n_prediction_nodes:, :], dim=1),
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:, :], dim=2)
+                        loss = loss_fn.loss(out[-self.n_prediction_nodes:,:,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                        mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:,:], dim=2)
                     elif self.loss_type == 'Huber':
-                        try:
-                            loss = loss_fn(out[-self.n_prediction_nodes:, -1, :],
-                                           batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn(out[-self.n_prediction_nodes:, :],
-                                           batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                        loss = loss_fn(out[-self.n_prediction_nodes:,-1,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:,:]
                     else:
-                        try:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, -1, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                        loss = loss_fn.loss(out[-self.n_prediction_nodes:,-1,:], batch[self.target_col].y[-self.n_prediction_nodes:,:])
+                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:,:]
                     
                     """
                     # compute loss masking out N/A targets -- all snapshot
@@ -2355,7 +2331,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
+                    out = model(batch)
                     output.append(out)
             return output
 
@@ -2381,9 +2357,10 @@ class graphmodel():
             
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-
+            
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            
             if self.loss_type == 'Quantile':
-                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
                     output_arr = output_arr[-self.n_prediction_nodes:,:,q_index] 
@@ -2394,10 +2371,7 @@ class graphmodel():
                     q_lower_weight = 1 - q_upper_weight
                     output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
             else:
-                try:
-                    output_arr = output_arr[:, :, 0]
-                except:
-                    pass
+                output_arr = output_arr[:,:,0]
                 
             # show current o/p
             scaled_output = self.process_output(base_df, output_arr)
@@ -2437,10 +2411,11 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
+                    out = model(batch)
                     output.append(out)
             return output
 
+            
         print("forecasting for periods from {} to {}".format(infer_periods[0], infer_periods[-1]))
             
         # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
@@ -2461,24 +2436,19 @@ class graphmodel():
             
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-
-        if self.loss_type == 'Quantile':
-            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-            try:
-                q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
-            except:
-                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
-        else:
-            try:
-                output_arr = output_arr[:, :, 0]
-            except:
-                pass
-
+            
+        assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            
+        try:
+            q_index = self.forecast_quantiles(select_quantile)
+            output_arr = output_arr[-self.n_prediction_nodes:,:,q_index] 
+        except:
+            q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+            q_lower = int(q_upper - 1)
+            q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+            q_lower_weight = 1 - q_upper_weight
+            output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+                
         # show current o/p
         scaled_output = self.process_output(base_df, output_arr)
             

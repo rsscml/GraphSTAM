@@ -37,8 +37,9 @@ warnings.filterwarnings("ignore")
 from joblib import Parallel, delayed
 import shutil
 
-# #### Models & Utils
 
+
+# #### Models & Utils
 # Generic Layer to allow directionality consideration in any MPNN layer. Currently not released in PyG
 
 class DirGNNConv(torch.nn.Module):
@@ -322,7 +323,6 @@ class DirGATv2Conv(torch.nn.Module):
 
         return (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) + self.alpha * self.conv_dst_to_src(x, edge_index_t)
     
-
 
 # Forecast GNN Layers
 
@@ -632,6 +632,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
 
         return out 
 
+
 # Models
 
 class STGNN(torch.nn.Module):
@@ -640,17 +641,14 @@ class STGNN(torch.nn.Module):
                  model_type,
                  model_option,
                  hidden_channels, 
-                 out_channels, 
+                 out_channels,
+                 heads,
                  metadata, 
-                 n_nodes, 
                  target_node,
                  context_nodes,
-                 seq_len,
                  device,
-                 heads=1,
                  n_quantiles=1, 
                  num_layers=1,
-                 lstm_layers=1,
                  alpha=0.5, 
                  dropout=0.0,
                  residual_conn_type='concat',
@@ -665,7 +663,7 @@ class STGNN(torch.nn.Module):
         model options:
         
         model_type: ['SAGE','GCN','GAT','GATV2']
-        model_options: ['BASIC','LSTM','LSTMAttention','Attention']
+        model_options: ['BASIC']
         loss_type: ['Point','Quantile']
         positive_output: True/False
         residual_conn_type; ['add','concat']
@@ -678,13 +676,11 @@ class STGNN(torch.nn.Module):
         self.model_option = str.upper(model_option)
         
         self.hidden_channels = hidden_channels
-        self.n_pred = out_channels
         self.heads = heads
+        self.n_pred = out_channels
         self.dropout = dropout
-        self.n_nodes = n_nodes
         self.target_node = target_node
         self.context_nodes = context_nodes
-        self.seq_len = seq_len
         self.device = device
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
@@ -693,21 +689,11 @@ class STGNN(torch.nn.Module):
         self.pos_out = positive_output
         self.n_quantiles = n_quantiles
         self.num_layers = num_layers
-        self.lstm_layers = lstm_layers
         self.apply_norm_layers = apply_norm_layers
         self.use_dirgnn = use_dirgnn
         self.skip_connection = skip_connection
         
-        # for LSTM layers
-        self.residual_conn_type = residual_conn_type
-        
-        if self.residual_conn_type == 'add':
-            self.lstm_input_dim = hidden_channels
-        elif self.residual_conn_type == 'concat':
-            self.lstm_input_dim = int(2*hidden_channels)
-        
-        self.lstm_output_dim = self.lstm_input_dim
-        
+
         # for Attention Layers
         
         self.aggr = aggr
@@ -773,59 +759,13 @@ class STGNN(torch.nn.Module):
             self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
             self.project_lin = Linear(self.hidden_channels, self.n_pred*self.n_quantiles)
         
-        elif self.model_option == "LSTM":
-            # add lstm stack
-            self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.layer_norm2 = torch.nn.LayerNorm(self.hidden_channels)
-            self.lstm_stack = torch.nn.LSTM(input_size = self.lstm_input_dim, 
-                                            hidden_size = self.lstm_output_dim, 
-                                            num_layers = self.lstm_layers, 
-                                            batch_first = True)
-            
-            self.layer_norm3 = torch.nn.LayerNorm(self.lstm_output_dim)
-            self.target_transform = torch.nn.Linear(1, self.hidden_channels)
-            self.project_lin = Linear(self.lstm_output_dim, self.n_pred*self.n_quantiles)
-        
-        elif self.model_option == "LSTMATTENTION":
-            #add lstm stack
-            self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.layer_norm2 = torch.nn.LayerNorm(self.hidden_channels)
-            self.lstm_stack = torch.nn.LSTM(input_size = self.lstm_input_dim, 
-                                            hidden_size = self.lstm_output_dim, 
-                                            num_layers = self.lstm_layers, 
-                                            batch_first = True)
-            
-            self.layer_norm3 = torch.nn.LayerNorm(self.lstm_output_dim)
-            # add attention layer
-            self.multihead_attn = MaskedCausalAttention(embed_dim = self.lstm_output_dim, 
-                                                        heads = self.heads, 
-                                                        size = self.seq_len, 
-                                                        device = self.device)
-            
-            self.layer_norm4 = torch.nn.LayerNorm(self.lstm_output_dim)
-            self.target_transform = torch.nn.Linear(1, self.hidden_channels)
-            self.project_lin = Linear(self.lstm_output_dim, self.n_pred*self.n_quantiles)
-        
-        elif self.model_option == "ATTENTION":
-            # add attention layer
-            self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.layer_norm2 = torch.nn.LayerNorm(self.hidden_channels)
-            self.multihead_attn = MaskedCausalAttention(embed_dim = self.hidden_channels, 
-                                                        heads = self.heads, 
-                                                        size = self.seq_len, 
-                                                        device = self.device)
-            
-            self.layer_norm3 = torch.nn.LayerNorm(self.hidden_channels)
-            self.target_transform = torch.nn.Linear(1, self.hidden_channels)
-            self.project_lin = Linear(self.hidden_channels, self.n_pred*self.n_quantiles)
-        
         else:
-            raise "Invalid model_option. model_option: [BASIC, LSTM, LSTMATTENTION, ATTENTION]"
+            raise "Invalid model_option. model_option: [BASIC]"
             
-    def forward(self, x_dict, edge_index_dict):
+    def forward(self, data):
     
         # gnn layer
-        x = self.gnn_layer(x_dict, edge_index_dict)
+        x = self.gnn_layer(data.x_dict, data.edge_index_dict)
         x = x.relu()
         
         if self.apply_norm_layers:
@@ -836,183 +776,22 @@ class STGNN(torch.nn.Module):
         
         if self.model_option == "BASIC":
             
-            node_embed_batches = []
-            for i in range(self.seq_len):
-                emb_batch_step = x[int(i*self.n_nodes):int((i+1)*self.n_nodes)]
-                emb_batch_step = torch.unsqueeze(emb_batch_step, dim=1)
-                node_embed_batches.append(emb_batch_step)
-
-            node_embed_seq = torch.concat(node_embed_batches, dim=1)
-    
             # final projection layer
-            out = self.project_lin(node_embed_seq[:,-1,:])
+            out = self.project_lin(x)
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
-
-        elif self.model_option == "LSTM":
-            
-            node_embed_batches = []
-            for i in range(self.seq_len):
-                emb_batch_step = x[int(i*self.n_nodes):int((i+1)*self.n_nodes)]
-                emb_batch_step = torch.unsqueeze(emb_batch_step, dim=1)
-                node_embed_batches.append(emb_batch_step)
-
-            node_embed_seq = torch.concat(node_embed_batches, dim=1)
-            
-            # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
-            res_x = res_x.relu()
-            if self.apply_norm_layers:
-                res_x = self.layer_norm2(res_x)
-
-            res_batches = []
-            for i in range(self.seq_len):
-                res_batch_step = res_x[int(i*self.n_nodes):int((i+1)*self.n_nodes), :]
-                res_batch_step = torch.unsqueeze(res_batch_step, dim=1)
-                res_batches.append(res_batch_step)   
-            
-            res_batch_seq = torch.concat(res_batches, dim=1)
-
-            # Apply LSTM stack with residual conn
-            if self.residual_conn_type == 'add':
-                input_seq = torch.add(node_embed_seq, res_batch_seq)/2
-            else:
-                input_seq = torch.concat([node_embed_seq, res_batch_seq], dim=2)
-                 
-            lstm_out, _ = self.lstm_stack(input_seq)
-            lstm_out = lstm_out.relu()
-            
-            if self.apply_norm_layers:
-                lstm_out = self.layer_norm3(lstm_out)   
-
-            # final projection layer
-            out = self.project_lin(lstm_out[:,-1,:])
-            
-            if self.pos_out:
-                out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
-
-        elif self.model_option == "LSTMATTENTION":
-            
-            node_embed_batches = []
-            for i in range(self.seq_len):
-                emb_batch_step = x[int(i*self.n_nodes):int((i+1)*self.n_nodes)]
-                emb_batch_step = torch.unsqueeze(emb_batch_step, dim=1)
-                node_embed_batches.append(emb_batch_step)
-
-            node_embed_seq = torch.concat(node_embed_batches, dim=1)
-            
-            # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
-            res_x = res_x.relu()
-            if self.apply_norm_layers:
-                res_x = self.layer_norm2(res_x)
-
-            res_batches = []
-            for i in range(self.seq_len):
-                res_batch_step = res_x[int(i*self.n_nodes):int((i+1)*self.n_nodes), :]
-                res_batch_step = torch.unsqueeze(res_batch_step, dim=1)
-                res_batches.append(res_batch_step)   
-            
-            res_batch_seq = torch.concat(res_batches, dim=1)
-
-            # Apply LSTM stack with residual conn
-            if self.residual_conn_type == 'add':
-                input_seq = torch.add(node_embed_seq, res_batch_seq)/2
-            else:
-                input_seq = torch.concat([node_embed_seq, res_batch_seq], dim=2)
-                   
-            lstm_out, _ = self.lstm_stack(input_seq)
-            lstm_out = lstm_out.relu()
-            
-            if self.apply_norm_layers:
-                lstm_out = self.layer_norm3(lstm_out)
-            
-            # Apply Attention
-            attn_out = self.multihead_attn(lstm_out)
-            attn_out = attn_out.relu()
-            
-            if self.apply_norm_layers:
-                attn_out = self.layer_norm4(attn_out)
-
-            # final projection layer
-            out = self.project_lin(attn_out[:,-1,:])
-            
-            if self.pos_out:
-                out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
-        
-        elif self.model_option == "ATTENTION":
-            
-            node_embed_batches = []
-            for i in range(self.seq_len):
-                emb_batch_step = x[int(i*self.n_nodes):int((i+1)*self.n_nodes)]
-                emb_batch_step = torch.unsqueeze(emb_batch_step, dim=1)
-                node_embed_batches.append(emb_batch_step)
-
-            node_embed_seq = torch.concat(node_embed_batches, dim=1)
-            
-            # reshape original sequence (for residual connection)
-            res_x = self.target_transform(x_dict[self.target_node][:, -1:])
-            res_x = res_x.relu()
-            if self.apply_norm_layers:
-                res_x = self.layer_norm2(res_x)
-
-            res_batches = []
-            for i in range(self.seq_len):
-                res_batch_step = res_x[int(i*self.n_nodes):int((i+1)*self.n_nodes), :]
-                res_batch_step = torch.unsqueeze(res_batch_step, dim=1)
-                res_batches.append(res_batch_step)   
-            
-            res_batch_seq = torch.concat(res_batches, dim=1)
-
-            # Apply Attention with residual conn
-            if self.residual_conn_type == 'add':
-                input_seq = torch.add(node_embed_seq, res_batch_seq)/2
-            else:
-                input_seq = torch.concat([node_embed_seq, res_batch_seq], dim=2)
                 
-            # Apply Attention
-            attn_out = self.multihead_attn(input_seq)
-            attn_out = attn_out.relu()
-            
-            if self.apply_norm_layers:
-                attn_out = self.layer_norm3(attn_out)
-
-            # final projection layer
-            out = self.project_lin(attn_out[:,-1,:])
-            
-            if self.pos_out:
-                out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
-
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
+                
         return out
-
+    
 
 # #### Graph Data Generator
 
 class graphmodel():
     def __init__(self, 
                  col_dict, 
-                 max_history,
                  max_lags,
                  max_leads,
                  train_till,
@@ -1054,16 +833,13 @@ class graphmodel():
         
         self.col_dict = copy.deepcopy(col_dict)
         self.fh = int(fh)
-        self.max_history = int(max_history)
+        self.max_history = int(1)
         self.max_lags = int(max_lags) if (max_lags is not None) and (max_lags>0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads>0) else 1
         self.rolling_window_size = rolling_window_size
-        self.snap_sequence_len = int(max(self.max_lags,self.rolling_window_size)+self.max_leads+1)
-        self.window_len = int(self.max_history+self.max_leads+max(self.max_lags,self.rolling_window_size))
         
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
-        # adjust train_till/test_till for delta|max_leads - fh| in split_* methods
         self.train_till = train_till
         self.test_till = test_till
         
@@ -1077,7 +853,7 @@ class graphmodel():
         self.interleave = interleave
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
-        
+       
         self.pad_constant = 0 #if self.scaling_method == 'mean_scaling' else -1
        
         # extract columnsets from col_dict
@@ -1106,11 +882,7 @@ class graphmodel():
 
         self.cat_col_list = self.global_context_col_list + self.static_cat_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         
-        self.context_cols = []
-        for col in self.global_context_col_list:
-            self.context_cols.append(f'snap_id_{col}')
-        
-
+    
     def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
@@ -1229,6 +1001,24 @@ class graphmodel():
             pass
         return data
     
+    def get_key_weights(self, data):
+        """
+        obtain weights for each id for weighted training option
+        """
+        if self.wt_col is None:
+            data['Key_Sum'] = data[data[self.time_index_col]<=self.test_till].groupby(self.id_col)[self.target_col].transform(lambda x: x.sum()) 
+            data['Key_Sum'] = data.groupby(self.id_col)['Key_Sum'].ffill()
+            data['Key_Weight'] = data['Key_Sum']/data[data[self.time_index_col]<=self.test_till][self.target_col].sum()
+        else:
+            data['Key_Weight'] = data[self.wt_col]
+            data['Key_Weight'] = data.groupby(self.id_col)['Key_Weight'].ffill()
+        
+        data['Key_Weight'] = data['Key_Weight']/data['Key_Weight'].max()
+        wt_median = data['Key_Weight'].median()
+        data['Key_Weight'] = data['Key_Weight'].clip(lower=wt_median)
+            
+        return data
+    
     
     def check_null(self, data):
         """
@@ -1250,43 +1040,26 @@ class graphmodel():
 
     def onehot_encode(self, df):
         
-        # onehot encode all cat cols
-        # exclude static & global cols as they use numeric & dummy feature later on
-        #df = pd.concat([df[self.cat_col_list], pd.get_dummies(data=df, columns=self.cat_col_list, prefix_sep='_')], axis=1, join='inner')
-        
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
     
-    def get_roll_stats(self, df):
+    def get_target_roll_stats(self, df):
         
         # for each static col, get common target_col stats (moving average, wma, stddev etc.)
-        #rolling_stat_window_size = int(self.window_len - self.max_leads)
-        
         rolling_stat_window_size = self.rolling_window_size
         
         self.rolling_stat_cols = []
         for col in [self.id_col]:
-            df[f'{col}_rollsum'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).sum())
-            df[f'{col}_rollmean'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).mean())
-            df[f'{col}_rollstd'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).std())
-            df[f'{col}_rollqtile50'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.50))
-            df[f'{col}_rollqtile75'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.75))
-            df[f'{col}_rollqtile90'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.90))
-            df[f'{col}_rollqtile97'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.97))
-            
-            # add cols to group self.temporal_unknown_num_col_list
-            self.temporal_unknown_num_col_list.append(f'{col}_rollsum')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollmean')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollstd')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollqtile50')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollqtile75')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollqtile90')
-            self.temporal_unknown_num_col_list.append(f'{col}_rollqtile97')
+            df[f'{col}_rollmean'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).mean().shift().bfill())
+            df[f'{col}_rollstd'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).std().shift().bfill())
+            df[f'{col}_rollqtile50'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.50).shift().bfill())
+            df[f'{col}_rollqtile75'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.75).shift().bfill())
+            df[f'{col}_rollqtile90'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.90).shift().bfill())
+            df[f'{col}_rollqtile97'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.97).shift().bfill())
             
             # to keep track of rolling stat cols
-            self.rolling_stat_cols.append(f'{col}_rollsum')
             self.rolling_stat_cols.append(f'{col}_rollmean')
             self.rolling_stat_cols.append(f'{col}_rollstd')
             self.rolling_stat_cols.append(f'{col}_rollqtile50')
@@ -1295,26 +1068,54 @@ class graphmodel():
             self.rolling_stat_cols.append(f'{col}_rollqtile97')
         
         return df
+    
+    def create_lead_lag_features(self, df):
+        
+        self.lead_lag_features_dict = {}
+        
+        for col in [self.target_col] + \
+                    self.rolling_stat_cols + \
+                    self.temporal_known_num_col_list + \
+                    self.temporal_unknown_num_col_list + \
+                    self.known_onehot_cols + \
+                    self.unknown_onehot_cols:
             
+            # instantiate with empty lists
+            self.lead_lag_features_dict[col] = []
+            
+            for lag in range(1, self.max_lags + 1):
+                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
+                self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
+                
+            if col in self.temporal_known_num_col_list + self.known_onehot_cols:
+
+                for lead in range(0, self.max_leads + 1):
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
+                    self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
+        
+        # drop rows with NaNs in lag/lead cols
+        all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
+        
+        df = df.dropna(subset=all_lead_lag_cols)
+        
+        return df
+    
     def pad_dataframe(self, df):
         # this ensures num nodes in a graph don't change from period to period. Essentially, we introduce dummy nodes.
-        
-        # store original dtypes for re-casting later
-        #original_dtypes = df.dtypes.to_dict()
         
         # function to fill NaNs in group id & stat cols post padding
         def fillgrpid(x):
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols:
+            for col in self.global_context_col_list:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
-            
+                
             for col in self.static_cat_col_list:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
-            
+                
             if self.categorical_onehot_encoding:
                 for col in self.known_onehot_cols:
                     x[col] = x[col].fillna(0)
@@ -1365,7 +1166,7 @@ class graphmodel():
                 df[col] = df[col].astype(str).astype(bool).astype(int)
         
         return df
-        
+                
     
     def preprocess(self, data):
         
@@ -1377,19 +1178,24 @@ class graphmodel():
             print("NaN column(s): ", null_cols)
             raise ValueError("Column(s) with NaN detected!")
             
+        # get weights
+        print("   preprocessing dataframe - get id weights...")
+        df = self.get_key_weights(data)
+        
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
-        df = self.sort_dataset(data)
+        df = self.sort_dataset(df)
         
-        # obtain rolling stats
-        if self.include_rolling_features:
-            print("   preprocessing dataframe - get rolling stats by group...")
-            df = self.get_roll_stats(df)
         
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
-       
+        
+        # obtain rolling stats
+        if self.include_rolling_features:
+            print("   preprocessing dataframe - get rolling stats by group...")
+            df = self.get_target_roll_stats(df)
+               
         # onehot encode
         if self.categorical_onehot_encoding:
             print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1408,20 +1214,13 @@ class graphmodel():
             df = self.scale_labelencodings(df)
             
         print("   preprocessing dataframe - gather node specific feature cols...")
+        
         # node types & node features
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         
         self.node_features = {}
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
-        self.global_context_onehot_cols = []
-
-        for node in self.global_context_col_list:
-            # one-hot col names
-            onehot_cols_prefix = str(node) + '_'
-            onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
-            self.node_features[node] = onehot_col_features
-            self.global_context_onehot_cols += onehot_col_features
 
         for node in self.node_cols:
             if node not in self.cat_col_list:
@@ -1438,8 +1237,12 @@ class graphmodel():
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
-
+            
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
+        
+        # create lagged features
+        print("   preprocessing dataframe - creade lead & lag features...")
+        df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1460,194 +1263,69 @@ class graphmodel():
             
         return col_id_map
     
-    def squeeze_dataframe(self, df_snap):
-        
-        if (self.max_leads - self.fh) >= 1: 
-            df_target = df_snap.groupby(self.id_col, sort=False)[self.target_col].apply(lambda x: x[-self.snap_sequence_len:-(self.max_leads-self.fh)].values).reset_index()
-            df_mask = df_snap.groupby(self.id_col, sort=False)['y_mask'].apply(lambda x: x[-self.snap_sequence_len:-(self.max_leads-self.fh)].values).reset_index(drop=True)
-        else:
-            df_target = df_snap.groupby(self.id_col, sort=False)[self.target_col].apply(lambda x: x[-self.snap_sequence_len:].values).reset_index()
-            df_mask = df_snap.groupby(self.id_col, sort=False)['y_mask'].apply(lambda x: x[-self.snap_sequence_len:].values).reset_index(drop=True)
-            
-        known_num_arrays_df = []    
-        for col in self.temporal_known_num_col_list:
-            df_temp = df_snap.groupby(self.id_col, sort=False)[col].apply(lambda x: x[-self.snap_sequence_len:].values).reset_index(drop=True)
-            known_num_arrays_df.append(df_temp)
-        
-        unknown_num_arrays_df = []    
-        for col in self.temporal_unknown_num_col_list:
-            df_temp = df_snap.groupby(self.id_col, sort=False)[col].apply(lambda x: x[-self.snap_sequence_len:-self.max_leads].values).reset_index(drop=True)
-            unknown_num_arrays_df.append(df_temp)
-            
-        known_cat_arrays_df = []    
-        for col in self.known_onehot_cols:
-            df_temp = df_snap.groupby(self.id_col, sort=False)[col].apply(lambda x: x[-self.snap_sequence_len:].values).reset_index(drop=True)
-            known_cat_arrays_df.append(df_temp)
-            
-        unknown_cat_arrays_df = []    
-        for col in self.unknown_onehot_cols:
-            df_temp = df_snap.groupby(self.id_col, sort=False)[col].apply(lambda x: x[-self.snap_sequence_len:-self.max_leads].values).reset_index(drop=True)
-            unknown_cat_arrays_df.append(df_temp)
-            
-        #global_context_df = []    
-        #for col in self.global_context_col_list:
-        #    df_temp = df_snap.groupby(self.id_col, sort=False)[col].apply(lambda x: x.unique()[0]).reset_index(drop=True)
-        #    global_context_df.append(df_temp)
-        
-        """
-        self.static_numeric_feats = []
-        all_ts = sorted(df_snap[self.time_index_col].unique().tolist())[:-self.max_leads]
-        min_ts = all_ts[0]
-        max_ts = all_ts[-1]
-        df_hist = df_snap[(df_snap[self.time_index_col]<=max_ts)&(df_snap[self.time_index_col]>=min_ts)]
-        for col in self.static_cat_col_list:
-            df_hist[f'{col}_snapmean'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.mean(x))
-            df_hist[f'{col}_snapstd'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.std(x))
-            df_hist[f'{col}_snapqtile10'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.1))
-            df_hist[f'{col}_snapqtile25'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.25))
-            df_hist[f'{col}_snapqtile50'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.5))
-            df_hist[f'{col}_snapqtile75'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.75))
-            df_hist[f'{col}_snapqtile90'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.9))
-            df_hist[f'{col}_snapqtile97'] = df_hist.groupby(col)[self.target_col].transform(lambda x: np.quantile(x, 0.97))
-            self.static_numeric_feats.append(f'{col}_snapmean')
-            self.static_numeric_feats.append(f'{col}_snapstd')
-            self.static_numeric_feats.append(f'{col}_snapqtile10')
-            self.static_numeric_feats.append(f'{col}_snapqtile25')
-            self.static_numeric_feats.append(f'{col}_snapqtile50')
-            self.static_numeric_feats.append(f'{col}_snapqtile75')
-            self.static_numeric_feats.append(f'{col}_snapqtile90')
-            self.static_numeric_feats.append(f'{col}_snapqtile97')
-        
-        """
-        # merge by id_col
-        df_list = [df_target, df_mask]+known_num_arrays_df+unknown_num_arrays_df+known_cat_arrays_df+unknown_cat_arrays_df
-        squeezed_df = pd.concat(df_list, axis=1, join='inner')
-        
-        # add back un-onehot encoded stat columns for edge indices manipulation
-        #static_df = df_hist[[self.id_col]+self.global_context_col_list+self.static_cat_col_list].drop_duplicates()
-        
-        static_df = df_snap[[self.id_col]+self.global_context_col_list+self.global_context_onehot_cols+self.static_cat_col_list].drop_duplicates()
-        
-        squeezed_df = squeezed_df.merge(static_df, on=self.id_col, how='inner')
-        
-        return squeezed_df
-    
-    
     def create_snapshot_graph(self, df_snap, period):
-        
-        # get squeezed dataframe for each timestep & stack vertically in order
-        period_list = sorted(df_snap[self.time_index_col].unique().tolist())[self.snap_sequence_len-1:]
-        num_periods = len(period_list)
-        
-        #print("num_periods: ", num_periods)
-        #print("period_list: ", period_list)
-        
-        sqdf_list = []
-        for i, t in enumerate(period_list):
-            #
-            df_t = df_snap[df_snap[self.time_index_col]<=t].copy()
-            # get squeezed df
-            sqdf_t = self.squeeze_dataframe(df_t)
-            sqdf_t['current_snap'] = t
-            if i == num_periods-1:
-                sqdf_t['next_snap'] = period_list[i]
-            else:
-                sqdf_t['next_snap'] = period_list[i+1]
-            
-            sqdf_list.append(sqdf_t)
-        
-        sqdf = pd.concat(sqdf_list, axis=0)
-        
-        # create new snap node id
-        sqdf['snap_id_col'] = sqdf[self.id_col].astype(str) + sqdf['current_snap'].astype(str)
-        
-        snap_global_context_col_list = []
-        for col in self.global_context_col_list:
-            sqdf[f'snap_id_{col}'] = sqdf[col].astype(str) + sqdf['current_snap'].astype(str)
-            snap_global_context_col_list.append(f'snap_id_{col}')
-            
-        snap_static_cat_col_list = []
-        for col in self.static_cat_col_list:
-            sqdf[f'snap_id_{col}'] = sqdf[col].astype(str) + sqdf['current_snap'].astype(str)
-            snap_static_cat_col_list.append(f'snap_id_{col}')
-            
-        # index 'id_col'
-        col_map_dict = self.node_indexing(sqdf, ['snap_id_col', self.id_col]+snap_static_cat_col_list+snap_global_context_col_list)
-        #print(col_map_dict)
+
+        # index nodes
+        col_map_dict = self.node_indexing(df_snap, [self.id_col]+self.static_cat_col_list+self.global_context_col_list)
         
         # map id to indices
         for col, id_map in col_map_dict.items():
-            sqdf[col] = sqdf[col].map(id_map["index"]).astype(int)
+            df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
             
-        #print(sqdf.shape, sqdf[self.id_col].nunique(), sqdf['snap_id_col'].nunique())
-        
         # Create HeteroData Object
-        data = HeteroData({"y_mask":None})
+        #data = HeteroData({"y_mask":None})
+        
+        data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get node features
         
         # target
-        arr_list = sqdf[self.target_col].tolist()
-        feats = np.concatenate(arr_list, axis=0).reshape(-1, self.snap_sequence_len-(self.max_leads-self.fh))
-        data[self.target_col].x = torch.tensor(feats[:,:-self.fh], dtype=torch.float)
-        data[self.target_col].y = torch.tensor(feats[:,-self.fh:], dtype=torch.float)
+        #rolling_stat_lag_cols = []
+        #for col in self.rolling_stat_cols:
+        #    rolling_stat_lag_cols.append(self.lead_lag_features_dict[col])
+        
+        #rolling_feats = list(itertools.chain.from_iterable(rolling_stat_lag_cols))
+            
+        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col] + self.rolling_stat_cols].to_numpy(), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
         
         # store snapshot period
         data[self.target_col].time_attr = period
         
-        # add an output mask
-        mask_arr_list = sqdf['y_mask'].tolist()
-        mask_feat = np.concatenate(mask_arr_list, axis=0).reshape(-1, self.snap_sequence_len-(self.max_leads-self.fh))
-        data[self.target_col].y_mask = torch.tensor(mask_feat[:,-self.fh:], dtype=torch.float)
-        
         for col in self.temporal_known_num_col_list:
-            arr_list = sqdf[col].tolist()
-            feats = np.concatenate(arr_list, axis=0).reshape(-1, self.snap_sequence_len)
-            data[col].x = torch.tensor(feats, dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
             
         for col in self.temporal_unknown_num_col_list:
-            arr_list = sqdf[col].tolist()
-            feats = np.concatenate(arr_list, axis=0).reshape(-1, self.snap_sequence_len-self.max_leads)
-            data[col].x = torch.tensor(feats, dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
         
         for col in self.known_onehot_cols:
-            arr_list = sqdf[col].tolist()
-            feats = np.concatenate(arr_list, axis=0).reshape(-1, self.snap_sequence_len)
-            data[col].x = torch.tensor(feats, dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
         
         for col in self.unknown_onehot_cols:
-            arr_list = sqdf[col].tolist()
-            feats = np.concatenate(arr_list, axis=0).reshape(-1, self.snap_sequence_len-self.max_leads)
-            data[col].x = torch.tensor(feats, dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
             
-        current_snaps_list = sorted(sqdf['current_snap'].unique().tolist())
-        next_snaps_list = sorted(sqdf['next_snap'].unique().tolist())
-        
         # global context node features (one-hot features)
-        for col in snap_global_context_col_list:
-            orig_col = col.lstrip('snap_id_')
-            onehot_cols_prefix = str(orig_col) + '_'
-            onehot_col_features = [c for c in sqdf.columns.tolist() if str(c).startswith(onehot_cols_prefix)]
-            feats_df = sqdf[[col] + onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
-            #feats_df = sqdf[[col]]
-            #feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
-            #feats_df = feats_df.drop_duplicates()
-            #data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
+        for col in self.global_context_col_list:
+                feats_df = df_snap[[col]]
+                feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
+                feats_df = feats_df.drop_duplicates()
+                data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
-        for col in snap_global_context_col_list:
-            col_unique_values = sorted(sqdf[col].unique().tolist())
+        
+        for col in self.global_context_col_list:
+            col_unique_values = sorted(df_snap[col].unique().tolist())
             
             fwd_edges_stack = []
             rev_edges_stack = []
             for value in col_unique_values:
-                for snap in current_snaps_list:
-                    # get subset of all nodes with common col value
-                    edges = sqdf[(sqdf[col]==value)&(sqdf['current_snap']==snap)][['snap_id_col',col]].to_numpy()
-                    rev_edges = sqdf[(sqdf[col]==value)&(sqdf['current_snap']==snap)][[col,'snap_id_col']].to_numpy()
-                    fwd_edges_stack.append(edges)
-                    rev_edges_stack.append(rev_edges)
+                # get subset of all nodes with common col value
+                edges = df_snap[df_snap[col]==value][[self.id_col, col]].to_numpy()
+                rev_edges = df_snap[df_snap[col]==value][[col, self.id_col]].to_numpy()
+                fwd_edges_stack.append(edges)
+                rev_edges_stack.append(rev_edges)
                     
             # fwd edges
             edges = np.concatenate(fwd_edges_stack, axis=0)
@@ -1661,23 +1339,21 @@ class graphmodel():
         # bidirectional edges exist between target_col nodes related by various static cols
         
         for col in self.static_cat_col_list:
-            col_unique_values = sorted(sqdf[col].unique().tolist())
+            col_unique_values = sorted(df_snap[col].unique().tolist())
         
             fwd_edges_stack = []
             rev_edges_stack = []
             for value in col_unique_values:
-                
-                for snap in current_snaps_list:
-                    # get subset of all nodes with common col value
-                    nodes = sqdf[(sqdf[col]==value)&(sqdf['current_snap']==snap)]['snap_id_col'].to_numpy()
-                    # Build all combinations of connected nodes
-                    permutations = list(itertools.combinations(nodes, 2))
-                    edges_source = [e[0] for e in permutations]
-                    edges_target = [e[1] for e in permutations]
-                    edges = np.column_stack([edges_source, edges_target])
-                    rev_edges = np.column_stack([edges_target, edges_source])
-                    fwd_edges_stack.append(edges)
-                    rev_edges_stack.append(rev_edges)
+                # get subset of all nodes with common col value
+                nodes = df_snap[df_snap[col]==value][self.id_col].to_numpy()
+                # Build all combinations of connected nodes
+                permutations = list(itertools.combinations(nodes, 2))
+                edges_source = [e[0] for e in permutations]
+                edges_target = [e[1] for e in permutations]
+                edges = np.column_stack([edges_source, edges_target])
+                rev_edges = np.column_stack([edges_target, edges_source])
+                fwd_edges_stack.append(edges)
+                rev_edges_stack.append(rev_edges)
                     
             # edge names
             edge_name = (self.target_col,'relatedby_{}'.format(col),self.target_col)
@@ -1689,104 +1365,106 @@ class graphmodel():
             data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
                  
         # static nodes only required in this kind of connection
-        """
-        for col in snap_static_cat_col_list:
-            #feat_cols_prefix = str(col)+'_'
-            #feat_col_features = [c for c in self.static_numeric_feats if str(c).startswith(feat_cols_prefix)]
-            #feats_df = sqdf[[col]+feat_col_features].drop_duplicates()
-            #data[col].x = torch.tensor(np.sum(feats_df[feat_col_features].to_numpy(), axis=1, keepdims=True), dtype=torch.float)
-            feats_df = sqdf[[col]]
+        
+        for col in self.static_cat_col_list:
+            feats_df = df_snap[[col]]
             feats_df[f'dummy_static_{col}'] = 1  # assign a constant as dummy feature
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
-        """
-
-        #for col in self.static_cat_col_list:
-        #    # directional edges from static col to target nodes
-        #    
-        #    col_unique_values = sorted(sqdf[col].unique().tolist())
-        #    fwd_edges_stack = []
-        #    bwd_edges_stack = []
-        #    for value in col_unique_values:
-        #        
-        #        for snap in current_snaps_list:
-        #            # get subset of all nodes with common col value
-        #            edges = sqdf[(sqdf[col]==value)& (sqdf['current_snap']==snap)][[col,'snap_id_col']].to_numpy()
-        #            rev_edges = sqdf[(sqdf[col]==value)& (sqdf['current_snap']==snap)][['snap_id_col',col]].to_numpy()
-        #            fwd_edges_stack.append(edges)
-        #            bwd_edges_stack.append(rev_edges)
-        #            
-        #    edges = np.concatenate(fwd_edges_stack, axis=0)
-        #    edge_name = (col,'{}_contains'.format(col),self.target_col)
-        #    data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-        #    
-        #    if not self.directed_graph:
-        #        rev_edges = np.concatenate(bwd_edges_stack, axis=0)
-        #        rev_edge_name = (self.target_col,'belongsto_'.format(col), col)
-        #        data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
-                
                 
         # directed edges are from covariates to target
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
-            
-            all_edges_stack= []
-            for snap in current_snaps_list:
-                nodes = sqdf[(sqdf['current_snap']==snap)]['snap_id_col'].to_numpy()
-                edges = np.column_stack([nodes, nodes])
-                all_edges_stack.append(edges)
+
+            nodes = df_snap[self.id_col].to_numpy()
+            edges = np.column_stack([nodes, nodes])
                 
             edge_name = (col,'{}_effect'.format(col),self.target_col)
-            # add edges to Data()
-            edges = np.concatenate(all_edges_stack, axis=0)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             
             if not self.directed_graph:
                 rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
                 
-            
-        # temporal (directed) edges from one snap_id_col to next
-        
-        if self.max_history > 1:
-            if self.create_all_temporal_edges:
-                temporal_edges_arrlist = []
-                for i in range(1, self.max_history):
-                    snapid_key_pairs = sqdf.groupby(self.id_col)['snap_id_col'].apply(lambda x: list(zip(x.tolist(), x.tolist()[i:])))
-                    snapid_edges = np.concatenate([np.array(tup).reshape(1,2) for tup in snapid_key_pairs.explode().values.tolist()], axis=0)
-                    temporal_edges_arrlist.append(snapid_edges)
-                temporal_edges = np.concatenate(temporal_edges_arrlist, axis=0)    
-                snapid_edge_name = (self.target_col,'{}_temporal_effect'.format(self.target_col),self.target_col)
-                data[snapid_edge_name].edge_index = torch.tensor(temporal_edges.transpose(), dtype=torch.long)
-            else:
-                snapid_key_pairs = sqdf.groupby(self.id_col)['snap_id_col'].apply(lambda x: list(zip(x.tolist(), x.tolist()[1:])))
-                snapid_edges = np.concatenate([np.array(tup).reshape(1,2) for tup in snapid_key_pairs.explode().values.tolist()], axis=0)
-                snapid_edge_name = (self.target_col,'{}_temporal_effect'.format(self.target_col),self.target_col)
-                data[snapid_edge_name].edge_index = torch.tensor(snapid_edges.transpose(), dtype=torch.long)
-        else:
-            # no temporal edges applicable here
-            pass
-
-        # temporal edges from prev covar nodes to next snap_id_col
-        
-        """
-        if self.max_history > 1:
-            for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
-                snapid_key_pairs = sqdf.groupby(self.id_col)['snap_id_col'].apply(lambda x: list(zip(x.tolist(), x.tolist()[1:])))
-                snapid_edges = np.concatenate([np.array(tup).reshape(1,2) for tup in snapid_key_pairs.explode().values.tolist()], axis=0)
-            
-                snapid_edge_name = (col,'{}_temporal_effect'.format(col),self.target_col)
-                data[snapid_edge_name].edge_index = torch.tensor(snapid_edges.transpose(), dtype=torch.long)
-        else:
-            pass
-        """
-
         # validate dataset
         print("validate snapshot graph ...")    
         data.validate(raise_on_error=True)
         
         return data
     
+    def get_processed_unscaled_df(self, data):
+        print("   preprocessing dataframe - check for null columns...")
+        # check null
+        null_status, null_cols = self.check_null(data)
+        
+        if null_status:
+            print("NaN column(s): ", null_cols)
+            raise ValueError("Column(s) with NaN detected!")
+            
+        # sort
+        print("   preprocessing dataframe - sort by datetime & id...")
+        df = self.sort_dataset(data)
+        
+        # scale dataset
+        #print("   preprocessing dataframe - scale numeric cols...")
+        #df = self.scale_dataset(df)
+        
+        # obtain rolling stats
+        if self.include_rolling_features:
+            print("   preprocessing dataframe - get rolling stats by group...")
+            df = self.get_target_roll_stats(df)
+               
+        # onehot encode
+        if self.categorical_onehot_encoding:
+            print("   preprocessing dataframe - onehot encode categorical columns...")
+            df = self.onehot_encode(df)
+        else:
+            print("   preprocessing dataframe - label encode & scale categorical columns...")
+            # use label encoding as numeric feature
+            self.temporal_known_num_col_list += self.temporal_known_cat_col_list
+            self.temporal_unknown_num_col_list += self.temporal_unknown_cat_col_list
+            # keep record of label encoded columns for padding in a later step
+            self.label_encoded_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+            # empty the cat col lists
+            self.temporal_known_cat_col_list = []
+            self.temporal_unknown_cat_col_list = []
+            # create & scale labelencodings
+            df = self.scale_labelencodings(df)
+            
+        print("   preprocessing dataframe - gather node specific feature cols...")
+        
+        # node types & node features
+        self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+        
+        self.node_features = {}
+        self.known_onehot_cols = []
+        self.unknown_onehot_cols = []
+
+        for node in self.node_cols:
+            if node not in self.cat_col_list:
+                self.node_features[node] = [node]
+            elif node in self.temporal_known_cat_col_list:
+                # one-hot col names
+                onehot_cols_prefix = str(node)+'_' 
+                onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
+                self.node_features[node] = onehot_col_features
+                self.known_onehot_cols += onehot_col_features
+            elif node in self.temporal_unknown_cat_col_list:
+                # one-hot col names
+                onehot_cols_prefix = str(node)+'_' 
+                onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
+                self.node_features[node] = onehot_col_features
+                self.unknown_onehot_cols += onehot_col_features
+            
+        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
+        
+        # create lagged features
+        print("   preprocessing dataframe - creade lead & lag features...")
+        df = self.create_lead_lag_features(df)
+        
+        return df
+        
+        
     def create_train_test_dataset(self, df):
         # preprocess
         print("preprocessing dataframe...")
@@ -1803,10 +1481,7 @@ class graphmodel():
         df_dict = {'train':train_df, 'test':test_df}
         
         def parallel_snapshot_graphs(df, period):
-            df_snap = df[df[self.time_index_col]<=period]
-            # ensure only required context is taken
-            df_snap = df_snap.groupby(self.id_col).apply(lambda x: x[-self.window_len:]).reset_index(drop=True)
-            #print(df_snap.shape)
+            df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
             return snapshot_graph
         
@@ -1814,16 +1489,14 @@ class graphmodel():
         print("gather snapshot graphs...")
         datasets = {}
         for df_type, df in df_dict.items():
-            # snapshot start period: time.min() + max_history + fh, end_period:
             
-            snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)[self.window_len-1:]
+            snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
             
             # restrict samples for very large datasets based on interleaving
             if (self.interleave > 1) and (df_type == 'train'):
                 snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
-            #print(snap_periods_list)
             
             snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
@@ -1842,11 +1515,9 @@ class graphmodel():
         self.infer_till = infer_till
         
         # preprocess
-        #print("preprocessing dataframe...")
         df = self.preprocess(df)
         
-        # pad dataframe if required (will return df unchanged if not)
-        #print("padding dataframe...")
+        # pad dataframe
         df = self.pad_dataframe(df)
         
         # split into train,test,infer
@@ -1866,10 +1537,7 @@ class graphmodel():
             # create individual snapshot graphs
             snapshot_list = []
             for period in [snap_periods_list]:
-                df_snap = df[df[self.time_index_col]<=period]
-                # ensure only required context is taken
-                df_snap = df_snap.groupby(self.id_col).apply(lambda x: x[-self.window_len:]).reset_index(drop=True)
-                #print(df_snap.shape)
+                df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
 
@@ -1886,40 +1554,14 @@ class graphmodel():
     
     def split_train_test(self, data):
         
-        # adjust train_till
-        lead_forecast_delta = self.max_leads - self.fh
-        
-        all_ts = sorted(data[self.time_index_col].unique().tolist())
-        current_train_till_idx = all_ts.index(self.train_till)
-        new_train_till_idx = int(current_train_till_idx + lead_forecast_delta)
-        self.adj_train_till = all_ts[new_train_till_idx]
-        
-        # adjust test_till
-        current_test_till_idx = all_ts.index(self.test_till)
-        new_test_till_idx = int(current_test_till_idx + lead_forecast_delta)
-        self.adj_test_till = all_ts[new_test_till_idx]
-        
-        train_data = data[data[self.time_index_col]<=self.adj_train_till].reset_index(drop=True)
-        
-        # test
-        test_len = int(data[(data[self.time_index_col]>self.train_till) & (data[self.time_index_col]<=self.adj_test_till)].groupby(self.id_col)[self.target_col].count().max())
-        test_len = test_len + (self.window_len - self.max_leads)
-        test_data = data[data[self.time_index_col]<=self.adj_test_till].groupby(self.id_col).apply(lambda x: x[-test_len:]).reset_index(drop=True)
+        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
         
         return train_data, test_data
     
     def split_infer(self, data):
         
-        # adjust infer_till
-        lead_forecast_delta = self.max_leads - self.fh
-        all_ts = sorted(data[self.time_index_col].unique().tolist())
-        
-        current_infer_till_idx = all_ts.index(self.infer_till)
-        new_infer_till_idx = int(current_infer_till_idx + lead_forecast_delta)
-        self.adj_infer_till = all_ts[new_infer_till_idx]
-        
-        infer_len = self.window_len
-        infer_data = data[data[self.time_index_col]<=self.adj_infer_till].groupby(self.id_col).apply(lambda x: x[-infer_len:]).reset_index(drop=True)
+        infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
         
         return infer_data
 
@@ -1937,13 +1579,11 @@ class graphmodel():
         statistics['nodetypes'] = list(batch.x_dict.keys())
         statistics['edgetypes'] = list(batch.edge_index_dict.keys())
         statistics['num_nodes'] = batch.num_nodes
-        statistics['num_target_nodes'] = int(batch[self.target_col].num_nodes/self.max_history)
+        statistics['num_target_nodes'] = int(batch[self.target_col].num_nodes)
         statistics['num_edges'] = batch.num_edges
         statistics['node_feature_dims'] = batch.num_node_features
-        statistics['max_lags'] = batch[self.target_col].num_node_features
-        statistics['target_feature_dims'] = batch[self.target_col].y.shape
-        statistics['adjusted_train_till'] = self.adj_train_till
-        statistics['adjusted_test_till'] = self.adj_test_till
+        statistics['num_target_features'] = batch[self.target_col].num_node_features
+        statistics['forecast_dim'] = batch[self.target_col].y.shape[1]
         
         return statistics
       
@@ -1965,14 +1605,12 @@ class graphmodel():
         
         # get infer df
         infer_df = self.split_infer(df)
+        #print("in process_output: ", infer_df.shape)
         
-        # groupby target node ids
-        if (self.max_leads-self.fh) >= 1:
-            infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-self.max_leads:-(self.max_leads-self.fh)]).reset_index(drop=True)
-            print(infer_df[self.time_index_col].unique().tolist())
-        else:
-            infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-self.max_leads:]).reset_index(drop=True)
-            print(infer_df[self.time_index_col].unique().tolist())
+        infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
+        print(infer_df[self.time_index_col].unique().tolist())
+        
+        #print("in process_output: ", infer_df.shape)
             
         # infer_df.shape[0] == model_output.shape[0]
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
@@ -2009,11 +1647,6 @@ class graphmodel():
         # drop forecast column
         df_updated = df_updated.drop(columns=['forecast'])
         
-        # also, drop rolling stats cols if selected
-        if self.include_rolling_features:
-            # reset
-            self.temporal_unknown_num_col_list = []
-            
         return df_updated
     
     def build_dataset(self, df):
@@ -2023,10 +1656,9 @@ class graphmodel():
             
     def build(self,
               model_type = "SAGE", 
-              model_option = "LSTMATTENTION", 
+              model_option = "BASIC", 
               model_dim = 128,
               num_layers = 1,
-              lstm_layers = 1,
               attention_heads = 1,
               forecast_quantiles = [0.5, 0.55, 0.60, 0.65, 0.70],
               dropout = 0.0,
@@ -2040,7 +1672,6 @@ class graphmodel():
         
         # key metadata for model def
         self.metadata = self.get_metadata(self.train_dataset)
-        self.n_prediction_nodes = self.show_batch_statistics(self.train_dataset).get('num_target_nodes')
         self.forecast_quantiles = forecast_quantiles
         sample_batch = next(iter(self.train_dataset))
         
@@ -2051,17 +1682,14 @@ class graphmodel():
         self.model = STGNN(model_type = model_type,
                            model_option = model_option,
                            hidden_channels = model_dim, 
+                           heads = attention_heads,
                            out_channels = self.fh, 
                            metadata = self.metadata, 
-                           n_nodes = self.n_prediction_nodes, 
                            target_node = self.target_col,
-                           context_nodes = self.context_cols,
-                           seq_len = self.max_history,
+                           context_nodes = self.global_context_col_list,
                            device = self.device,
-                           heads = attention_heads,
-                           n_quantiles = max(1, len(self.forecast_quantiles)),
+                           n_quantiles = len(self.forecast_quantiles), 
                            num_layers = num_layers,
-                           lstm_layers = lstm_layers,
                            alpha = 0.5, 
                            dropout = dropout,
                            residual_conn_type = residual_conn_type,
@@ -2077,8 +1705,7 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            sample_batch = sample_batch.to(self.device)
-            out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
+            out = self.model(sample_batch.to(self.device))
             
         # parameters count
         try:
@@ -2099,7 +1726,8 @@ class graphmodel():
               loss_type = 'Quantile',
               delta = 1.0,
               use_lr_scheduler=True, 
-              scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001}):
+              scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
+              sample_weights=False):
         
         self.loss_type = loss_type
         
@@ -2138,69 +1766,25 @@ class graphmodel():
                 optimizer.zero_grad()
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
-                out = self.model(batch.x_dict, batch.edge_index_dict)
+                out = self.model(batch)
                 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss_type == 'Quantile':
-                    try:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, :, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn.loss(torch.unsqueeze(out[-self.n_prediction_nodes:, :], dim=1),
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:, :], dim=2)
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                 elif self.loss_type == 'Huber':
-                    try:
-                        loss = loss_fn(out[-self.n_prediction_nodes:, -1, :],
-                                       batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn(out[-self.n_prediction_nodes:, :],
-                                       batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                    loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
+                    mask = batch[self.target_col].y_mask
                 else:
-                    try:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, -1, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    except:
-                        loss = loss_fn.loss(out[-self.n_prediction_nodes:, :],
-                                            batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                    mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                    loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
+                    mask = batch[self.target_col].y_mask
                 
-                """
-                # compute loss masking out N/A targets -- all snapshot
-                #print(out.shape, batch[self.target_col].y.shape)
-                # snapshot weights
-                snap_wts = np.concatenate([[i+1]*self.n_prediction_nodes for i in range(self.max_history)], axis=0).reshape(-1,1)
-                snap_wts = torch.tensor(snap_wts, dtype=torch.float).to(self.device)
+                if sample_weights:
+                    wt = batch[self.target_col].y_weight
+                else:
+                    wt = 1
                 
-                target_batches = []
-                mask_batches = []
-                snap_wts_batches = []
-                
-                for i in range(self.max_history):
-                    batch_step = batch[self.target_col].y[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                    batch_step = torch.unsqueeze(batch_step, dim=1)
-                    target_batches.append(batch_step)
-                    
-                    mask_batch_step = batch[self.target_col].y_mask[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                    mask_batch_step = torch.unsqueeze(mask_batch_step, dim=1)
-                    mask_batches.append(mask_batch_step)
-                    
-                    snap_wts_batch_step = snap_wts[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                    snap_wts_batch_step = torch.unsqueeze(snap_wts_batch_step, dim=1)
-                    snap_wts_batches.append(snap_wts_batch_step)
-
-                target = torch.squeeze(torch.concat(target_batches, dim=1), dim=2)
-                mask = torch.concat(mask_batches, dim=1)
-                snapwt = torch.concat(snap_wts_batches, dim=1)
-                loss = loss_fn.loss(out, target)
-                wts = mask
-                #print(loss.shape)
-                
-                """
-        
-                # apply mask & wts
-                loss = torch.mean(loss*mask)
+                loss = torch.mean(loss*mask*wt)
                 loss.backward()
                 optimizer.step()
                 total_examples += batch_size
@@ -2216,67 +1800,25 @@ class graphmodel():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
-                    out = self.model(batch.x_dict, batch.edge_index_dict)
+                    out = self.model(batch)
                     
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss_type == 'Quantile':
-                        try:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, :, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn.loss(torch.unsqueeze(out[-self.n_prediction_nodes:, :], dim=1),
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = torch.unsqueeze(batch[self.target_col].y_mask[-self.n_prediction_nodes:, :], dim=2)
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                     elif self.loss_type == 'Huber':
-                        try:
-                            loss = loss_fn(out[-self.n_prediction_nodes:, -1, :],
-                                           batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn(out[-self.n_prediction_nodes:, :],
-                                           batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                        loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
+                        mask = batch[self.target_col].y_mask
                     else:
-                        try:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, -1, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        except:
-                            loss = loss_fn.loss(out[-self.n_prediction_nodes:, :],
-                                                batch[self.target_col].y[-self.n_prediction_nodes:, :])
-                        mask = batch[self.target_col].y_mask[-self.n_prediction_nodes:, :]
+                        loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
+                        mask = batch[self.target_col].y_mask
                     
-                    """
-                    # compute loss masking out N/A targets -- all snapshot
-                    # calculate snapshot weights
-                    snap_wts = np.concatenate([[i+1]*self.n_prediction_nodes for i in range(self.max_history)], axis=0).reshape(-1,1)
-                    snap_wts = torch.tensor(snap_wts, dtype=torch.float).to(self.device)
-
-                    target_batches = []
-                    mask_batches = []
-                    snap_wts_batches = []
-
-                    for i in range(self.max_history):
-                        batch_step = batch[self.target_col].y[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                        batch_step = torch.unsqueeze(batch_step, dim=1)
-                        target_batches.append(batch_step)
-
-                        mask_batch_step = batch[self.target_col].y_mask[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                        mask_batch_step = torch.unsqueeze(mask_batch_step, dim=1)
-                        mask_batches.append(mask_batch_step)
-
-                        snap_wts_batch_step = snap_wts[int(i*self.n_prediction_nodes):int((i+1)*self.n_prediction_nodes)]
-                        snap_wts_batch_step = torch.unsqueeze(snap_wts_batch_step, dim=1)
-                        snap_wts_batches.append(snap_wts_batch_step)
-
-                    target = torch.squeeze(torch.concat(target_batches, dim=1), dim=2)
-                    mask = torch.concat(mask_batches, dim=1)
-                    snapwt = torch.concat(snap_wts_batches, dim=1)
-                    loss = loss_fn.loss(out, target)
-                    wts = mask
+                    if sample_weights:
+                        wt = batch[self.target_col].y_weight
+                    else:
+                        wt = 1
                     
-                    """
-                    
-                    # apply mask & wts
-                    loss = torch.mean(loss*mask) 
+                    loss = torch.mean(loss*mask*wt) 
                     total_examples += batch_size
                     total_loss += float(loss)
                     
@@ -2355,7 +1897,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
+                    out = model(batch)
                     output.append(out)
             return output
 
@@ -2381,23 +1923,21 @@ class graphmodel():
             
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-
+            
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            
             if self.loss_type == 'Quantile':
-                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
-                    output_arr = output_arr[-self.n_prediction_nodes:,:,q_index] 
+                    output_arr = output_arr[:,:,q_index] 
                 except:
                     q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
                     q_lower = int(q_upper - 1)
                     q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
                     q_lower_weight = 1 - q_upper_weight
-                    output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+                    output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
             else:
-                try:
-                    output_arr = output_arr[:, :, 0]
-                except:
-                    pass
+                output_arr = output_arr[:,:,0] 
                 
             # show current o/p
             scaled_output = self.process_output(base_df, output_arr)
@@ -2416,7 +1956,6 @@ class graphmodel():
             base_df = self.update_dataframe(base_df, scaled_output)
         
         return forecast_df
-    
     
     def infer_oneshot(self, df, select_quantile, compute_mape=False):
         
@@ -2437,10 +1976,11 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
+                    out = model(batch)
                     output.append(out)
             return output
 
+            
         print("forecasting for periods from {} to {}".format(infer_periods[0], infer_periods[-1]))
             
         # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
@@ -2461,24 +2001,19 @@ class graphmodel():
             
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-
-        if self.loss_type == 'Quantile':
-            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-            try:
-                q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
-            except:
-                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
-        else:
-            try:
-                output_arr = output_arr[:, :, 0]
-            except:
-                pass
-
+            
+        assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            
+        try:
+            q_index = self.forecast_quantiles(select_quantile)
+            output_arr = output_arr[-self.n_prediction_nodes:,:,q_index] 
+        except:
+            q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+            q_lower = int(q_upper - 1)
+            q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+            q_lower_weight = 1 - q_upper_weight
+            output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+                
         # show current o/p
         scaled_output = self.process_output(base_df, output_arr)
             
@@ -2488,7 +2023,5 @@ class graphmodel():
             print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
                 
         return scaled_output
-
-        
                 
 
