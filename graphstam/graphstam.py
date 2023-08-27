@@ -369,11 +369,11 @@ class gml(object):
         
     def train(self):
  
-        self.graphobj.train(**train_config)
+        self.graphobj.train(**self.train_config)
     
     def infer(self):
 
-        forecast = self.graphobj.infer(**infer_config)
+        forecast = self.graphobj.infer(**self.infer_config)
         
         return forecast
         
