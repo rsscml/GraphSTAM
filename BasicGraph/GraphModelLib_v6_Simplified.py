@@ -804,7 +804,6 @@ class graphmodel():
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
                  directed_graph = True,
-                 create_all_temporal_edges = False,
                  include_rolling_features = True,
                  rolling_window_size = 13,
                  shuffle = True,
@@ -850,7 +849,6 @@ class graphmodel():
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
-        self.create_all_temporal_edges = create_all_temporal_edges
         self.include_rolling_features = include_rolling_features
         self.shuffle = shuffle
         self.interleave = interleave
@@ -1282,8 +1280,6 @@ class graphmodel():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
             
         # Create HeteroData Object
-        #data = HeteroData({"y_mask":None})
-        
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get node features
