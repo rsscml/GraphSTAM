@@ -2,6 +2,8 @@
 # coding: utf-8
 
 import json
+import pandas as pd
+import gc
 
 # show available model configurations
 
@@ -367,15 +369,31 @@ class gml(object):
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
         self.infer_config.update({'df': data})
+        self.infer_quantiles = self.infer_config['select_quantile']
+        if len(self.infer_quantiles) == 0:
+            self.infer_quantiles = [0.5]
         
     def train(self):
  
         self.graphobj.train(**self.train_config)
     
     def infer(self):
+        try:
+            del self.graphobj.train_dataset, self.graphobj.test_dataset
+            gc.collect()
+        except:
+            pass
 
-        forecast = self.graphobj.infer(**self.infer_config)
-        
+        f_df_list = []
+        for quantile in self.infer_quantiles:
+            self.infer_config.pop('select_quantile')
+            self.infer_config.update({'select_quantile': quantile})
+            f_df = self.graphobj.infer(**self.infer_config)
+            f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df_list.append(f_df)
+
+        forecast = pd.concat(f_df_list, axis=1)
+        forecast = forecast.T.drop_duplicates().T
         return forecast
         
     def get_datasets(self,):
