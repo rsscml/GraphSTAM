@@ -366,6 +366,7 @@ class gml(object):
 
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
+        self.infer_config.update({'df': data})
         
     def train(self):
  
