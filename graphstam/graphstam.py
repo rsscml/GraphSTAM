@@ -256,7 +256,7 @@ class gml(object):
         
         if model_type in ['SimpleGraphSage']:
             
-            import BasicGraph.graphmodel as graphmodel
+            import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -282,7 +282,7 @@ class gml(object):
             
         elif model_type in ['SimpleGraphSageAuto']:
             
-            import BasicGraph.graphmodel as graphmodel
+            import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -307,7 +307,7 @@ class gml(object):
             
         elif model_type in ['TransformerGraphSage','TransformerGraphSageLarge']:
             
-            import TemporalSpatialGraph.graphmodel as graphmodel
+            import TemporalSpatialGraph as graphmodel
             
             self.common_data_config = {'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -330,7 +330,7 @@ class gml(object):
             
         elif model_type in ['GraphSageLSTM']:
             
-            import SpatialTemporalGraph.graphmodel as graphmodel
+            import SpatialTemporalGraph as graphmodel
             
             # deault common configs
             self.common_data_config = {'fh': 1,
@@ -360,7 +360,7 @@ class gml(object):
             
         
         # init graphmodel object
-        self.graphobj = graphmodel(**self.data_config)
+        self.graphobj = graphmodel.graphmodel(**self.data_config)
             
     def build(self, data):
 
