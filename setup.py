@@ -15,7 +15,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Rahul Sinha",
     author_email="rahul.sinha@unilever.com",
-    packages=["BasicGraph","SpatialTemporalGraph","TemporalSpatialGraph"],
+    packages=["graphstam","BasicGraph","SpatialTemporalGraph","TemporalSpatialGraph"],
     include_package_data=True,
     install_requires=[]
 )
