@@ -1041,7 +1041,7 @@ class graphmodel():
 
     def onehot_encode(self, df):
         
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + + self.global_context_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
