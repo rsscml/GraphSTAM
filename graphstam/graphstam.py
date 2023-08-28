@@ -3,6 +3,7 @@
 
 import json
 import pandas as pd
+import numpy as np
 import gc
 
 # show available model configurations
@@ -389,7 +390,11 @@ class gml(object):
             self.infer_config.pop('select_quantile')
             self.infer_config.update({'select_quantile': quantile})
             f_df = self.graphobj.infer(**self.infer_config)
-            f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df['forecast'] == np.clip(f_df['forecast'], a_min=0, a_max=None)
+            if len(self.infer_quantiles) == 1:
+                pass
+            else:
+                f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
             f_df_list.append(f_df)
 
         forecast = pd.concat(f_df_list, axis=1)
