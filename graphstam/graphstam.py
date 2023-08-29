@@ -256,7 +256,12 @@ class gml(object):
         self.model_config = self.config["model_config"]
         self.train_config = self.config["train_config"]
         self.infer_config = self.config["infer_config"]
-        
+
+        if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
+            self.forecast_quantiles = [0.5]  # placeholder to make the code work
+        elif self.train_config.get('loss_type') == 'Quantile':
+            self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+
         if model_type in ['SimpleGraphSage']:
             
             import BasicGraph as graphmodel
@@ -273,7 +278,7 @@ class gml(object):
             self.common_model_config = {'model_type': "SAGE", 
                                         'model_option': "BASIC", 
                                         'attention_heads': 1,
-                                        'forecast_quantiles': [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9],
+                                        'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
                                         'aggr': 'mean',
                                         'use_linear_pretransform': True,
@@ -298,7 +303,7 @@ class gml(object):
             self.common_model_config = {'model_type': "SAGE", 
                                         'model_option': "BASIC", 
                                         'attention_heads': 1,
-                                        'forecast_quantiles': [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9],
+                                        'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
                                         'aggr': 'mean',
                                         'use_linear_pretransform': True,
@@ -321,7 +326,7 @@ class gml(object):
             self.common_model_config = {'model_type': "SAGE", 
                                         'model_option': "TEMPORAL_SPATIAL", 
                                         'spatial_attention_heads': 1,
-                                        'forecast_quantiles': [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9],
+                                        'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
                                         'aggr': 'mean',
                                         'apply_norm_layers': True,
@@ -347,7 +352,7 @@ class gml(object):
             
             self.common_model_config = {'model_type': "SAGE", 
                                         'model_option': "LSTMATTENTION", 
-                                        'forecast_quantiles': [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9],
+                                        'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
                                         'aggr': 'mean',
                                         'use_linear_pretransform': True,
@@ -399,6 +404,37 @@ class gml(object):
 
         forecast = pd.concat(f_df_list, axis=1)
         forecast = forecast.T.drop_duplicates().T
+        return forecast
+
+    def infer_baseline(self, remove_effects_col_list):
+        # zero-out covariates
+        data = self.infer_config['df']
+        baseline_data = data.copy()
+        baseline_data[remove_effects_col_list] = 0
+        baseline_infer_config = self.infer_config.copy(deep=True)
+        baseline_infer_config.pop('df')
+        baseline_infer_config.update({'df': baseline_data})
+
+        try:
+            del self.graphobj.train_dataset, self.graphobj.test_dataset
+            gc.collect()
+        except:
+            pass
+
+        f_df_list = []
+        for quantile in self.infer_quantiles:
+            self.baseline_infer_config.pop('select_quantile')
+            self.baseline_infer_config.update({'select_quantile': quantile})
+            f_df = self.graphobj.infer(**self.baseline_infer_config)
+            if len(self.infer_quantiles) == 1:
+                pass
+            else:
+                f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df_list.append(f_df)
+
+        forecast = pd.concat(f_df_list, axis=1)
+        forecast = forecast.T.drop_duplicates().T
+
         return forecast
         
     def get_datasets(self,):
