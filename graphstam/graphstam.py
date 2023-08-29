@@ -457,9 +457,9 @@ class gml(object):
 
         f_df_list = []
         for quantile in self.infer_quantiles:
-            self.baseline_infer_config.pop('select_quantile')
-            self.baseline_infer_config.update({'select_quantile': quantile})
-            f_df = self.graphobj.infer(**self.baseline_infer_config)
+            baseline_infer_config.pop('select_quantile')
+            baseline_infer_config.update({'select_quantile': quantile})
+            f_df = self.graphobj.infer(**baseline_infer_config)
             if len(self.infer_quantiles) == 1:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
             else:
