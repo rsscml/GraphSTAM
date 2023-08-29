@@ -257,14 +257,11 @@ class gml(object):
         self.train_config = self.config["train_config"]
         self.infer_config = self.config["infer_config"]
         self.col_dict = self.data_config["col_dict"]
-        self.baseline_col_dict = self.col_dict.copy(deep=True)
 
         if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
         elif self.train_config.get('loss_type') == 'Quantile':
             self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
-
-        global graphmodel
 
         if model_type in ['SimpleGraphSage']:
             
@@ -369,31 +366,13 @@ class gml(object):
             
         else:
             raise ValueError("Not a supported model type!")
-
-    def build(self, data):
-
-        # handle categorical columns
-        if len(self.col_dict['temporal_known_cat_col_list']) > 0:
-            data = pd.concat([data[self.col_dict['temporal_known_cat_col_list']],
-                              pd.get_dummies(data=data,
-                                             columns=self.col_dict['temporal_known_cat_col_list'],
-                                             prefix_sep='_')], axis=1, join='inner')
-            # set all onehot cols created above to zero
-            self.cat_onehot_cols = []
-            for f in self.col_dict['temporal_known_cat_col_list']:
-                onehot_col_prefix = str(f) + '_'
-                self.cat_onehot_cols += [c for c in data.columns.tolist() if c.startswith(onehot_col_prefix)]
-
-            # add onehot columns instead of cat cols
-            self.col_dict['temporal_known_cat_col_list'] = []
-            self.col_dict['temporal_known_num_col_list'] += self.cat_onehot_cols
-
-            #replace the col dict in data_config
-            self.data_config.pop('col_dict')
-            self.data_config.update({'col_dict':self.col_dict})
-
+            
+        
         # init graphmodel object
         self.graphobj = graphmodel.graphmodel(**self.data_config)
+            
+    def build(self, data):
+
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
         self.infer_config.update({'df': data})
@@ -432,22 +411,28 @@ class gml(object):
         # zero-out covariates
         data = self.infer_config['df']
         baseline_data = data.copy()
-        # set all onehot cols created above to zero
-        baseline_cat_onehot_cols = []
-        baseline_num_cols = []
-        for col in remove_effects_col_list:
-            if col in self.baseline_col_dict['temporal_known_cat_col_list']:
-                onehot_col_prefix = str(col) + '_'
-                baseline_cat_onehot_cols += [c for c in baseline_data.columns.tolist() if c.startswith(onehot_col_prefix)]
-            else:
-                baseline_num_cols += [col]
+        """
+        # handle categorical columns
+        if len(self.col_dict['temporal_known_cat_col_list']) > 0:
+            baseline_data = pd.concat([baseline_data[self.col_dict['temporal_known_cat_col_list']],
+                                       pd.get_dummies(data=baseline_data,
+                                                      columns=self.col_dict['temporal_known_cat_col_list'],
+                                                      prefix_sep='_')],
+                                      axis=1, join='inner')
+            # set all onehot cols created above to zero
+            onehot_cols = []
+            for f in self.col_dict['temporal_known_cat_col_list']:
+                onehot_col_prefix = str(f) + '_'
+                onehot_cols += [c for c in baseline_data.columns.tolist() if c.startswith(onehot_col_prefix)]
 
-        baseline_data[baseline_num_cols+baseline_cat_onehot_cols] = 0
-
+            baseline_data[onehot_cols] = 0
+            # add onehot columns to
+            
+        """
+        
         baseline_infer_config = self.infer_config.copy(deep=True)
         baseline_infer_config.pop('df')
         baseline_infer_config.update({'df': baseline_data})
-
 
         try:
             del self.graphobj.train_dataset, self.graphobj.test_dataset
