@@ -427,9 +427,9 @@ class gml(object):
             self.baseline_infer_config.update({'select_quantile': quantile})
             f_df = self.graphobj.infer(**self.baseline_infer_config)
             if len(self.infer_quantiles) == 1:
-                pass
+                f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
             else:
-                f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+                f_df = f_df.rename(columns={'forecast': 'baseline_forecast_' + str(quantile)})
             f_df_list.append(f_df)
 
         forecast = pd.concat(f_df_list, axis=1)
