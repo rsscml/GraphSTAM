@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import numpy as np
 import gc
+import copy
 
 # show available model configurations
 
@@ -257,7 +258,7 @@ class gml(object):
         self.train_config = self.config["train_config"]
         self.infer_config = self.config["infer_config"]
         self.col_dict = self.data_config["col_dict"]
-        self.baseline_col_dict = self.col_dict.copy(deep=True)
+        self.baseline_col_dict = copy.deepcopy(self.col_dict)
 
         if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
@@ -444,10 +445,9 @@ class gml(object):
 
         baseline_data[baseline_num_cols+baseline_cat_onehot_cols] = 0
 
-        baseline_infer_config = self.infer_config.copy(deep=True)
+        baseline_infer_config = copy.deepcopy(self.infer_config)
         baseline_infer_config.pop('df')
         baseline_infer_config.update({'df': baseline_data})
-
 
         try:
             del self.graphobj.train_dataset, self.graphobj.test_dataset
