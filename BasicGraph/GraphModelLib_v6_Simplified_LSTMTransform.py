@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 # Model Specific imports
 
 import torch
@@ -1068,7 +1065,8 @@ class graphmodel():
     
     
     def create_lead_lag_features(self, df):
-        
+
+        self.node_features_label = {}
         self.lead_lag_features_dict = {}
         
         for col in [self.target_col] + \
@@ -1089,7 +1087,9 @@ class graphmodel():
                 for lead in range(0, self.max_leads + 1):
                     df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
-        
+
+            self.node_features_label[col] = self.lead_lag_features_dict[col]
+
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         

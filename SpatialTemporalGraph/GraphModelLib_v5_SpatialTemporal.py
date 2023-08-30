@@ -1366,8 +1366,21 @@ class graphmodel():
                 df[col] = df[col].astype(str).astype(bool).astype(int)
         
         return df
-        
-    
+
+    def get_node_features_label(self):
+
+        self.node_features_label = {}
+
+        for col in [self.target_col] + self.rolling_stat_cols + self.temporal_known_num_col_list + self.known_onehot_cols:
+
+            if col in [self.target_col] + self.rolling_stat_cols:
+                features = [f'{col}_lag_{i}' for i in range(self.snap_sequence_len-(self.max_leads-self.fh) - self.fh, 0, -1)]
+                self.node_features_label[col] = features + self.rolling_stat_cols
+            else:
+                lag_features = [f'{col}_lag_{i}' for i in range(self.snap_sequence_len - self.max_leads, 0, -1)]
+                lead_features = [f'{col}_lead_{i}' for i in range(1, self.max_leads+1)]
+                self.node_features_label[col] = lag_features + lead_features
+
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1386,6 +1399,8 @@ class graphmodel():
         if self.include_rolling_features:
             print("   preprocessing dataframe - get rolling stats by group...")
             df = self.get_roll_stats(df)
+        else:
+            self.rolling_stat_cols = []
         
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
@@ -1441,7 +1456,10 @@ class graphmodel():
                 self.unknown_onehot_cols += onehot_col_features
 
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
-        
+
+        # get node_features_label
+        self.get_node_features_label()
+
         return df
     
     def node_indexing(self, df, node_cols):
