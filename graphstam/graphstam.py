@@ -460,6 +460,7 @@ class gml(object):
             baseline_infer_config.pop('select_quantile')
             baseline_infer_config.update({'select_quantile': quantile})
             f_df = self.graphobj.infer(**baseline_infer_config)
+            f_df['forecast'] == np.clip(f_df['forecast'], a_min=0, a_max=None)
             if len(self.infer_quantiles) == 1:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
             else:
