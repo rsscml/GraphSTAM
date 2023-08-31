@@ -622,7 +622,147 @@ class gml(object):
                     # save fileloc for the explanation object
                     self.explanations_dict[keyname] = filename
                     print("{} explanation saved.".format(keyname))
-    
 
+    def show_feature_importance(self, node_id=None, period=None, topk=20, save_dir=None):
+        import torch
+        from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
+        import pickle
 
+        self.feature_importance_plots_dict = {}
 
+        if node_id is None:
+            # generate all feature importances
+            for k, v in self.explanations_dict.items():
+                with open(v, 'rb') as f:
+                    explanation = pickle.load(f)
+                if save_dir is not None:
+                    filename = save_dir.rstrip("/") + str(k) + '_feature_importance.png'
+                    explanation.visualize_feature_importance(path=filename, top_k=topk,
+                                                             feat_labels=self.graphobj.node_features_label)
+                    self.feature_importance_plots_dict[k] = filename
+                else:
+                    explanation.visualize_feature_importance(top_k=topk, feat_labels=self.graphobj.node_features_label)
+        else:
+            if period is not None:
+                keyname = str(node_id) + '_' + str(period)
+                explain_file = self.explanations_dict[keyname]
+                with open(explain_file, 'rb') as f:
+                    explanation = pickle.load(f)
+
+                if save_dir is not None:
+                    filename = save_dir.rstrip("/") + str(keyname) + '_feature_importance.png'
+                    explanation.visualize_feature_importance(path=filename, top_k=topk,
+                                                             feat_labels=self.graphobj.node_features_label)
+                    self.feature_importance_plots_dict[keyname] = filename
+                else:
+                    explanation.visualize_feature_importance(top_k=topk, feat_labels=self.graphobj.node_features_label)
+            else:
+                raise ValueError("Provide valid period.")
+
+    def show_correlated_target_nodes(self, node_id=None, period=None, topk=20, save_dir=None):
+        import torch
+        from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
+        import pickle
+
+        self.impact_nodes_dict = {}
+
+        if node_id is None:
+            for k, v in self.explanations_dict.items():
+                with open(v, 'rb') as f:
+                    explanation = pickle.load(f)
+
+                node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
+                    dim=1).cpu().numpy()
+                top_nodes = np.argpartition(node_mask_target, -topk)[-topk:]
+                top_node_weights = node_mask_target[top_nodes]
+
+                topn_dict = dict(zip(top_nodes, top_node_weights))
+                node_index_map = self.graphobj.node_index_map
+
+                keys_list = list(node_index_map[self.col_dict['id_col']]['index'].keys())
+                values_list = list(node_index_map[self.col_dict['id_col']]['index'].values())
+
+                key_wts_dict = {}
+                for n, w in topn_dict.items():
+                    n_index = values_list.index(n)
+                    key = keys_list[n_index]
+                    key_wts_dict[key] = w
+
+                self.impact_nodes_dict[k] = key_wts_dict
+
+            if save_dir is not None:
+                filename = save_dir.rstrip("/") + str(self.col_dict['target_col']) + '_impact_nodes_dict.pkl'
+                with open(filename, 'wb') as f:
+                    pickle.dump(self.impact_nodes_dict, f)
+            else:
+                print(self.impact_nodes_dict)
+
+        else:
+            if period is not None:
+                keyname = str(node_id) + '_' + str(period)
+                explain_file = self.explanations_dict[keyname]
+                with open(explain_file, 'rb') as f:
+                    explanation = pickle.load(f)
+
+                node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
+                    dim=1).cpu().numpy()
+                top_nodes = np.argpartition(node_mask_target, -topk)[-topk:]
+                top_node_weights = node_mask_target[top_nodes]
+
+                topn_dict = dict(zip(top_nodes, top_node_weights))
+                node_index_map = self.graphobj.node_index_map
+
+                keys_list = list(node_index_map[self.col_dict['id_col']]['index'].keys())
+                values_list = list(node_index_map[self.col_dict['id_col']]['index'].values())
+
+                key_wts_dict = {}
+                for n, w in topn_dict.items():
+                    n_index = values_list.index(n)
+                    key = keys_list[n_index]
+                    key_wts_dict[key] = w
+
+                self.impact_nodes_dict[keyname] = key_wts_dict
+                print(self.impact_nodes_dict)
+            else:
+                raise ValueError("Provide valid period.")
+
+    def show_covariate_nodes_importance(self, node_id=None, period=None, save_dir=None):
+        import torch
+        from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
+        import pickle
+
+        self.covariate_nodes_impact_dict = {}
+
+        if node_id is None:
+            for k, v in self.explanations_dict.items():
+                with open(v, 'rb') as f:
+                    explanation = pickle.load(f)
+
+                covar_wt_dict = {}
+                for n, w in explanation.node_mask_dict.items():
+                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy()
+
+                self.covariate_nodes_impact_dict[k] = covar_wt_dict
+
+            if save_dir is not None:
+                filename = save_dir.rstrip("/") + 'covariate_impact_nodes_dict.pkl'
+                with open(filename, 'wb') as f:
+                    pickle.dump(self.covariate_nodes_impact_dict, f)
+            else:
+                print(self.covariate_nodes_impact_dict)
+
+        else:
+            if period is not None:
+                keyname = str(node_id) + '_' + str(period)
+                explain_file = self.explanations_dict[keyname]
+                with open(explain_file, 'rb') as f:
+                    explanation = pickle.load(f)
+
+                covar_wt_dict = {}
+                for n, w in explanation.node_mask_dict.items():
+                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy()
+
+                self.covariate_nodes_impact_dict[keyname] = covar_wt_dict
+                print(self.covariate_nodes_impact_dict)
+            else:
+                raise ValueError("Provide valid period.")
