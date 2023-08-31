@@ -269,7 +269,7 @@ class gml(object):
 
         if model_type in ['SimpleGraphSage']:
             
-            import BasicGraph.graphmodel as graphmodel
+            import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -295,7 +295,7 @@ class gml(object):
             
         elif model_type in ['SimpleGraphSageAuto']:
             
-            import BasicGraph.graphmodel_large as graphmodel
+            import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -320,7 +320,7 @@ class gml(object):
             
         elif model_type in ['TransformerGraphSage']:
             
-            import TemporalSpatialGraph.graphmodel as graphmodel
+            import TemporalSpatialGraph as graphmodel
             
             self.common_data_config = {'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -342,7 +342,7 @@ class gml(object):
 
         elif model_type in ['TransformerGraphSageLarge']:
 
-            import TemporalSpatialGraph.graphmodel_large as graphmodel
+            import TemporalSpatialGraph as graphmodel
 
             self.common_data_config = {'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -415,7 +415,11 @@ class gml(object):
             self.data_config.update({'col_dict':self.col_dict})
 
         # init graphmodel object
-        self.graphobj = graphmodel.graphmodel(**self.data_config)
+        if self.model_type in ['SimpleGraphSageAuto','TransformerGraphSageLarge']:
+            self.graphobj = graphmodel.graphmodel_large(**self.data_config)
+        else:
+            self.graphobj = graphmodel.graphmodel(**self.data_config)
+
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
         self.infer_config.update({'df': data})
