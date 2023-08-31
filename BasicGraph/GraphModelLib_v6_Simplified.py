@@ -1551,6 +1551,9 @@ class graphmodel():
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
 
+                # get node index map
+                self.node_index_map = self.node_indexing(df_snap, [self.id_col])
+
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=1, shuffle=False) 
             

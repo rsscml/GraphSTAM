@@ -1950,6 +1950,8 @@ class graphmodel():
                 df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
+                # get node index map
+                self.node_index_map = self.node_indexing(df_snap, [self.id_col])
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=1, shuffle=False) 
@@ -2319,6 +2321,9 @@ class graphmodel():
         self.device = torch.device(device)
         self.model.load_state_dict(torch.load(self.best_model, map_location=self.device))
 
+    def disable_cuda_backend(self,):
+        self.change_device(device="cuda")
+        torch.backends.cudnn.enabled = False
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
