@@ -2317,7 +2317,7 @@ class graphmodel():
 
     def change_device(self, device='cpu'):
         self.device = torch.device(device)
-        self.model.load_state_dict(torch.load(self.best_model), map_location=self.device)
+        self.model.load_state_dict(torch.load(self.best_model, map_location=self.device))
 
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
