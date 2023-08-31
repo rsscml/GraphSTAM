@@ -2237,8 +2237,6 @@ class graphmodel():
         
         def test_fn():
             self.model.train(False) # original line
-            #self.model.eval()
-            #self.model.lstm_stack.train()
             total_examples = 0 
             total_loss = 0
             with torch.no_grad(): 
@@ -2362,7 +2360,11 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
-    
+
+    def change_device(self, device='cpu'):
+        self.device = torch.device(device)
+        self.model.load_state_dict(torch.load(self.best_model), map_location=self.device)
+
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
@@ -2379,8 +2381,6 @@ class graphmodel():
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
-            #model.lstm_stack.train()  # -- added as a workaround for captum --30/08/23 -- remove after testing
-            #model.train(False)
             output = []
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
