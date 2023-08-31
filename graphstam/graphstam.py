@@ -259,6 +259,7 @@ class gml(object):
         self.infer_config = self.config["infer_config"]
         self.col_dict = self.data_config["col_dict"]
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
+        self.train_infer_device = self.model_config['device']
 
         if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
@@ -510,9 +511,117 @@ class gml(object):
         except:
             pass
         self.__init__(self.model_type, self.config)
-    
-    def explain(self,):
-        raise NotImplementedError
+
+    def generate_explanations(self, explain_periods, save_dir):
+
+        assert len(explain_periods) > 0, "explain_periods list should have at least one period"
+        save_dir = save_dir.rstrip("/")
+
+        import torch
+        from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
+        import pickle
+
+        data = self.infer_config['df']
+
+        if self.model_type == 'SimpleGraphSage':
+
+            try:
+                del model_config, explainer
+                gc.collect()
+            except:
+                pass
+
+            # Explainer Config
+            model_config = ModelConfig(mode="regression", task_level="node", return_type="raw")
+
+            explainer = Explainer(self.graphobj.model,
+                                  algorithm=CaptumExplainer('IntegratedGradients'),
+                                  explanation_type='model',
+                                  node_mask_type='attributes',
+                                  edge_mask_type='object',
+                                  model_config=model_config)
+
+            # run explanation for period range
+            self.explanations_dict = {}
+
+            for period in explain_periods:
+                self.graphobj.build_infer_dataset(data, infer_till=period)
+                infer_dataset = self.graphobj.infer_dataset
+                infer_batch = next(iter(infer_dataset))
+                infer_batch = infer_batch.to(self.graphobj.device)
+
+                # get node-index map
+                node_index_map = self.graphobj.node_index_map
+
+                for node_name, node_index in node_index_map[self.col_dict['id_col']]['index'].items():
+                    # run explanation for each node
+                    explanation = explainer(x=infer_batch.x_dict,
+                                            edge_index=infer_batch.edge_index_dict,
+                                            target=infer_batch[self.col_dict['target_col']].y,
+                                            index=torch.tensor([node_index]))
+
+                    # save explanation object
+                    keyname = str(node_name) + '_' + str(period)
+                    filename = save_dir + '/explanation_' + keyname + '.pkl'
+
+                    with open(filename, 'wb') as f:
+                        pickle.dump(explanation, f)
+
+                    # save fileloc for the explanation object
+                    self.explanations_dict[keyname] = filename
+                    print("{} explanation saved.".format(keyname))
+        else:
+
+            try:
+                del model_config, explainer
+            except:
+                pass
+
+            # Explainer Config
+            model_config = ModelConfig(mode="regression", task_level="node", return_type="raw")
+
+            explainer = Explainer(self.graphobj.model,
+                                  algorithm=CaptumExplainer('IntegratedGradients'),
+                                  explanation_type='model',
+                                  node_mask_type='attributes',
+                                  edge_mask_type='object',
+                                  model_config=model_config)
+
+            # run explanation for period range
+            self.explanations_dict = {}
+
+            for period in explain_periods:
+                self.graphobj.build_infer_dataset(data, infer_till=period)
+                infer_dataset = self.graphobj.infer_dataset
+                infer_batch = next(iter(infer_dataset))
+                infer_batch = infer_batch.to(self.graphobj.device)
+
+                # get node-index map
+                node_index_map = self.graphobj.node_index_map
+
+                for node_name, node_index in node_index_map[self.col_dict['id_col']]['index'].items():
+                    if self.train_infer_device == "cuda":
+                        # disable cuda to resolve cudnn issue
+                        self.graphobj.disable_cuda_backend()
+                    else:
+                        pass
+
+                    # run explanation for each node
+                    explanation = explainer(x=infer_batch.x_dict,
+                                            edge_index=infer_batch.edge_index_dict,
+                                            target=infer_batch[self.col_dict['target_col']].y,
+                                            index=torch.tensor([node_index]))
+
+                    # save explanation object
+                    keyname = str(node_name) + '_' + str(period)
+                    filename = save_dir + '/explanation_' + keyname + '.pkl'
+
+                    with open(filename, 'wb') as f:
+                        pickle.dump(explanation, f)
+
+                    # save fileloc for the explanation object
+                    self.explanations_dict[keyname] = filename
+                    print("{} explanation saved.".format(keyname))
     
 
 
