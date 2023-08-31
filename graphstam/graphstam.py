@@ -269,7 +269,7 @@ class gml(object):
 
         if model_type in ['SimpleGraphSage']:
             
-            import BasicGraph as graphmodel
+            import BasicGraph.graphmodel as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -295,7 +295,7 @@ class gml(object):
             
         elif model_type in ['SimpleGraphSageAuto']:
             
-            import BasicGraph as graphmodel
+            import BasicGraph.graphmodel_large as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
@@ -318,9 +318,9 @@ class gml(object):
             self.data_config.update(self.common_data_config)
             self.model_config.update(self.common_model_config)
             
-        elif model_type in ['TransformerGraphSage','TransformerGraphSageLarge']:
+        elif model_type in ['TransformerGraphSage']:
             
-            import TemporalSpatialGraph as graphmodel
+            import TemporalSpatialGraph.graphmodel as graphmodel
             
             self.common_data_config = {'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -339,8 +339,29 @@ class gml(object):
             
             self.data_config.update(self.common_data_config)
             self.model_config.update(self.common_model_config)
-            
-            
+
+        elif model_type in ['TransformerGraphSageLarge']:
+
+            import TemporalSpatialGraph.graphmodel_large as graphmodel
+
+            self.common_data_config = {'scaling_method': 'mean_scaling',
+                                       'categorical_onehot_encoding': True,
+                                       'directed_graph': True,
+                                       'shuffle': True,
+                                       'interleave': 1}
+
+            self.common_model_config = {'model_type': "SAGE",
+                                        'model_option': "TEMPORAL_SPATIAL",
+                                        'spatial_attention_heads': 1,
+                                        'forecast_quantiles': self.forecast_quantiles,
+                                        'residual_conn_type': 'concat',
+                                        'aggr': 'mean',
+                                        'apply_norm_layers': True,
+                                        'use_dirgnn': True}
+
+            self.data_config.update(self.common_data_config)
+            self.model_config.update(self.common_model_config)
+
         elif model_type in ['GraphSageLSTM']:
             
             import SpatialTemporalGraph as graphmodel
