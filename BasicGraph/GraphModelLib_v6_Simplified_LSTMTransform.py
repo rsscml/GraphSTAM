@@ -1497,7 +1497,7 @@ class graphmodel():
         return train_dataset, test_dataset
     
     def create_infer_dataset(self, df, infer_till):
-        
+
         self.infer_till = infer_till
         
         # preprocess
@@ -1527,7 +1527,8 @@ class graphmodel():
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
                 # get node index map
-                self.node_index_map = self.node_indexing(df_snap, [self.id_col])
+                df_node_map_index = df[df[self.time_index_col]==period].reset_index(drop=True)
+                self.node_index_map = self.node_indexing(df_node_map_index, [self.id_col])
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=1, shuffle=False) 
