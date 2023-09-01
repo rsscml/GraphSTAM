@@ -582,7 +582,8 @@ class gml(object):
                     # save fileloc for the explanation object
                     self.explanations_dict[keyname] = filename
                     print("{} explanation saved.".format(keyname))
-        else:
+
+        elif self.model_type == 'SimpleGraphSageAuto':
 
             try:
                 del model_config, explainer
@@ -594,6 +595,66 @@ class gml(object):
 
             explainer = Explainer(self.graphobj.model,
                                   algorithm=CaptumExplainer('IntegratedGradients'),
+                                  explanation_type='model',
+                                  node_mask_type='attributes',
+                                  edge_mask_type='object',
+                                  model_config=model_config)
+
+            # run explanation for period range
+            self.explanations_dict = {}
+
+            for period in explain_periods:
+                self.graphobj.build_infer_dataset(data, infer_till=period)
+                infer_dataset = self.graphobj.infer_dataset
+                infer_batch = next(iter(infer_dataset))
+                infer_batch = infer_batch.to(self.graphobj.device)
+
+                if period >= self.infer_config['infer_start']:
+                    # use forecasts as target
+                    target = torch.tensor(
+                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].to_numpy().astype(np.float64))
+                else:
+                    target = infer_batch[self.col_dict['target_col']].y
+
+                # get node-index map
+                node_index_map = self.graphobj.node_index_map
+
+                for node_name, node_index in node_index_map[self.col_dict['id_col']]['index'].items():
+                    if self.train_infer_device == "cuda":
+                        # disable cuda to resolve cudnn issue
+                        self.graphobj.disable_cuda_backend()
+                    else:
+                        pass
+
+                    # run explanation for each node
+                    explanation = explainer(x=infer_batch.x_dict,
+                                            edge_index=infer_batch.edge_index_dict,
+                                            target=target,
+                                            index=torch.tensor([node_index]))
+
+                    # save explanation object
+                    keyname = str(node_name) + '_' + str(period)
+                    filename = save_dir + '/explanation_' + keyname + '.pkl'
+
+                    with open(filename, 'wb') as f:
+                        pickle.dump(explanation, f)
+
+                    # save fileloc for the explanation object
+                    self.explanations_dict[keyname] = filename
+                    print("{} explanation saved.".format(keyname))
+
+        elif self.model_type in ['TransformerGraphSage','TransformerGraphSageLarge']:
+
+            try:
+                del model_config, explainer
+            except:
+                pass
+
+            # Explainer Config
+            model_config = ModelConfig(mode="regression", task_level="node", return_type="raw")
+
+            explainer = Explainer(self.graphobj.model,
+                                  algorithm=CaptumExplainer('GuidedBackprop'),
                                   explanation_type='model',
                                   node_mask_type='attributes',
                                   edge_mask_type='object',
