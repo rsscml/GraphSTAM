@@ -465,7 +465,8 @@ class temporal_attention_layer(torch.nn.Module):
         
         for i, var in enumerate(list(x_dict.values())):
             var_list.append(torch.unsqueeze(var, dim=2))
-        
+            print(var_list[i].shape)
+
         # var select
         lstm_input, var_weights = self.variable_selection_layer(var_list)
         
