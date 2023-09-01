@@ -453,7 +453,7 @@ class temporal_attention_layer(torch.nn.Module):
         
     def forward(self, x_dict):
         # obtain list of variables [(batch, seqlen),(batch, seqlen), ...] from x_dict
-        var_list = []
+        #var_list = []
         
         # unsqueeze each var to make it 3-dim (batch, seq_len, 1)
         #for var in list(x_dict.values()):
@@ -463,12 +463,12 @@ class temporal_attention_layer(torch.nn.Module):
         #for i, (lin_tfr, var) in enumerate(zip(self.linear_transform, list(x_dict.values()))):
         #    var_list.append(lin_tfr(torch.unsqueeze(var, dim=2)))
         
-        for i, var in enumerate(list(x_dict.values())):
-            var_list.append(torch.unsqueeze(var, dim=2))
+        #for i, var in enumerate(list(x_dict.values())):
+        #    var_list.append(torch.unsqueeze(var, dim=2))
             #print(var_list[i].shape, list(x_dict.keys())[i])
 
         # var select
-        lstm_input, var_weights = self.variable_selection_layer(var_list)
+        lstm_input, var_weights = self.variable_selection_layer(list(x_dict.values()))
         
         # temporal process
         temporal_embeddings = self.recurrent_layer(lstm_input)
@@ -690,7 +690,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         #print("static_x_dict keys: ", static_x_dict.keys())
         
         # temporal attention dict
-        temporal_x_dict = {k: x_dict.get(k, None) for k in self.temporal_node_type}
+        temporal_x_dict = {k: torch.unsqueeze(x_dict.get(k, None), dim=2) for k in self.temporal_node_type}
         #print("temporal_x_dict keys: ", temporal_x_dict.keys())
         
         target_x_dict, var_weights = self.temporal_attention(temporal_x_dict)
@@ -802,7 +802,7 @@ class HeteroForecastGCNConv(torch.nn.Module):
         #print("static_x_dict keys: ", static_x_dict.keys())
         
         # temporal attention dict
-        temporal_x_dict = {k: x_dict.get(k, None) for k in self.temporal_node_type}
+        temporal_x_dict = {k: torch.unsqueeze(x_dict.get(k, None), dim=2) for k in self.temporal_node_type}
         #print("temporal_x_dict keys: ", temporal_x_dict.keys())
         
         target_x_dict, var_weights = self.temporal_attention(temporal_x_dict)
