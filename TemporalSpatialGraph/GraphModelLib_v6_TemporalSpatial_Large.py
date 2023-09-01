@@ -2123,7 +2123,8 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            out = self.model(sample_batch.to(self.device))
+            sample_batch = sample_batch.to(self.device)
+            out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
             
         # parameters count
         try:
