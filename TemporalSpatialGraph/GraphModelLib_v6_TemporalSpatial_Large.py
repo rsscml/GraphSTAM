@@ -2064,7 +2064,14 @@ class graphmodel():
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(df)
         
-            
+    def build_infer_dataset(self, df, infer_till):
+        # build graph datasets for infer
+        try:
+            del self.infer_dataset
+            gc.collect()
+        except:
+            pass
+        self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
     def build(self,
               model_type = "SAGE", 
               model_option = "TEMPORAL_SPATIAL", 
