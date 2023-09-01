@@ -654,7 +654,7 @@ class gml(object):
             model_config = ModelConfig(mode="regression", task_level="node", return_type="raw")
 
             explainer = Explainer(self.graphobj.model,
-                                  algorithm=CaptumExplainer('ShapleyValueSampling'),
+                                  algorithm=CaptumExplainer('IntegratedGradients'),
                                   explanation_type='model',
                                   node_mask_type='attributes',
                                   edge_mask_type='object',
