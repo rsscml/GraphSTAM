@@ -553,7 +553,7 @@ class gml(object):
                 if period >= self.infer_config['infer_start']:
                     # use forecasts as target
                     target = torch.tensor(
-                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].values)
+                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].to_numpy().astype(np.float64))
                 else:
                     target = infer_batch[self.col_dict['target_col']].y
 
@@ -606,7 +606,7 @@ class gml(object):
                 if period >= self.infer_config['infer_start']:
                     # use forecasts as target
                     target = torch.tensor(
-                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].values)
+                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].to_numpy().astype(np.float64))
                 else:
                     target = infer_batch[self.col_dict['target_col']].y
 
