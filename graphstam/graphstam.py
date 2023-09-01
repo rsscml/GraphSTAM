@@ -451,9 +451,9 @@ class gml(object):
                 f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
             f_df_list.append(f_df)
 
-        forecast = pd.concat(f_df_list, axis=1)
-        forecast = forecast.T.drop_duplicates().T
-        return forecast
+        self.forecast = pd.concat(f_df_list, axis=1)
+        self.forecast = self.forecast.T.drop_duplicates().T
+        return self.forecast
 
     def infer_baseline(self, remove_effects_col_list):
         # zero-out covariates
@@ -493,10 +493,10 @@ class gml(object):
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast_' + str(quantile)})
             f_df_list.append(f_df)
 
-        self.forecast = pd.concat(f_df_list, axis=1)
-        self.forecast = self.forecast.T.drop_duplicates().T
+        self.baseline_forecast = pd.concat(f_df_list, axis=1)
+        self.baseline_forecast = self.baseline_forecast.T.drop_duplicates().T
 
-        return self.forecast
+        return self.baseline_forecast
         
     def get_datasets(self,):
  
