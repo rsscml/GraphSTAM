@@ -493,10 +493,10 @@ class gml(object):
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast_' + str(quantile)})
             f_df_list.append(f_df)
 
-        forecast = pd.concat(f_df_list, axis=1)
-        forecast = forecast.T.drop_duplicates().T
+        self.forecast = pd.concat(f_df_list, axis=1)
+        self.forecast = self.forecast.T.drop_duplicates().T
 
-        return forecast
+        return self.forecast
         
     def get_datasets(self,):
  
@@ -550,6 +550,13 @@ class gml(object):
                 infer_batch = next(iter(infer_dataset))
                 infer_batch = infer_batch.to(self.graphobj.device)
 
+                if period >= self.infer_config['infer_start']:
+                    # use forecasts as target
+                    target = torch.tensor(
+                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].values)
+                else:
+                    target = infer_batch[self.col_dict['target_col']].y
+
                 # get node-index map
                 node_index_map = self.graphobj.node_index_map
 
@@ -557,7 +564,7 @@ class gml(object):
                     # run explanation for each node
                     explanation = explainer(x=infer_batch.x_dict,
                                             edge_index=infer_batch.edge_index_dict,
-                                            target=infer_batch[self.col_dict['target_col']].y,
+                                            target=target,
                                             index=torch.tensor([node_index]))
 
                     # save explanation object
@@ -596,6 +603,13 @@ class gml(object):
                 infer_batch = next(iter(infer_dataset))
                 infer_batch = infer_batch.to(self.graphobj.device)
 
+                if period >= self.infer_config['infer_start']:
+                    # use forecasts as target
+                    target = torch.tensor(
+                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].values)
+                else:
+                    target = infer_batch[self.col_dict['target_col']].y
+
                 # get node-index map
                 node_index_map = self.graphobj.node_index_map
 
@@ -609,7 +623,7 @@ class gml(object):
                     # run explanation for each node
                     explanation = explainer(x=infer_batch.x_dict,
                                             edge_index=infer_batch.edge_index_dict,
-                                            target=infer_batch[self.col_dict['target_col']].y,
+                                            target=target,
                                             index=torch.tensor([node_index]))
 
                     # save explanation object
@@ -636,7 +650,7 @@ class gml(object):
                 with open(v, 'rb') as f:
                     explanation = pickle.load(f)
                 if save_dir is not None:
-                    filename = save_dir.rstrip("/") + str(k) + '_feature_importance.png'
+                    filename = save_dir.rstrip("/") + '/' + str(k) + '_feature_importance.png'
                     explanation.visualize_feature_importance(path=filename, top_k=topk,
                                                              feat_labels=self.graphobj.node_features_label)
                     self.feature_importance_plots_dict[k] = filename
@@ -650,7 +664,7 @@ class gml(object):
                     explanation = pickle.load(f)
 
                 if save_dir is not None:
-                    filename = save_dir.rstrip("/") + str(keyname) + '_feature_importance.png'
+                    filename = save_dir.rstrip("/") + '/' + str(keyname) + '_feature_importance.png'
                     explanation.visualize_feature_importance(path=filename, top_k=topk,
                                                              feat_labels=self.graphobj.node_features_label)
                     self.feature_importance_plots_dict[keyname] = filename
@@ -691,9 +705,16 @@ class gml(object):
                 self.impact_nodes_dict[k] = key_wts_dict
 
             if save_dir is not None:
-                filename = save_dir.rstrip("/") + str(self.col_dict['target_col']) + '_impact_nodes_dict.pkl'
+                filename = save_dir.rstrip("/") + '/' + str(self.col_dict['target_col']) + '_impact_nodes_dict.pkl'
                 with open(filename, 'wb') as f:
                     pickle.dump(self.impact_nodes_dict, f)
+
+                # write it to a csv file for viz
+                impact_nodes_df = pd.DataFrame(self.impact_nodes_dict)
+                csv_file = save_dir.rstrip("/") + '/' + str(self.col_dict['target_col']) + '_impact_attribution.csv'
+                impact_nodes_df.to_csv(csv_file, index=False)
+
+                print("Key node mutual impact attributions written to file: {}".format(csv_file))
             else:
                 print(self.impact_nodes_dict)
 
@@ -740,14 +761,21 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy()
+                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy().item()
 
                 self.covariate_nodes_impact_dict[k] = covar_wt_dict
 
             if save_dir is not None:
-                filename = save_dir.rstrip("/") + 'covariate_impact_nodes_dict.pkl'
+                filename = save_dir.rstrip("/") + '/covariate_impact_nodes_dict.pkl'
                 with open(filename, 'wb') as f:
                     pickle.dump(self.covariate_nodes_impact_dict, f)
+
+                # write it to a csv file for viz
+                covariate_nodes_impact_df = pd.DataFrame(self.covariate_nodes_impact_dict)
+                csv_file = save_dir.rstrip("/") + '/covariate_nodes_impact_attribution.csv'
+                covariate_nodes_impact_df.to_csv(csv_file, index=False)
+
+                print("Covariate nodes impact attributions written to file: {}".format(csv_file))
             else:
                 print(self.covariate_nodes_impact_dict)
 
@@ -760,7 +788,7 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy()
+                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy().item()
 
                 self.covariate_nodes_impact_dict[keyname] = covar_wt_dict
                 print(self.covariate_nodes_impact_dict)
