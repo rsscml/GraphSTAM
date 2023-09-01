@@ -210,7 +210,12 @@ def usage():
     print("\033[1m"+"Step 7. Generate Forecasts"+"\033[0m")
     print("... Run forecasts = gmlobj.infer() . 'forecasts' is the returned pandas dataframe containing predictions.")
     print("\n")
-    
+    print("\033[1m"+"Step 8. Run Attribution Analysis"+"\033[0m")
+    print("... a) Generate Explanation Objects for each Key Node. For e.g.: gmlobj.generate_explanations(explain_periods=['2023-01-01'], save_dir='./models/')")
+    print("... b) Optionally, generate feature importance plots, e.g. gmlobj.show_feature_importance(node_id=None, period=None, topk=20, save_dir='./models/')")
+    print("... c) Generate impact of key nodes on each other, e.g. gmlobj.show_correlated_target_nodes(node_id=None, period=None, save_dir=None) ")
+    print("... d) Generate impact of covariate nodes on key nodes, e.g. gmlobj.show_covariate_nodes_importance(node_id=None, period=None, save_dir='./models/')")
+    print("... Note: Steps a, b,c & d write out artefacts such as charts, pickle files, csv files, to the save_dir location for persistence.")
 
 def show_columns_dict():
     print('\033[1m'+'Columns Dictionary Template'+'\033[0m')
@@ -673,7 +678,7 @@ class gml(object):
             else:
                 raise ValueError("Provide valid period.")
 
-    def show_correlated_target_nodes(self, node_id=None, period=None, topk=20, save_dir=None):
+    def show_correlated_target_nodes(self, node_id=None, period=None, save_dir=None):
         import torch
         from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
         import pickle
@@ -687,6 +692,8 @@ class gml(object):
 
                 node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
                     dim=1).cpu().numpy()
+
+                topk = node_mask_target.shape[0]
                 top_nodes = np.argpartition(node_mask_target, -topk)[-topk:]
                 top_node_weights = node_mask_target[top_nodes]
 
@@ -711,8 +718,9 @@ class gml(object):
 
                 # write it to a csv file for viz
                 impact_nodes_df = pd.DataFrame(self.impact_nodes_dict)
+                impact_nodes_df.fillna(0, inplace=True)
                 csv_file = save_dir.rstrip("/") + '/' + str(self.col_dict['target_col']) + '_impact_attribution.csv'
-                impact_nodes_df.to_csv(csv_file, index=False)
+                impact_nodes_df.to_csv(csv_file, index=True)
 
                 print("Key node mutual impact attributions written to file: {}".format(csv_file))
             else:
@@ -727,6 +735,8 @@ class gml(object):
 
                 node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
                     dim=1).cpu().numpy()
+
+                topk = node_mask_target.shape[0]
                 top_nodes = np.argpartition(node_mask_target, -topk)[-topk:]
                 top_node_weights = node_mask_target[top_nodes]
 
@@ -772,8 +782,9 @@ class gml(object):
 
                 # write it to a csv file for viz
                 covariate_nodes_impact_df = pd.DataFrame(self.covariate_nodes_impact_dict)
+                covariate_nodes_impact_df.fillna(0, inplace=True)
                 csv_file = save_dir.rstrip("/") + '/covariate_nodes_impact_attribution.csv'
-                covariate_nodes_impact_df.to_csv(csv_file, index=False)
+                covariate_nodes_impact_df.to_csv(csv_file, index=True)
 
                 print("Covariate nodes impact attributions written to file: {}".format(csv_file))
             else:
