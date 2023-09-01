@@ -643,7 +643,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type+self.static_node_type)])
+                                                                  types=self.context_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -682,7 +682,7 @@ class HeteroForecastSageConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -758,7 +758,7 @@ class HeteroForecastGCNConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type+self.static_node_type)])
+                                                                  types=self.context_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -795,7 +795,7 @@ class HeteroForecastGCNConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -868,7 +868,7 @@ class HeteroForecastGATConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type+self.static_node_type)])
+                                                                  types=self.context_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -903,7 +903,7 @@ class HeteroForecastGATConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -977,7 +977,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type+self.static_node_type)])
+                                                                  types=self.context_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -1012,7 +1012,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
