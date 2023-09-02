@@ -4,12 +4,12 @@ from setuptools import setup
 
 # The directory containing this file
 this_directory = Path(__file__).parent
-long_description  = (this_directory / "README.md").read_text()
+long_description = (this_directory / "README.md").read_text()
 
 # This call to setup() does all the work
 setup(
     name="GraphSTAM",
-    version="0.1.4",
+    version="0.1.5",
     description="Graph Based Spatio-Temporal Attention Models For Demand Forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",

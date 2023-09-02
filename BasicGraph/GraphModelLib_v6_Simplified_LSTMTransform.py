@@ -1550,7 +1550,8 @@ class graphmodel():
     
     def split_infer(self, data):
         
-        infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
+        #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
+        infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
         
         return infer_data
 
