@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import gc
 import copy
+import sklearn
 
 # show available model configurations
 
@@ -695,7 +696,7 @@ class gml(object):
                 with open(v, 'rb') as f:
                     explanation = pickle.load(f)
 
-                node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
+                node_mask_target = explanation.node_mask_dict[self.col_dict['target_col']].sum(
                     dim=1).cpu().numpy()
 
                 topk = node_mask_target.shape[0]
@@ -724,6 +725,10 @@ class gml(object):
                 # write it to a csv file for viz
                 impact_nodes_df = pd.DataFrame(self.impact_nodes_dict)
                 impact_nodes_df.fillna(0, inplace=True)
+                # L1 normalize weights
+                norm_wts = sklearn.preprocessing.normalize(impact_nodes_df, norm='l1', axis=0)
+                impact_nodes_df[impact_nodes_df.columns.tolist()] = norm_wts
+
                 csv_file = save_dir.rstrip("/") + '/' + str(self.col_dict['target_col']) + '_impact_attribution.csv'
                 impact_nodes_df.to_csv(csv_file, index=True)
 
@@ -738,7 +743,7 @@ class gml(object):
                 with open(explain_file, 'rb') as f:
                     explanation = pickle.load(f)
 
-                node_mask_target = torch.abs(explanation.node_mask_dict[self.col_dict['target_col']]).sum(
+                node_mask_target = explanation.node_mask_dict[self.col_dict['target_col']].sum(
                     dim=1).cpu().numpy()
 
                 topk = node_mask_target.shape[0]
@@ -755,7 +760,7 @@ class gml(object):
                 for n, w in topn_dict.items():
                     n_index = values_list.index(n)
                     key = keys_list[n_index]
-                    key_wts_dict[key] = w
+                    key_wts_dict[key] = sklearn.preprocessing.normalize(w, norm='l1', axis=0)
 
                 self.impact_nodes_dict[keyname] = key_wts_dict
                 print(self.impact_nodes_dict)
@@ -776,7 +781,7 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy().item()
+                    covar_wt_dict[n] = w.sum().cpu().numpy().item()
 
                 self.covariate_nodes_impact_dict[k] = covar_wt_dict
 
@@ -788,6 +793,10 @@ class gml(object):
                 # write it to a csv file for viz
                 covariate_nodes_impact_df = pd.DataFrame(self.covariate_nodes_impact_dict)
                 covariate_nodes_impact_df.fillna(0, inplace=True)
+                # L1 normalize weights
+                norm_wts = sklearn.preprocessing.normalize(covariate_nodes_impact_df, norm='l1', axis=0)
+                covariate_nodes_impact_df[covariate_nodes_impact_df.columns.tolist()] = norm_wts
+
                 csv_file = save_dir.rstrip("/") + '/covariate_nodes_impact_attribution.csv'
                 covariate_nodes_impact_df.to_csv(csv_file, index=True)
 
@@ -804,7 +813,8 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wt_dict[n] = torch.abs(w).sum().cpu().numpy().item()
+                    covar_wts = w.sum().cpu().numpy().item()
+                    covar_wt_dict[n] = sklearn.preprocessing.normalize(covar_wts, norm='l1', axis=0)
 
                 self.covariate_nodes_impact_dict[keyname] = covar_wt_dict
                 print(self.covariate_nodes_impact_dict)
