@@ -868,7 +868,7 @@ class gml(object):
 
         # forecasts
         forecast = self.forecast
-        forecast['keyname'] = str(forecast[self.col_dict['id_col']]) + '_' + str(forecast[self.col_dict['time_index_col']])
+        forecast['keyname'] = forecast[self.col_dict['id_col']].astype(str) + '_' + forecast[self.col_dict['time_index_col']].astype(str)
         forecast = forecast[['keyname', 'forecast', self.col_dict['time_index_col']]]
         print(forecast.head())
 
