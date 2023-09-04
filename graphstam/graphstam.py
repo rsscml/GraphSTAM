@@ -855,6 +855,7 @@ class gml(object):
         print(impact_nodes_df.head())
         impact_nodes_df.rename(columns={'index': 'keyname'}, inplace=True)
         impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index()
+        print(impact_nodes_df.head())
         impact_nodes_df = impact_nodes_df.set_index('keyname')
         print(impact_nodes_df.head())
 
