@@ -438,7 +438,7 @@ class gml(object):
  
         self.graphobj.train(**self.train_config)
     
-    def infer(self):
+    def infer(self, infer_start=None, infer_end=None):
         try:
             del self.graphobj.train_dataset, self.graphobj.test_dataset
             gc.collect()
@@ -449,8 +449,15 @@ class gml(object):
         for quantile in self.infer_quantiles:
             self.infer_config.pop('select_quantile')
             self.infer_config.update({'select_quantile': quantile})
-            f_df = self.graphobj.infer(**self.infer_config)
-            f_df['forecast'] == np.clip(f_df['forecast'], a_min=0, a_max=None)
+            if (infer_start is None) or (infer_end is None):
+                f_df = self.graphobj.infer(**self.infer_config)
+                f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
+            else:
+                self.infer_config['infer_start'] = infer_start
+                self.infer_config['infer_end'] = infer_end
+                f_df = self.graphobj.infer(**self.infer_config)
+                f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
+
             if len(self.infer_quantiles) == 1:
                 pass
             else:
@@ -461,7 +468,7 @@ class gml(object):
         self.forecast = self.forecast.T.drop_duplicates().T
         return self.forecast
 
-    def infer_baseline(self, remove_effects_col_list):
+    def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):
         # zero-out covariates
         data = self.infer_config['df']
         baseline_data = data.copy()
@@ -491,8 +498,15 @@ class gml(object):
         for quantile in self.infer_quantiles:
             baseline_infer_config.pop('select_quantile')
             baseline_infer_config.update({'select_quantile': quantile})
-            f_df = self.graphobj.infer(**baseline_infer_config)
-            f_df['forecast'] == np.clip(f_df['forecast'], a_min=0, a_max=None)
+            if (infer_start is None) or (infer_end is None):
+                f_df = self.graphobj.infer(**baseline_infer_config)
+                f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
+            else:
+                baseline_infer_config['infer_start'] = infer_start
+                baseline_infer_config['infer_end'] = infer_end
+                f_df = self.graphobj.infer(**baseline_infer_config)
+                f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
+
             if len(self.infer_quantiles) == 1:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
             else:
@@ -733,6 +747,8 @@ class gml(object):
                 impact_nodes_df.to_csv(csv_file, index=True)
 
                 print("Key node mutual impact attributions written to file: {}".format(csv_file))
+
+                return impact_nodes_df
             else:
                 print(self.impact_nodes_dict)
 
@@ -801,6 +817,8 @@ class gml(object):
                 covariate_nodes_impact_df.to_csv(csv_file, index=True)
 
                 print("Covariate nodes impact attributions written to file: {}".format(csv_file))
+
+                return covariate_nodes_impact_df
             else:
                 print(self.covariate_nodes_impact_dict)
 
@@ -820,3 +838,34 @@ class gml(object):
                 print(self.covariate_nodes_impact_dict)
             else:
                 raise ValueError("Provide valid period.")
+
+    def run_attribution_analysis(self, explain_periods, save_dir):
+        # generate explanations
+        self.generate_explanations(explain_periods, save_dir)
+
+        # get node wts
+        impact_nodes_df = self.show_correlated_target_nodes(node_id=None, period=None, save_dir=save_dir)
+        impact_nodes_df = impact_nodes_df.reset_index().transpose()
+        impact_nodes_df.rename(columns={'Unnamed: 0':'keyname'}, inplace=True)
+        impact_nodes_df = impact_nodes_df.set_index('keyname')
+
+        # get covar nodes wts
+        covariate_nodes_impact_df = self.show_covariate_nodes_importance(node_id=None, period=None, save_dir=save_dir)
+        covariate_nodes_impact_df = covariate_nodes_impact_df.reset_index().transpose()
+        covariate_nodes_impact_df.rename(columns={'Unnamed: 0':'keyname'}, inplace=True)
+        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname')
+
+        # forecasts
+        forecast = self.forecast
+        forecast['keyname'] = str(forecast[self.col_dict['id_col']]) + '_' + str(forecast[self.col_dict['time_index_col']])
+        forecast = forecast[['keyname','forecast']]
+        forecast = forecast.set_index('keyname')
+
+        # transpose & merge all
+        attribution_df = pd.concat([impact_nodes_df, covariate_nodes_impact_df, forecast], axis=1, ignore_index=False)
+
+        contributing_factors = impact_nodes_df.columns.tolist() + covariate_nodes_impact_df.columns.tolist()
+        # get contributions
+        attribution_df[contributing_factors] = attribution_df[contributing_factors].multiply(attribution_df['forecast'], axis="index")
+
+        return attribution_df
