@@ -852,31 +852,31 @@ class gml(object):
         # get node wts
         impact_nodes_df = self.show_correlated_target_nodes(node_id=None, period=None, save_dir=save_dir)
         impact_nodes_df = impact_nodes_df.reset_index() #.transpose()
-        print(impact_nodes_df.head())
+        #print(impact_nodes_df.head())
         impact_nodes_df.rename(columns={'index': 'keyname'}, inplace=True)
         impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index()
-        print(impact_nodes_df.head())
+        #print(impact_nodes_df.head())
 
 
         # get covar nodes wts
         covariate_nodes_impact_df = self.show_covariate_nodes_importance(node_id=None, period=None, save_dir=save_dir)
         covariate_nodes_impact_df = covariate_nodes_impact_df.reset_index() #.transpose()
-        print(covariate_nodes_impact_df.head())
+        #print(covariate_nodes_impact_df.head())
         covariate_nodes_impact_df.rename(columns={'index': 'keyname'}, inplace=True)
         covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index()
-        print(covariate_nodes_impact_df.head())
+        #print(covariate_nodes_impact_df.head())
 
         # forecasts
         forecast = self.forecast
         forecast['keyname'] = forecast[self.col_dict['id_col']].astype(str) + '_' + forecast[self.col_dict['time_index_col']].astype(str)
         forecast = forecast[['keyname', 'forecast', self.col_dict['time_index_col']]]
-        print(forecast.head())
+        #print(forecast.head())
 
         # transpose & merge all
         attribution_df = impact_nodes_df.merge(covariate_nodes_impact_df, how='inner', on='keyname')
-        print(attribution_df.head())
+        #print(attribution_df.head())
         attribution_df = attribution_df.merge(forecast, on='keyname', how='inner')
-        print(attribution_df.head())
+        #print(attribution_df.head())
 
         # contributions
         covar_columns = list(set(covariate_nodes_impact_df.columns.tolist()) - set(['keyname']))
