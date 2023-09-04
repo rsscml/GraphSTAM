@@ -854,30 +854,31 @@ class gml(object):
         impact_nodes_df = impact_nodes_df.reset_index() #.transpose()
         print(impact_nodes_df.head())
         impact_nodes_df.rename(columns={'index': 'keyname'}, inplace=True)
-        impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index(drop=True)
+        impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index()
         print(impact_nodes_df.head())
-        impact_nodes_df = impact_nodes_df.set_index('keyname')
-        print(impact_nodes_df.head())
+
 
         # get covar nodes wts
         covariate_nodes_impact_df = self.show_covariate_nodes_importance(node_id=None, period=None, save_dir=save_dir)
         covariate_nodes_impact_df = covariate_nodes_impact_df.reset_index() #.transpose()
         print(covariate_nodes_impact_df.head())
         covariate_nodes_impact_df.rename(columns={'index': 'keyname'}, inplace=True)
-        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index(drop=True)
-        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname')
+        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False).reset_index()
 
         # forecasts
         forecast = self.forecast
         forecast['keyname'] = str(forecast[self.col_dict['id_col']]) + '_' + str(forecast[self.col_dict['time_index_col']])
         forecast = forecast[['keyname', 'forecast', self.col_dict['time_index_col']]]
-        forecast = forecast.set_index('keyname')
 
         # transpose & merge all
-        attribution_df = pd.concat([impact_nodes_df, covariate_nodes_impact_df, forecast], axis=1, ignore_index=False)
+        attribution_df = impact_nodes_df.merge(covariate_nodes_impact_df, how='inner', on='keyname')
+        attribution_df = attribution_df.merge(forecast, on='keyname', how='inner')
 
-        contributing_factors = impact_nodes_df.columns.tolist() + covariate_nodes_impact_df.columns.tolist()
-        # get contributions
-        attribution_df[contributing_factors] = attribution_df[contributing_factors].multiply(attribution_df['forecast'], axis="index")
+        # contributions
+        covar_columns = covariate_nodes_impact_df.columns.tolist()
+        attribution_df[covar_columns] = attribution_df[covar_columns].multiply(attribution_df['forecast'], axis="index")
+
+        impact_node_columns = impact_nodes_df.columns.tolist()
+        attribution_df[impact_node_columns] = attribution_df[impact_node_columns].multiply(attribution_df[self.col_dict['target_col']], axis="index")
 
         return attribution_df
