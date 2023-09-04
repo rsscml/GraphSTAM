@@ -886,5 +886,6 @@ class gml(object):
         impact_node_columns = list(set(impact_nodes_df.columns.tolist()) - set(['keyname']))
         attribution_df[impact_node_columns] = attribution_df[impact_node_columns].astype(np.float64)
         attribution_df[impact_node_columns] = attribution_df[impact_node_columns].multiply(abs(attribution_df[self.col_dict['target_col']].astype(np.float64)), axis="index")
+        print(attribution_df.head())
 
         return attribution_df
