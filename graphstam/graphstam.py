@@ -854,7 +854,7 @@ class gml(object):
         impact_nodes_df = impact_nodes_df.reset_index() #.transpose()
         print(impact_nodes_df.head())
         impact_nodes_df.rename(columns={'index': 'keyname'}, inplace=True)
-        impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(None, 1)
+        impact_nodes_df = impact_nodes_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False)
         print(impact_nodes_df.head())
 
         # get covar nodes wts
@@ -862,7 +862,7 @@ class gml(object):
         covariate_nodes_impact_df = covariate_nodes_impact_df.reset_index() #.transpose()
         print(covariate_nodes_impact_df.head())
         covariate_nodes_impact_df.rename(columns={'index': 'keyname'}, inplace=True)
-        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname').T.rename_axis('keyname').rename_axis(None, 1)
+        covariate_nodes_impact_df = covariate_nodes_impact_df.set_index('keyname').T.rename_axis('keyname').rename_axis(copy=None, inplace=False)
 
         # forecasts
         forecast = self.forecast
