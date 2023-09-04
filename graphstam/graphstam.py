@@ -740,8 +740,8 @@ class gml(object):
                 impact_nodes_df = pd.DataFrame(self.impact_nodes_dict)
                 impact_nodes_df.fillna(0, inplace=True)
                 # L1 normalize weights
-                norm_wts = sklearn.preprocessing.normalize(impact_nodes_df, norm='l1', axis=0)
-                impact_nodes_df[impact_nodes_df.columns.tolist()] = norm_wts
+                #norm_wts = sklearn.preprocessing.normalize(impact_nodes_df, norm='l1', axis=0)
+                #impact_nodes_df[impact_nodes_df.columns.tolist()] = norm_wts
 
                 csv_file = save_dir.rstrip("/") + '/' + str(self.col_dict['target_col']) + '_impact_attribution.csv'
                 impact_nodes_df.to_csv(csv_file, index=True)
@@ -810,8 +810,8 @@ class gml(object):
                 covariate_nodes_impact_df = pd.DataFrame(self.covariate_nodes_impact_dict)
                 covariate_nodes_impact_df.fillna(0, inplace=True)
                 # L1 normalize weights
-                norm_wts = sklearn.preprocessing.normalize(covariate_nodes_impact_df, norm='l1', axis=0)
-                covariate_nodes_impact_df[covariate_nodes_impact_df.columns.tolist()] = norm_wts
+                #norm_wts = sklearn.preprocessing.normalize(covariate_nodes_impact_df, norm='l1', axis=0)
+                #covariate_nodes_impact_df[covariate_nodes_impact_df.columns.tolist()] = norm_wts
 
                 csv_file = save_dir.rstrip("/") + '/covariate_nodes_impact_attribution.csv'
                 covariate_nodes_impact_df.to_csv(csv_file, index=True)
