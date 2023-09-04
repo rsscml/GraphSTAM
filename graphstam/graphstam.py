@@ -839,7 +839,13 @@ class gml(object):
             else:
                 raise ValueError("Provide valid period.")
 
-    def run_attribution_analysis(self, explain_periods, save_dir):
+    def run_attribution_analysis(self, explain_periods=None, save_dir='./'):
+
+        if explain_periods is None:
+            explain_periods = sorted(self.forecast[self.col_dict['time_index_col']].unique().tolist(), reverse=False)
+        else:
+            assert len(explain_periods)>0, "explain_periods should be a list of at least one period to explain."
+
         # generate explanations
         self.generate_explanations(explain_periods, save_dir)
 
