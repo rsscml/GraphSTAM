@@ -698,7 +698,7 @@ class gml(object):
             else:
                 raise ValueError("Provide valid period.")
 
-    def show_correlated_target_nodes(self, node_id=None, period=None, save_dir=None):
+    def show_key_nodes_importance(self, node_id=None, period=None, save_dir=None):
         import torch
         from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
         import pickle
@@ -850,7 +850,7 @@ class gml(object):
         self.generate_explanations(explain_periods, save_dir)
 
         # get node wts
-        impact_nodes_df = self.show_correlated_target_nodes(node_id=None, period=None, save_dir=save_dir)
+        impact_nodes_df = self.show_key_nodes_importance(node_id=None, period=None, save_dir=save_dir)
         impact_nodes_df = impact_nodes_df.reset_index() #.transpose()
         #print(impact_nodes_df.head())
         impact_nodes_df.rename(columns={'index': 'keyname'}, inplace=True)
