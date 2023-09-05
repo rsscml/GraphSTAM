@@ -214,7 +214,7 @@ def usage():
     print("\033[1m"+"Step 8. Run Attribution Analysis"+"\033[0m")
     print("... a) Generate Explanation Objects for each Key Node. For e.g.: gmlobj.generate_explanations(explain_periods=['2023-01-01'], save_dir='./models/')")
     print("... b) Optionally, generate feature importance plots, e.g. gmlobj.show_feature_importance(node_id=None, period=None, topk=20, save_dir='./models/')")
-    print("... c) Generate impact of key nodes on each other, e.g. gmlobj.show_correlated_target_nodes(node_id=None, period=None, save_dir=None) ")
+    print("... c) Generate impact of key nodes on each other, e.g. gmlobj.show_key_nodes_importance(node_id=None, period=None, save_dir=None) ")
     print("... d) Generate impact of covariate nodes on key nodes, e.g. gmlobj.show_covariate_nodes_importance(node_id=None, period=None, save_dir='./models/')")
     print("... Note: Steps a, b,c & d write out artefacts such as charts, pickle files, csv files, to the save_dir location for persistence.")
 
