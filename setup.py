@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text()
 # This call to setup() does all the work
 setup(
     name="GraphSTAM",
-    version="0.1.7",
+    version="1.0",
     description="Graph Based Spatio-Temporal Attention Models For Demand Forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -17,5 +17,5 @@ setup(
     author_email="rahul.sinha@unilever.com",
     packages=["graphstam", "BasicGraph", "SpatialTemporalGraph", "TemporalSpatialGraph"],
     include_package_data=True,
-    install_requires=["torch==2.0.1", "torch_sparse", "torch_scatter", "torch-geometric", "joblib", "pathlib", "sklearn"]
+    install_requires=[]
 )
