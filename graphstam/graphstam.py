@@ -727,7 +727,7 @@ class gml(object):
                 for n, w in topn_dict.items():
                     n_index = values_list.index(n)
                     key = keys_list[n_index]
-                    key_wts_dict[key] = w
+                    key_wts_dict[key] = abs(w)
 
                 self.impact_nodes_dict[k] = key_wts_dict
 
@@ -776,7 +776,7 @@ class gml(object):
                 for n, w in topn_dict.items():
                     n_index = values_list.index(n)
                     key = keys_list[n_index]
-                    key_wts_dict[key] = sklearn.preprocessing.normalize(w, norm='l1', axis=0)
+                    key_wts_dict[key] = sklearn.preprocessing.normalize(abs(w), norm='l1', axis=0)
 
                 self.impact_nodes_dict[keyname] = key_wts_dict
                 print(self.impact_nodes_dict)
@@ -797,7 +797,7 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wt_dict[n] = w.sum().cpu().numpy().item()
+                    covar_wt_dict[n] = abs(w.sum().cpu().numpy().item())
 
                 self.covariate_nodes_impact_dict[k] = covar_wt_dict
 
@@ -831,7 +831,7 @@ class gml(object):
 
                 covar_wt_dict = {}
                 for n, w in explanation.node_mask_dict.items():
-                    covar_wts = w.sum().cpu().numpy().item()
+                    covar_wts = abs(w.sum().cpu().numpy().item())
                     covar_wt_dict[n] = sklearn.preprocessing.normalize(covar_wts, norm='l1', axis=0)
 
                 self.covariate_nodes_impact_dict[keyname] = covar_wt_dict
