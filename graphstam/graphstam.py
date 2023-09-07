@@ -266,6 +266,9 @@ class gml(object):
         self.col_dict = self.data_config["col_dict"]
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
         self.train_infer_device = self.model_config['device']
+        self.train_batch_size = self.data_config['batch']
+        if self.train_batch_size is None:
+            self.train_batch_size = 1
 
         if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
@@ -279,7 +282,7 @@ class gml(object):
             import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
-                                       'batch': 1,
+                                       'batch': self.train_batch_size,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
