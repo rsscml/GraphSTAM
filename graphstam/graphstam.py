@@ -308,7 +308,7 @@ class gml(object):
             import BasicGraph as graphmodel
             # deault common configs
             self.common_data_config = {'fh': 1,
-                                       'batch': 1,
+                                       'batch': self.train_batch_size,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
