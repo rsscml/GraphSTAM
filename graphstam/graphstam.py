@@ -176,12 +176,13 @@ GraphSageLSTM_config = {"data_config": {'col_dict': "A Dictionary describing col
                                           
                             }
 
-model_configs = {'SimpleGraphSage': SimpleGraphSage_config, 
-                 'SimpleGraphSageAuto': SimpleGraphSageAuto_config, 
+model_configs = {'SimpleGraphSage': SimpleGraphSage_config,
+                 'SimpleGraphSageOneshot': SimpleGraphSage_config,
+                 'SimpleGraphSageAuto': SimpleGraphSageAuto_config,
+                 'SimpleGraphSageAutoOneshot': SimpleGraphSageAuto_config,
                  'TransformerGraphSage': TransformerGraphSage_config, 
                  'TransformerGraphSageLarge': TransformerGraphSage_config, 
                  'GraphSageLSTM': GraphSageLSTM_config}
-
 
 def usage():
     print('\033[1m'+'Workflow Steps'+'\033[0m')
@@ -240,9 +241,9 @@ def show_config_dict(model_type):
     
     print('\033[1m'+'Config Template for {}'.format(model_type)+'\033[0m')
     print("=====================")
-    if model_type == 'SimpleGraphSage':
+    if model_type in ['SimpleGraphSage', 'SimpleGraphSageOneshot']:
         print("   ", json.dumps(SimpleGraphSage_config, indent=4))
-    elif model_type == 'SimpleGraphSageAuto':
+    elif model_type in ['SimpleGraphSageAuto', 'SimpleGraphSageAutoOneshot']:
         print("   ", json.dumps(SimpleGraphSageAuto_config, indent=4))
     elif model_type == 'TransformerGraphSage':
         print("   ", json.dumps(TransformerGraphSage_config, indent=4))
@@ -267,8 +268,12 @@ class gml(object):
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
         self.train_infer_device = self.model_config['device']
         self.train_batch_size = self.data_config['batch']
+        self.fh = self.data_config['fh']
         if self.train_batch_size is None:
             self.train_batch_size = 1
+
+        if self.fh is None:
+            self.fh = 1
 
         if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
@@ -277,11 +282,11 @@ class gml(object):
 
         global graphmodel
 
-        if model_type in ['SimpleGraphSage']:
+        if model_type in ['SimpleGraphSage', 'SimpleGraphSageOneshot']:
             
             import BasicGraph as graphmodel
             # deault common configs
-            self.common_data_config = {'fh': 1,
+            self.common_data_config = {'fh': self.fh,
                                        'batch': self.train_batch_size,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -302,12 +307,12 @@ class gml(object):
             
             self.data_config.update(self.common_data_config)
             self.model_config.update(self.common_model_config)
-            
-        elif model_type in ['SimpleGraphSageAuto']:
+
+        elif model_type in ['SimpleGraphSageAuto', 'SimpleGraphSageAutoOneshot']:
             
             import BasicGraph as graphmodel
             # deault common configs
-            self.common_data_config = {'fh': 1,
+            self.common_data_config = {'fh': self.fh,
                                        'batch': self.train_batch_size,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
@@ -427,6 +432,10 @@ class gml(object):
         # init graphmodel object
         if self.model_type in ['SimpleGraphSageAuto','TransformerGraphSageLarge']:
             self.graphobj = graphmodel.graphmodel_large(**self.data_config)
+        elif self.model_type in ['SimpleGraphSageOneshot']:
+            self.graphobj = graphmodel.graphmodel_multihorizon(**self.data_config)
+        elif self.model_type in ['SimpleGraphSageAutoOneshot']:
+            self.graphobj = graphmodel.graphmodel_large_multihorizon(**self.data_config)
         else:
             self.graphobj = graphmodel.graphmodel(**self.data_config)
 

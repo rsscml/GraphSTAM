@@ -759,7 +759,8 @@ class STGNN(torch.nn.Module):
         if self.model_option == "BASIC":
             # direct projection from node embeddings
             self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.project_lin = Linear(self.hidden_channels, self.n_pred*self.n_quantiles)
+            self.increase_emb_dim = Linear(self.hidden_channels, self.hidden_channels*2)
+            self.project_lin = Linear(self.hidden_channels*2, self.n_pred*self.n_quantiles)
         
         else:
             raise "Invalid model_option. model_option: [BASIC]"
@@ -779,7 +780,8 @@ class STGNN(torch.nn.Module):
         if self.model_option == "BASIC":
             
             # final projection layer
-            out = self.project_lin(x)
+            out = self.increase_emb_dim(x)
+            out = self.project_lin(out)
             
             if self.pos_out:
                 out = F.softplus(out)
@@ -1102,10 +1104,18 @@ class graphmodel():
             else:
                 self.node_features_label[col] = self.lead_lag_features_dict[col]
 
+        # create multihorizon target
+        self.multihorizon_targets = {}
+        self.multihorizon_targets[self.target_col] = []
+
+        for lead in range(0, self.fh):
+            df[f'{self.target_col}_lead_{lead}'] = df.groupby(self.id_col)[self.target_col].shift(periods=-lead)
+            self.multihorizon_targets[self.target_col].append(f'{self.target_col}_lead_{lead}')
+
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        df = df.dropna(subset=all_lead_lag_cols)
+        df = df.dropna(subset=all_lead_lag_cols+self.multihorizon_targets[self.target_col])
         
         return df
     
@@ -1293,7 +1303,7 @@ class graphmodel():
         # get node features
 
         data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col] + self.rolling_stat_cols].to_numpy(), dtype=torch.float)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.multihorizon_targets[self.target_col]].to_numpy().reshape(-1,self.fh), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
         
@@ -1633,36 +1643,23 @@ class graphmodel():
         else:
             scaler_cols = ['scaler_mu','scaler_std']
         
-        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
+        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.multihorizon_targets[self.target_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
         
-        model_output = model_output.reshape(-1,1)
-        output = pd.DataFrame(data=model_output, columns=['forecast'])
+        model_output = model_output.reshape(-1, self.fh)
+        output = pd.DataFrame(data=model_output, columns=[f'forecast_{i}' for i in range(self.fh)])
         
         # merge forecasts with infer df
         output = pd.concat([infer_df, output], axis=1)    
        
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            output['forecast'] = output['forecast']*output['scaler']
-            output[self.target_col] = output[self.target_col]*output['scaler']
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col]+self.multihorizon_targets[self.target_col]] = output[[self.target_col]+self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
         else:
-            output['forecast'] = output['forecast']*output['scaler_std'] + output['scaler_mu']
-            output[self.target_col] = output[self.target_col]*output['scaler_std'] + output['scaler_mu']
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col]+self.multihorizon_targets[self.target_col]] = output[[self.target_col]+self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
         
         return output
-        
-    def update_dataframe(self, df, output):
-        
-        # merge output & base_df
-        reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
-        df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
-        
-        # update target for current ts with forecasts
-        df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(), df_updated[self.target_col], df_updated['forecast'])
-        
-        # drop forecast column
-        df_updated = df_updated.drop(columns=['forecast'])
-        
-        return df_updated
+
     
     def build_dataset(self, df):
         # build graph datasets for train/test
@@ -1917,148 +1914,72 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
-    
+
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
-        
+
         base_df = df.copy()
-        
+
         # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
-        
+        infer_periods = sorted(
+            base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][
+                self.time_index_col].unique().tolist())
+
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
-        
-        forecast_df = pd.DataFrame() 
-        
+
+        forecast_df = pd.DataFrame()
+
         # infer fn
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
             model.train(False)
             output = []
-            with torch.no_grad(): 
+            with torch.no_grad():
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
 
-        for i,t in enumerate(infer_periods):
-            
-            print("forecasting period {} at lag {}".format(t, i))
-            
-            # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-            if self.include_rolling_features:
-                self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-            
-            if not self.categorical_onehot_encoding:
-                self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
-                self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
-        
-            # infer dataset creation 
-            infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
-            output = infer_fn(self.model, self.best_model, infer_dataset)
-            
-            # select output quantile
-            output_arr = output[0]
-            output_arr = output_arr.cpu().numpy()
-            
-            # quantile selection
-            min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-            
-            if self.loss_type == 'Quantile':
-                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+        print("forecast period range: {} to {}".format(infer_periods[0], infer_periods[-1]))
 
-                try:
-                    q_index = self.forecast_quantiles(select_quantile)
-                    output_arr = output_arr[:,:,q_index] 
-                except:
-                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                    q_lower = int(q_upper - 1)
-                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                    q_lower_weight = 1 - q_upper_weight
-                    output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
-            else:
-                try:
-                    output_arr = output_arr[:, :, 0]
-                except:
-                    pass
-                
-            # show current o/p
-            scaled_output = self.process_output(base_df, output_arr)
-            
-            # compute mape
-            if compute_mape:
-                scaled_output['forecast_sum'] = scaled_output.groupby(self.id_col)['forecast'].transform(lambda x: x.sum())
-                scaled_output['forecast_sum'] = np.where(scaled_output['forecast_sum']<0, 0, scaled_output['forecast_sum'])
-                scaled_output['abs_error'] = abs(scaled_output[self.target_col] - scaled_output['forecast'])
-                print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
-                
-            # append forecast
-            forecast_df = forecast_df.append(scaled_output)
-
-            # update df
-            base_df = self.update_dataframe(base_df, scaled_output)
-        
-        return forecast_df
-    
-    def infer_oneshot(self, df, select_quantile, compute_mape=False):
-        
-        base_df = df.copy()
-        
-        # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
-        
-        # print model used for inference
-        print("running inference using best saved model: ", self.best_model)
-        
-        # infer fn
-        def infer_fn(model, model_path, infer_dataset):
-            model.load_state_dict(torch.load(model_path))
-            model.eval()
-            model.train(False)
-            output = []
-            with torch.no_grad(): 
-                for i, batch in enumerate(infer_dataset):
-                    batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
-                    output.append(out)
-            return output
-
-            
-        print("forecasting for periods from {} to {}".format(infer_periods[0], infer_periods[-1]))
-            
         # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
         if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-            
+            self.temporal_unknown_num_col_list = list(
+                set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
+
         if not self.categorical_onehot_encoding:
-            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
-        
-        # infer dataset creation 
+            self.temporal_known_num_col_list = list(
+                set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_unknown_num_col_list = list(
+                set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
+
+        # infer dataset creation
         infer_dataset = self.create_infer_dataset(base_df, infer_till=infer_periods[-1])
         output = infer_fn(self.model, self.best_model, infer_dataset)
-            
+
         # select output quantile
         output_arr = output[0]
         output_arr = output_arr.cpu().numpy()
-            
+
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
         if self.loss_type == 'Quantile':
+
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
 
             try:
                 q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
+                output_arr = output_arr[:, :, q_index]
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
                 q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
                 q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
         else:
             try:
                 output_arr = output_arr[:, :, 0]
@@ -2067,12 +1988,10 @@ class graphmodel():
 
         # show current o/p
         scaled_output = self.process_output(base_df, output_arr)
-            
-        # compute mape
-        if compute_mape:
-            scaled_output['abs_error'] = abs(scaled_output[self.target_col] - scaled_output['forecast'])
-            print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
-                
-        return scaled_output
-                
 
+        # append forecast
+        forecast_df = forecast_df.append(scaled_output)
+
+        return forecast_df
+
+    
