@@ -478,8 +478,40 @@ class gml(object):
 
         self.forecast = pd.concat(f_df_list, axis=1)
         self.forecast = self.forecast.T.drop_duplicates().T
+
         return self.forecast
 
+    def infer_multihorizon(self, infer_start=None, infer_end=None):
+        try:
+            del self.graphobj.train_dataset, self.graphobj.test_dataset
+            gc.collect()
+        except:
+            pass
+
+        f_df_list = []
+        for quantile in self.infer_quantiles:
+            self.infer_config.pop('select_quantile')
+            self.infer_config.update({'select_quantile': quantile})
+            if (infer_start is None) or (infer_end is None):
+                f_df = self.graphobj.infer(**self.infer_config)
+                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
+            else:
+                self.infer_config['infer_start'] = infer_start
+                self.infer_config['infer_end'] = infer_end
+                f_df = self.graphobj.infer(**self.infer_config)
+                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
+
+            if len(self.infer_quantiles) == 1:
+                pass
+            else:
+                for i in range(self.fh):
+                    f_df = f_df.rename(columns={f'forecast_{i}': f'forecast_{i}' + str(quantile)})
+            f_df_list.append(f_df)
+
+        self.forecast = pd.concat(f_df_list, axis=1)
+        self.forecast = self.forecast.T.drop_duplicates().T
+
+        return self.forecast
     def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):
         # zero-out covariates
         data = self.infer_config['df']
