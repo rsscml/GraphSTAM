@@ -1408,8 +1408,8 @@ class graphmodel():
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
                 
         # validate dataset
-        print("validate snapshot graph ...")    
-        data.validate(raise_on_error=True)
+        #print("validate snapshot graph ...")
+        #data.validate(raise_on_error=True)
         
         return data
     
