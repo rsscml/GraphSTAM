@@ -1926,10 +1926,6 @@ class graphmodel():
 
         print("forecast period range: {} to {}".format(infer_periods[0], infer_periods[-1]))
 
-        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-        if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
