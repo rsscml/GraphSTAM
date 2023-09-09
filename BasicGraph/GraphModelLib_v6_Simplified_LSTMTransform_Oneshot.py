@@ -1089,7 +1089,7 @@ class graphmodel():
                 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
-                for lead in range(0, self.max_leads + 1):
+                for lead in range(0, self.max_leads):
                     df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
