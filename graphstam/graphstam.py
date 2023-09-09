@@ -266,9 +266,9 @@ class gml(object):
         self.infer_config = self.config["infer_config"]
         self.col_dict = self.data_config["col_dict"]
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
-        self.train_infer_device = self.model_config['device']
-        self.train_batch_size = self.data_config['batch']
-        self.fh = self.data_config['fh']
+        self.train_infer_device = self.model_config.get('device')
+        self.train_batch_size = self.data_config.get('batch')
+        self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
 

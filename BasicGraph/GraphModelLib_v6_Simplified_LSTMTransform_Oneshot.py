@@ -35,6 +35,15 @@ warnings.filterwarnings("ignore")
 # utilities imports
 from joblib import Parallel, delayed
 import shutil
+import sys
+
+os = sys.platform()
+
+if os == 'linux':
+    backend = 'loky'
+else:
+    backend = 'threading'
+
 
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
@@ -914,7 +923,7 @@ class graphmodel():
         df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min()<self.train_till)
 
         groups = df.groupby([self.id_col])
-        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='threading')(delayed(self.df_scaler)(gdf) for _, gdf in groups)
+        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
        
@@ -1396,7 +1405,7 @@ class graphmodel():
                 
         # validate dataset
         # print("validate snapshot graph ...")
-        #data.validate(raise_on_error=True)
+        data.validate(raise_on_error=True)
         
         return data
     
@@ -1497,7 +1506,7 @@ class graphmodel():
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
             
-            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='threading')(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle) # Load full graph for each timestep
@@ -2065,7 +2074,7 @@ class graphmodel():
             for df_type, df in df_dict.items():
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
-                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='threading')(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
                 # Create a dataset iterator
                 dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=False)  # Load full graph for each timestep
                 # append
