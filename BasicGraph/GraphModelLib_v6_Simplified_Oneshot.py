@@ -1545,7 +1545,7 @@ class graphmodel():
         infer_df = self.split_infer(df)
         
         #infer_df = self.pad_dataframe(infer_df)
-        df_dict = {'infer':infer_df}
+        df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1573,27 +1573,20 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        return infer_dataset
+        return infer_df, infer_dataset
     
     
     def split_train_test(self, data):
-        
         train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
         test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
-        
         return train_data, test_data
     
     def split_infer(self, data):
-        
-        #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
-        infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
-
+        infer_data = data[data[self.time_index_col] == self.infer_till].reset_index(drop=True)
         return infer_data
 
     def get_metadata(self, dataset):
-        
         batch = next(iter(dataset))
-        
         return batch.metadata()
     
     def show_batch_statistics(self, dataset):
@@ -1915,19 +1908,13 @@ class graphmodel():
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
 
-    def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
-
-        base_df = df.copy()
+    def infer(self, df, infer_start, select_quantile):
 
         # get list of infer periods
-        infer_periods = sorted(
-            base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][
-                self.time_index_col].unique().tolist())
+        infer_till = df[df[self.time_index_col] == infer_start][self.time_index_col].unique().tolist()[0]
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
-
-        forecast_df = pd.DataFrame()
 
         # infer fn
         def infer_fn(model, model_path, infer_dataset):
@@ -1942,26 +1929,117 @@ class graphmodel():
                     output.append(out)
             return output
 
-        print("forecast period range: {} to {}".format(infer_periods[0], infer_periods[-1]))
+        print("forecast starts at: {} ".format(infer_till))
 
         # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
         if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(
-                set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
 
         if not self.categorical_onehot_encoding:
-            self.temporal_known_num_col_list = list(
-                set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
-            self.temporal_unknown_num_col_list = list(
-                set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
 
         # infer dataset creation
-        infer_dataset = self.create_infer_dataset(base_df, infer_till=infer_periods[-1])
-        output = infer_fn(self.model, self.best_model, infer_dataset)
+        infer_df, infer_dataset = self.create_infer_dataset(df, infer_till=infer_till)
+        output_arr_list = infer_fn(self.model, self.best_model, infer_dataset)
 
         # select output quantile
-        output_arr = output[0]
+        output_arr = output_arr_list[0]
         output_arr = output_arr.cpu().numpy()
+
+        # quantile selection
+        min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+
+        if self.loss_type == 'Quantile':
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            try:
+                q_index = self.forecast_quantiles(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+        else:
+            try:
+                output_arr = output_arr[:, :, 0]
+            except:
+                pass
+
+        # show current o/p
+        output = pd.DataFrame(data=output_arr.reshape(-1, self.fh), columns=[f'forecast_{i}' for i in range(self.fh)])
+        output = pd.concat([infer_df, output], axis=1)
+
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+        else:
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+
+        return output
+
+    def backtest(self, df, infer_start, infer_end, select_quantile):
+
+        # create backtest dataset
+        def create_backtest_dataset(df):
+            # preprocess
+            print("preprocessing dataframe...")
+            df = self.preprocess(df)
+
+            # pad dataframe if required (will return df unchanged if not)
+            print("padding dataframe...")
+            df = self.pad_dataframe(df)
+
+            # filter to backtest duration
+            backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
+
+            df_dict = {'backtest': backtest_df}
+            def parallel_snapshot_graphs(df, period):
+                df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
+                snapshot_graph = self.create_snapshot_graph(df_snap, period)
+                return snapshot_graph
+
+            # for each split create graph dataset iterator
+            print("gather snapshot graphs...")
+            datasets = {}
+            for df_type, df in df_dict.items():
+                snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+                print("picking {} samples for {}".format(len(snap_periods_list), df_type))
+                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='threading')(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                # Create a dataset iterator
+                dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=False)  # Load full graph for each timestep
+                # append
+                datasets[df_type] = dataset
+
+            backtest_dataset = datasets.get('backtest')
+            return backtest_df, backtest_dataset
+
+        # infer fn
+        def infer_fn(model, model_path, infer_dataset):
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+            model.train(False)
+            output = []
+            with torch.no_grad():
+                for i, batch in enumerate(infer_dataset):
+                    batch = batch.to(self.device)
+                    out = model(batch.x_dict, batch.edge_index_dict)
+                    output.append(out)
+            return output
+
+        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
+        if self.include_rolling_features:
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
+
+        if not self.categorical_onehot_encoding:
+            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
+
+        backtest_df, backtest_dataset = create_backtest_dataset(df)
+        output_arr_list = infer_fn(self.model, self.best_model, backtest_dataset)
+        output_arr = torch.cat(output_arr_list, dim=0).cpu().numpy()
 
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
@@ -1976,8 +2054,7 @@ class graphmodel():
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
                 q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
-                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
                 q_lower_weight = 1 - q_upper_weight
                 output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
         else:
@@ -1987,11 +2064,23 @@ class graphmodel():
                 pass
 
         # show current o/p
-        scaled_output = self.process_output(base_df, output_arr)
+        output = pd.DataFrame(data=output_arr.reshape(-1, self.fh), columns=[f'forecast_{i}' for i in range(self.fh)])
+        output = pd.concat([backtest_df, output], axis=1)
 
-        # append forecast
-        forecast_df = forecast_df.append(scaled_output)
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+        else:
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
 
-        return forecast_df
+        return output
+
+
+
+
+
+
+
 
     
