@@ -39,7 +39,7 @@ from joblib import Parallel, delayed
 import shutil
 import sys
 
-os = sys.platform()
+os = sys.platform
 
 if os == 'linux':
     backend = 'loky'
