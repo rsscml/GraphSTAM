@@ -1482,13 +1482,14 @@ class graphmodel():
         
         
     def create_train_test_dataset(self, df):
-        # preprocess
-        print("preprocessing dataframe...")
-        df = self.preprocess(df)
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+
+        # preprocess
+        print("preprocessing dataframe...")
+        df = self.preprocess(df)
         
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1529,13 +1530,13 @@ class graphmodel():
     def create_infer_dataset(self, df, infer_till):
 
         self.infer_till = infer_till
-        
-        # preprocess
-        df = self.preprocess(df)
-        
+
         # pad dataframe
         df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+
+        # preprocess
+        df = self.preprocess(df)
+
         # split into train,test,infer
         infer_df = self.split_infer(df)
         
@@ -2059,13 +2060,14 @@ class graphmodel():
 
         # create backtest dataset
         def create_backtest_dataset(df):
-            # preprocess
-            print("preprocessing dataframe...")
-            df = self.preprocess(df)
 
             # pad dataframe if required (will return df unchanged if not)
             print("padding dataframe...")
             df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+
+            # preprocess
+            print("preprocessing dataframe...")
+            df = self.preprocess(df)
 
             # filter to backtest duration
             backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
