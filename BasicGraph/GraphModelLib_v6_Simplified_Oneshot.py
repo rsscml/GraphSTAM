@@ -1194,7 +1194,15 @@ class graphmodel():
         
         return df
                 
-    
+    def parallel_pad_dataframe(self, df):
+        """
+        Individually pad each key
+        """
+        groups = df.groupby([self.id_col])
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe)(gdf) for _, gdf in groups)
+        gdf = pd.concat(padded_gdfs, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        return gdf
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1501,7 +1509,7 @@ class graphmodel():
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.pad_dataframe(df)
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1547,7 +1555,7 @@ class graphmodel():
         df = self.preprocess(df)
         
         # pad dataframe
-        df = self.pad_dataframe(df)
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1627,7 +1635,7 @@ class graphmodel():
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.pad_dataframe(df)
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # get infer df
         infer_df = self.split_infer(df)
@@ -1998,7 +2006,7 @@ class graphmodel():
 
             # pad dataframe if required (will return df unchanged if not)
             print("padding dataframe...")
-            df = self.pad_dataframe(df)
+            df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
             # filter to backtest duration
             backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
