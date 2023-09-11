@@ -1499,7 +1499,7 @@ class graphmodel():
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
         
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1545,7 +1545,7 @@ class graphmodel():
         df = self.preprocess(df)
         
         # pad dataframe
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1632,7 +1632,7 @@ class graphmodel():
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
         
         # get infer df
         infer_df = self.split_infer(df)

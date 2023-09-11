@@ -1269,10 +1269,6 @@ class graphmodel():
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
-        # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
-
         # create lagged features
         print("   preprocessing dataframe - creade lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1490,7 +1486,11 @@ class graphmodel():
         # preprocess
         print("preprocessing dataframe...")
         df = self.preprocess(df)
-        
+
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
+
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
         train_df, test_df = self.split_train_test(df)
@@ -1533,6 +1533,10 @@ class graphmodel():
 
         # preprocess
         df = self.preprocess(df)
+
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1611,6 +1615,10 @@ class graphmodel():
         # preprocess
         print("preprocessing dataframe...")
         df = self.preprocess(df)
+
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
 
         # get infer df
         infer_df = self.split_infer(df)
@@ -2057,6 +2065,10 @@ class graphmodel():
             # preprocess
             print("preprocessing dataframe...")
             df = self.preprocess(df)
+
+            # pad dataframe if required (will return df unchanged if not)
+            print("padding dataframe...")
+            df = self.pad_dataframe(df) #self.parallel_pad_dataframe(df)
 
             # filter to backtest duration
             backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
