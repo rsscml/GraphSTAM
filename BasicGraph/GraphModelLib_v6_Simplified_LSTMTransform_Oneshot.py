@@ -1267,8 +1267,12 @@ class graphmodel():
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
             
-        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
-        
+        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+
         # create lagged features
         print("   preprocessing dataframe - creade lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1482,10 +1486,6 @@ class graphmodel():
         
         
     def create_train_test_dataset(self, df):
-        
-        # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
         # preprocess
         print("preprocessing dataframe...")
@@ -1530,9 +1530,6 @@ class graphmodel():
     def create_infer_dataset(self, df, infer_till):
 
         self.infer_till = infer_till
-
-        # pad dataframe
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
         # preprocess
         df = self.preprocess(df)
@@ -1614,11 +1611,7 @@ class graphmodel():
         # preprocess
         print("preprocessing dataframe...")
         df = self.preprocess(df)
-        
-        # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+
         # get infer df
         infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
@@ -2060,10 +2053,6 @@ class graphmodel():
 
         # create backtest dataset
         def create_backtest_dataset(df):
-
-            # pad dataframe if required (will return df unchanged if not)
-            print("padding dataframe...")
-            df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
             # preprocess
             print("preprocessing dataframe...")
