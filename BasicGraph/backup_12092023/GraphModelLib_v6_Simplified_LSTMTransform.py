@@ -16,8 +16,6 @@ from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_sparse import SparseTensor
 import gc
 
-#from pytorch_forecasting.metrics import QuantileLoss, RMSE, MAE, TweedieLoss, PoissonLoss, MAPE, SMAPE
-
 # Data specific imports
 
 from torch_geometric.data import HeteroData, Data
@@ -50,6 +48,7 @@ else:
 torch.set_default_dtype(torch.float32)
 
 # #### Models & Utils
+
 # Generic Layer to allow directionality consideration in any MPNN layer. Currently not released in PyG
 
 class DirGNNConv(torch.nn.Module):
@@ -359,9 +358,19 @@ class HeteroForecastSageConv(torch.nn.Module):
         self.skip_connection = skip_connection
         
         if self.use_linear_pretransform:
-            self.linear_layers = torch.nn.ModuleList()
-            lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
-            self.linear_layers.append(lin_dict)
+            self.transform_layers = torch.nn.ModuleList()
+            for _ in range(1):
+                transformed_feat_dict = torch.nn.ModuleDict()
+                for node_type in node_types:
+                    #if node_type == self.target_node_type:
+                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size = 1, 
+                                                                     hidden_size = hidden_channels, 
+                                                                     num_layers = num_layers, 
+                                                                     batch_first = True)
+                    #else:
+                    #    transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
+                        
+                self.transform_layers.append(transformed_feat_dict)
 
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -388,19 +397,28 @@ class HeteroForecastSageConv(torch.nn.Module):
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, hidden_channels)
+        
+    def apply_linear_layer(self, x_dict, tfr_dict):
+        transformed_x_dict = {}
+        for node_type, x in x_dict.items():
+            #if node_type == self.target_node_type:
+            o, _ = tfr_dict[node_type](torch.unsqueeze(x, dim=2)) # lstm input is 3 -d (N,L,1)
+            transformed_x_dict[node_type] = o[:,-1,:] # take last o/p (N,H)
+            #else:
+            #    transformed_x_dict[node_type] = tfr_dict[node_type](x)
+                
+        return transformed_x_dict
 
     def forward(self, x_dict, edge_index_dict):
         
         if self.use_linear_pretransform:
-            # linear transform node features
-            for lin_dict in self.linear_layers:
-                x_dict = lin_dict(x_dict)
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
+            # lstm transform node features
+            for tfr_dict in self.transform_layers:
+                x_dict = self.apply_linear_layer(x_dict, tfr_dict)
         
         if self.skip_connection:        
             res_x_dict = x_dict
-            #print("res_x_dict: ",res_x_dict.keys())
-
+           
         # apply dir sage layer to transformed dict
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)
@@ -662,6 +680,7 @@ class STGNN(torch.nn.Module):
                  alpha=0.5, 
                  dropout=0.0,
                  residual_conn_type='concat',
+                 loss_type='Quantile', 
                  positive_output=False,
                  aggr='mean',
                  use_linear_pretransform=True,
@@ -699,6 +718,7 @@ class STGNN(torch.nn.Module):
         self.pos_out = positive_output
         self.n_quantiles = n_quantiles
         self.num_layers = num_layers
+        self.loss_type = loss_type
         self.apply_norm_layers = apply_norm_layers
         self.use_dirgnn = use_dirgnn
         self.skip_connection = skip_connection
@@ -800,6 +820,7 @@ class STGNN(torch.nn.Module):
         return out
     
 
+
 # #### Graph Data Generator
 
 class graphmodel():
@@ -814,8 +835,6 @@ class graphmodel():
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
                  directed_graph = True,
-                 include_rolling_features = True,
-                 rolling_window_size = 13,
                  shuffle = True,
                  interleave = 1,
                  PARALLEL_DATA_JOBS = 4, 
@@ -848,10 +867,10 @@ class graphmodel():
         self.max_history = int(1)
         self.max_lags = int(max_lags) if (max_lags is not None) and (max_lags>0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads>0) else 1
-        self.rolling_window_size = rolling_window_size
-        
+
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
+        # adjust train_till/test_till for delta|max_leads - fh| in split_* methods
         self.train_till = train_till
         self.test_till = test_till
         
@@ -859,12 +878,11 @@ class graphmodel():
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
-        self.include_rolling_features = include_rolling_features
         self.shuffle = shuffle
         self.interleave = interleave
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
-       
+        
         self.pad_constant = 0 #if self.scaling_method == 'mean_scaling' else -1
        
         # extract columnsets from col_dict
@@ -1056,29 +1074,6 @@ class graphmodel():
         
         return df
     
-    def get_target_roll_stats(self, df):
-        
-        # for each static col, get common target_col stats (moving average, wma, stddev etc.)
-        rolling_stat_window_size = self.rolling_window_size
-        
-        self.rolling_stat_cols = []
-        for col in [self.id_col]:
-            df[f'{col}_rollmean'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).mean().shift().bfill())
-            df[f'{col}_rollstd'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).std().shift().bfill())
-            df[f'{col}_rollqtile50'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.50).shift().bfill())
-            df[f'{col}_rollqtile75'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.75).shift().bfill())
-            df[f'{col}_rollqtile90'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.90).shift().bfill())
-            df[f'{col}_rollqtile97'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.97).shift().bfill())
-            
-            # to keep track of rolling stat cols
-            self.rolling_stat_cols.append(f'{col}_rollmean')
-            self.rolling_stat_cols.append(f'{col}_rollstd')
-            self.rolling_stat_cols.append(f'{col}_rollqtile50')
-            self.rolling_stat_cols.append(f'{col}_rollqtile75')
-            self.rolling_stat_cols.append(f'{col}_rollqtile90')
-            self.rolling_stat_cols.append(f'{col}_rollqtile97')
-        
-        return df
     
     def create_lead_lag_features(self, df):
 
@@ -1086,7 +1081,6 @@ class graphmodel():
         self.lead_lag_features_dict = {}
         
         for col in [self.target_col] + \
-                    self.rolling_stat_cols + \
                     self.temporal_known_num_col_list + \
                     self.temporal_unknown_num_col_list + \
                     self.known_onehot_cols + \
@@ -1095,20 +1089,17 @@ class graphmodel():
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
             
-            for lag in range(1, self.max_lags + 1):
+            for lag in range(self.max_lags, 0, -1):
                 df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
-                for lead in range(0, self.max_leads):
+                for lead in range(0, self.max_leads + 1):
                     df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
-            if col in [self.target_col]:
-                self.node_features_label[col] = self.lead_lag_features_dict[col] + self.rolling_stat_cols
-            else:
-                self.node_features_label[col] = self.lead_lag_features_dict[col]
+            self.node_features_label[col] = self.lead_lag_features_dict[col]
 
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
@@ -1183,7 +1174,7 @@ class graphmodel():
                 df[col] = df[col].astype(str).astype(bool).astype(int)
         
         return df
-
+                
     def parallel_pad_dataframe(self, df):
         """
         Individually pad each key
@@ -1192,10 +1183,12 @@ class graphmodel():
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
         groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe, dateindex)(gdf) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
+
         return gdf
+
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1218,11 +1211,7 @@ class graphmodel():
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
         
-        # obtain rolling stats
-        if self.include_rolling_features:
-            print("   preprocessing dataframe - get rolling stats by group...")
-            df = self.get_target_roll_stats(df)
-               
+
         # onehot encode
         if self.categorical_onehot_encoding:
             print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1307,11 +1296,13 @@ class graphmodel():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
             
         # Create HeteroData Object
+        #data = HeteroData({"y_mask":None})
+        
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get node features
 
-        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col] + self.rolling_stat_cols].to_numpy(), dtype=torch.float)
+        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
@@ -1343,7 +1334,6 @@ class graphmodel():
             data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
-        
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
             
@@ -1401,7 +1391,6 @@ class graphmodel():
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
         """
-
         # directed edges are from covariates to target
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
@@ -1435,15 +1424,6 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(data)
         
-        # scale dataset
-        #print("   preprocessing dataframe - scale numeric cols...")
-        #df = self.scale_dataset(df)
-        
-        # obtain rolling stats
-        if self.include_rolling_features:
-            print("   preprocessing dataframe - get rolling stats by group...")
-            df = self.get_target_roll_stats(df)
-               
         # onehot encode
         if self.categorical_onehot_encoding:
             print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1493,7 +1473,8 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
         
         return df
-
+        
+        
     def create_train_test_dataset(self, df):
         # preprocess
         print("preprocessing dataframe...")
@@ -1540,7 +1521,7 @@ class graphmodel():
         return train_dataset, test_dataset
     
     def create_infer_dataset(self, df, infer_till):
-        
+
         self.infer_till = infer_till
         
         # preprocess
@@ -1570,7 +1551,7 @@ class graphmodel():
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
                 # get node index map
-                df_node_map_index = df[df[self.time_index_col] == period].reset_index(drop=True)
+                df_node_map_index = df[df[self.time_index_col]==period].reset_index(drop=True)
                 self.node_index_map = self.node_indexing(df_node_map_index, [self.id_col])
 
             # Create a dataset iterator
@@ -1595,7 +1576,7 @@ class graphmodel():
         
         #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
         infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
-
+        
         return infer_data
 
     def get_metadata(self, dataset):
@@ -1621,9 +1602,7 @@ class graphmodel():
         return statistics
       
     def process_output(self, df, model_output):
-        
-        if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
+       
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
@@ -1729,11 +1708,12 @@ class graphmodel():
                            target_node = self.target_col,
                            context_nodes = self.global_context_col_list,
                            device = self.device,
-                           n_quantiles = max(len(self.forecast_quantiles),1),
+                           n_quantiles = max(len(self.forecast_quantiles), 1),
                            num_layers = num_layers,
                            alpha = 0.5, 
                            dropout = dropout,
                            residual_conn_type = residual_conn_type,
+                           loss_type = 'Quantile', 
                            positive_output = False,
                            aggr = aggr,
                            use_linear_pretransform = use_linear_pretransform,
@@ -1935,7 +1915,15 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
-    
+
+    def change_device(self, device='cpu'):
+        self.device = torch.device(device)
+        self.model.load_state_dict(torch.load(self.best_model, map_location=self.device))
+
+    def disable_cuda_backend(self,):
+        self.change_device(device="cuda")
+        torch.backends.cudnn.enabled = False
+
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
@@ -1965,10 +1953,6 @@ class graphmodel():
             
             print("forecasting period {} at lag {}".format(t, i))
             
-            # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-            if self.include_rolling_features:
-                self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-            
             if not self.categorical_onehot_encoding:
                 self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
@@ -1986,7 +1970,6 @@ class graphmodel():
             
             if self.loss_type == 'Quantile':
                 assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
                     output_arr = output_arr[:,:,q_index] 
@@ -2043,12 +2026,7 @@ class graphmodel():
                     output.append(out)
             return output
 
-            
         print("forecasting for periods from {} to {}".format(infer_periods[0], infer_periods[-1]))
-            
-        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-        if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
             
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
@@ -2067,7 +2045,6 @@ class graphmodel():
 
         if self.loss_type == 'Quantile':
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-
             try:
                 q_index = self.forecast_quantiles(select_quantile)
                 output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
