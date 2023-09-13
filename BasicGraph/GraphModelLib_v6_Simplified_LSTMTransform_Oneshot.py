@@ -1768,7 +1768,9 @@ class graphmodel():
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
-        
+
+        print("train & test adjusted cutoffs: {} & {}".format(self.actual_train_till, self.actual_test_till))
+
         self.loss_type = loss_type
         
         if self.loss_type == 'Quantile':
