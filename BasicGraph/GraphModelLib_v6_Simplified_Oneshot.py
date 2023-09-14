@@ -1123,7 +1123,8 @@ class graphmodel():
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        #df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        df = df.reset_index(drop=True)
         
         return df
     
@@ -1202,7 +1203,7 @@ class graphmodel():
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
         groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
 
@@ -1515,6 +1516,17 @@ class graphmodel():
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+
+        # get list of all timestamps in ascending order
+        all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+        # get index of train & test till periods
+        train_till_idx = all_timestamps.index(self.train_till)
+        test_till_idx = all_timestamps.index(self.test_till)
+        # get index of actual timestamps where to train & test upto
+        actual_train_till_idx = int(train_till_idx - self.fh + 1)
+        actual_test_till_idx = int(test_till_idx - self.fh + 1)
+        self.actual_train_till = all_timestamps[actual_train_till_idx]
+        self.actual_test_till = all_timestamps[actual_test_till_idx]
         
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1552,9 +1564,9 @@ class graphmodel():
 
         return train_dataset, test_dataset
     
-    def create_infer_dataset(self, df, infer_till):
+    def create_infer_dataset(self, df, infer_start):
         
-        self.infer_till = infer_till
+        self.infer_start = infer_start
         
         # preprocess
         df = self.preprocess(df)
@@ -1598,12 +1610,12 @@ class graphmodel():
     
     
     def split_train_test(self, data):
-        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
+        train_data = data[data[self.time_index_col] <= self.actual_train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col] > self.actual_train_till)&(data[self.time_index_col] <= self.actual_test_till)].reset_index(drop=True)
         return train_data, test_data
     
     def split_infer(self, data):
-        infer_data = data[data[self.time_index_col] == self.infer_till].reset_index(drop=True)
+        infer_data = data[data[self.time_index_col] == self.infer_start].reset_index(drop=True)
         return infer_data
 
     def get_metadata(self, dataset):
@@ -1641,6 +1653,17 @@ class graphmodel():
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+
+        # get list of all timestamps in ascending order
+        all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+        # get index of train & test till periods
+        train_till_idx = all_timestamps.index(self.train_till)
+        test_till_idx = all_timestamps.index(self.test_till)
+        # get index of actual timestamps where to train & test upto
+        actual_train_till_idx = int(train_till_idx - self.fh + 1)
+        actual_test_till_idx = int(test_till_idx - self.fh + 1)
+        self.actual_train_till = all_timestamps[actual_train_till_idx]
+        self.actual_test_till = all_timestamps[actual_test_till_idx]
         
         # get infer df
         infer_df = self.split_infer(df)
@@ -1679,14 +1702,14 @@ class graphmodel():
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(df)
 
-    def build_infer_dataset(self, df, infer_till):
+    def build_infer_dataset(self, df, infer_start):
         # build graph datasets for infer
         try:
             del self.infer_dataset
             gc.collect()
         except:
             pass
-        self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+        self.infer_dataset = self.create_infer_dataset(df=df, infer_start=infer_start)
 
     def build(self,
               model_type = "SAGE", 
@@ -1932,7 +1955,7 @@ class graphmodel():
     def infer(self, df, infer_start, select_quantile):
 
         # get list of infer periods
-        infer_till = df[df[self.time_index_col] == infer_start][self.time_index_col].unique().tolist()[0]
+        #infer_till = df[df[self.time_index_col] == infer_start][self.time_index_col].unique().tolist()[0]
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
@@ -1950,7 +1973,7 @@ class graphmodel():
                     output.append(out)
             return output
 
-        print("forecast starts at: {} ".format(infer_till))
+        print("forecast starts at: {} ".format(infer_start))
 
         # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
         if self.include_rolling_features:
@@ -1961,7 +1984,7 @@ class graphmodel():
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
 
         # infer dataset creation
-        infer_df, infer_dataset = self.create_infer_dataset(df, infer_till=infer_till)
+        infer_df, infer_dataset = self.create_infer_dataset(df, infer_start=infer_start)
         output_arr_list = infer_fn(self.model, self.best_model, infer_dataset)
 
         # select output quantile
@@ -2012,6 +2035,17 @@ class graphmodel():
             # pad dataframe if required (will return df unchanged if not)
             print("padding dataframe...")
             df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+
+            # get list of all timestamps in ascending order
+            all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+            # get index of train & test till periods
+            train_till_idx = all_timestamps.index(self.train_till)
+            test_till_idx = all_timestamps.index(self.test_till)
+            # get index of actual timestamps where to train & test upto
+            actual_train_till_idx = int(train_till_idx - self.fh + 1)
+            actual_test_till_idx = int(test_till_idx - self.fh + 1)
+            self.actual_train_till = all_timestamps[actual_train_till_idx]
+            self.actual_test_till = all_timestamps[actual_test_till_idx]
 
             # filter to backtest duration
             backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)

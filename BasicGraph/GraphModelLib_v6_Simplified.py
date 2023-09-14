@@ -1192,7 +1192,7 @@ class graphmodel():
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
         groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         return gdf
@@ -1527,7 +1527,7 @@ class graphmodel():
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
             
-            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle) # Load full graph for each timestep

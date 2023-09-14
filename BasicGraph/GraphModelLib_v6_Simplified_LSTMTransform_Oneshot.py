@@ -1115,7 +1115,8 @@ class graphmodel():
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        #df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        df = df.reset_index(drop=True)
         
         return df
     
@@ -1194,7 +1195,7 @@ class graphmodel():
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
         groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend='loky')(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
 
@@ -1492,6 +1493,10 @@ class graphmodel():
         print("preprocessing dataframe...")
         df = self.preprocess(df)
 
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
         # get list of all timestamps in ascending order
         all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
         # get index of train & test till periods
@@ -1502,10 +1507,6 @@ class graphmodel():
         actual_test_till_idx = int(test_till_idx - self.fh + 1)
         self.actual_train_till = all_timestamps[actual_train_till_idx]
         self.actual_test_till = all_timestamps[actual_test_till_idx]
-
-        # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1531,7 +1532,7 @@ class graphmodel():
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
             
-            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle) # Load full graph for each timestep
@@ -1632,6 +1633,10 @@ class graphmodel():
         print("preprocessing dataframe...")
         df = self.preprocess(df)
 
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
+        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
         # get list of all timestamps in ascending order
         all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
         # get index of train & test till periods
@@ -1642,10 +1647,6 @@ class graphmodel():
         actual_test_till_idx = int(test_till_idx - self.fh + 1)
         self.actual_train_till = all_timestamps[actual_train_till_idx]
         self.actual_test_till = all_timestamps[actual_test_till_idx]
-
-        # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
 
         # get infer df
         infer_df = self.split_infer(df)
@@ -2095,6 +2096,10 @@ class graphmodel():
             print("preprocessing dataframe...")
             df = self.preprocess(df)
 
+            # pad dataframe if required (will return df unchanged if not)
+            print("padding dataframe...")
+            df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
             # get list of all timestamps in ascending order
             all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
             # get index of train & test till periods
@@ -2105,10 +2110,6 @@ class graphmodel():
             actual_test_till_idx = int(test_till_idx - self.fh + 1)
             self.actual_train_till = all_timestamps[actual_train_till_idx]
             self.actual_test_till = all_timestamps[actual_test_till_idx]
-
-            # pad dataframe if required (will return df unchanged if not)
-            print("padding dataframe...")
-            df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
 
             # filter to backtest duration
             backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
@@ -2125,7 +2126,7 @@ class graphmodel():
             for df_type, df in df_dict.items():
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
-                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
                 # Create a dataset iterator
                 dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=False)  # Load full graph for each timestep
                 # append
