@@ -1280,7 +1280,7 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # create time_index_col leads (for melting the forecast df columns by time later on)
-        for lead in range(1, self.fh):
+        for lead in range(0, self.fh):
             df[f'{self.time_index_col}_lead_{lead}'] = df.groupby(self.id_col)[self.time_index_col].shift(periods=-lead)
 
         return df
