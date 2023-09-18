@@ -1115,8 +1115,8 @@ class graphmodel():
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
-        df = df.reset_index(drop=True)
+        #df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        #df = df.reset_index(drop=True)
         
         return df
     
@@ -1278,7 +1278,11 @@ class graphmodel():
         # create lagged features
         print("   preprocessing dataframe - creade lead & lag features...")
         df = self.create_lead_lag_features(df)
-        
+
+        # create time_index_col leads (for melting the forecast df columns by time later on)
+        for lead in range(1, self.fh):
+            df[f'{self.time_index_col}_lead_{lead}'] = df.groupby(self.id_col)[self.time_index_col].shift(periods=-lead)
+
         return df
     
     def node_indexing(self, df, node_cols):
