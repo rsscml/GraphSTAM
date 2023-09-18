@@ -511,6 +511,9 @@ class gml(object):
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
+
+        print("DEBUG: columns in forecast file before drop_duplicate: ", self.forecast.columns.tolist())
+
         self.forecast = self.forecast.T.drop_duplicates().T
 
         return self.forecast
