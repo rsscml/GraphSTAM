@@ -1567,6 +1567,12 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
+        # rescale input df for use in inference loop
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler']
+        else:
+            infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler_std'] + infer_df['scaler_mu']
+
         return infer_df, infer_dataset
     
     
