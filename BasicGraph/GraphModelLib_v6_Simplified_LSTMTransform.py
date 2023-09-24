@@ -1533,8 +1533,9 @@ class graphmodel():
             print("padding dataframe ...")
             df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         else:
+            pass
             # only add mask
-            df['y_mask'] = np.where(df[self.target_col].isnull(), 0, 1)
+            #df['y_mask'] = np.where(df[self.target_col].isnull(), 0, 1)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1569,12 +1570,12 @@ class graphmodel():
         infer_dataset = datasets.get('infer')
 
         # rescale input df for use in inference loop
-        #if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-        #    infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler']
-        #else:
-        #    infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler_std'] + infer_df['scaler_mu']
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            df[self.target_col] = df[self.target_col] * df['scaler']
+        else:
+            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
 
-        return infer_df, infer_dataset
+        return df, infer_df, infer_dataset
     
     
     def split_train_test(self, data):
@@ -1684,7 +1685,7 @@ class graphmodel():
             gc.collect()
         except:
             pass
-        _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+        _, _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
 
     def build(self,
               model_type = "SAGE", 
@@ -1973,7 +1974,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            base_df, infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
