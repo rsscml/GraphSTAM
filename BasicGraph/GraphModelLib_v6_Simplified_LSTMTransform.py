@@ -1533,7 +1533,8 @@ class graphmodel():
             print("padding dataframe ...")
             df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         else:
-            pass
+            # only add mask
+            df['y_mask'] = np.where(df[self.target_col].isnull(), 0, 1)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
