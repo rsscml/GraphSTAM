@@ -1568,10 +1568,10 @@ class graphmodel():
         infer_dataset = datasets.get('infer')
 
         # rescale input df for use in inference loop
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler']
-        else:
-            infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler_std'] + infer_df['scaler_mu']
+        #if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+        #    infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler']
+        #else:
+        #    infer_df[self.target_col] = infer_df[self.target_col] * infer_df['scaler_std'] + infer_df['scaler_mu']
 
         return infer_df, infer_dataset
     
@@ -1612,7 +1612,7 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, df, model_output):
+    def process_output(self, infer_df, model_output):
        
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
@@ -1627,7 +1627,7 @@ class graphmodel():
         #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # get infer df
-        infer_df = self.split_infer(df)
+        #infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -1972,7 +1972,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            base_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -2000,7 +2000,7 @@ class graphmodel():
                     pass
                 
             # show current o/p
-            scaled_output = self.process_output(base_df, output_arr)
+            scaled_output = self.process_output(infer_df, output_arr)
             
             # compute mape
             if compute_mape:
