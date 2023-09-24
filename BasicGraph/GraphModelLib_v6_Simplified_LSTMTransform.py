@@ -1966,7 +1966,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            base_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -1994,7 +1994,7 @@ class graphmodel():
                     pass
                 
             # show current o/p
-            scaled_output = self.process_output(infer_df, output_arr)
+            scaled_output = self.process_output(base_df, output_arr)
             
             # compute mape
             if compute_mape:
