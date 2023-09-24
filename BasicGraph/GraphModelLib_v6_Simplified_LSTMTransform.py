@@ -1527,20 +1527,13 @@ class graphmodel():
         # preprocess
         df = self.preprocess(df)
 
-        # pad dataframe once on first invocation (as the padded dataframe is updated period by period in 'update_dataframe' method
-        if self.infer_loop_counter == 0:
-            # pad dataframe
-            print("padding dataframe ...")
-            df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        else:
-            pass
-            # only add mask
-            #df['y_mask'] = np.where(df[self.target_col].isnull(), 0, 1)
+        # pad dataframe
+        print("padding dataframe ...")
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
-        
-        #infer_df = self.pad_dataframe(infer_df)
+
         df_dict = {'infer':infer_df}
         
         # for each split create graph dataset iterator
@@ -1569,13 +1562,7 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        # rescale input df for use in inference loop
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            df[self.target_col] = df[self.target_col] * df['scaler']
-        else:
-            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
-
-        return df, infer_df, infer_dataset
+        return infer_dataset
     
     
     def split_train_test(self, data):
@@ -1614,22 +1601,22 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, infer_df, model_output):
+    def process_output(self, df, model_output):
        
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
             
         # preprocess
-        #print("preprocessing dataframe...")
-        #df = self.preprocess(df)
+        print("preprocessing dataframe...")
+        df = self.preprocess(df)
         
         # pad dataframe if required (will return df unchanged if not)
-        #print("padding dataframe...")
-        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        print("padding dataframe...")
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # get infer df
-        #infer_df = self.split_infer(df)
+        infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -1685,7 +1672,8 @@ class graphmodel():
             gc.collect()
         except:
             pass
-        _, _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+
+        self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
 
     def build(self,
               model_type = "SAGE", 
@@ -1962,9 +1950,6 @@ class graphmodel():
                     output.append(out)
             return output
 
-        # set infer loop counter to 0
-        self.infer_loop_counter = 0
-
         for i,t in enumerate(infer_periods):
             
             print("forecasting period {} at lag {}".format(t, i))
@@ -1974,7 +1959,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            base_df, infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -2002,7 +1987,7 @@ class graphmodel():
                     pass
                 
             # show current o/p
-            scaled_output = self.process_output(infer_df, output_arr)
+            scaled_output = self.process_output(base_df, output_arr)
             
             # compute mape
             if compute_mape:
@@ -2017,9 +2002,6 @@ class graphmodel():
             # update df
             base_df = self.update_dataframe(base_df, scaled_output)
 
-            # increment infer_loop_counter
-            self.infer_loop_counter += 1
-        
         return forecast_df
     
     def infer_oneshot(self, df, select_quantile, compute_mape=False):
