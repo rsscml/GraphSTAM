@@ -1526,11 +1526,15 @@ class graphmodel():
         
         # preprocess
         df = self.preprocess(df)
-        
-        # pad dataframe
-        print("padding dataframe ...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+
+        # pad dataframe once on first invocation (as the padded dataframe is updated period by period in 'update_dataframe' method
+        if self.infer_loop_counter == 0:
+            # pad dataframe
+            print("padding dataframe ...")
+            df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        else:
+            pass
+
         # split into train,test,infer
         infer_df = self.split_infer(df)
         
@@ -1950,6 +1954,9 @@ class graphmodel():
                     output.append(out)
             return output
 
+        # set infer loop counter to 0
+        self.infer_loop_counter = 0
+
         for i,t in enumerate(infer_periods):
             
             print("forecasting period {} at lag {}".format(t, i))
@@ -2001,6 +2008,9 @@ class graphmodel():
 
             # update df
             base_df = self.update_dataframe(base_df, scaled_output)
+
+            # increment infer_loop_counter
+            self.infer_loop_counter += 1
         
         return forecast_df
     
