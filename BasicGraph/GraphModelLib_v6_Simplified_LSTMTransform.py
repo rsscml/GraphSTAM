@@ -1189,7 +1189,7 @@ class graphmodel():
 
         return gdf
 
-    def preprocess(self, data):
+    def preprocess(self, data, create_lead_lad_features=True):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1262,10 +1262,11 @@ class graphmodel():
                 self.unknown_onehot_cols += onehot_col_features
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
-        
-        # create lagged features
-        print("   preprocessing dataframe - creade lead & lag features...")
-        df = self.create_lead_lag_features(df)
+
+        if create_lead_lad_features:
+            # create lagged features
+            print("   preprocessing dataframe - create lead & lag features...")
+            df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1519,17 +1520,32 @@ class graphmodel():
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
 
         return train_dataset, test_dataset
-    
+
+    def infer_preprocess(self, df):
+        # preprocess
+        df = self.preprocess(df, create_lead_lad_features=False)
+
+        # pad dataframe
+        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+
+        # rescale target
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            df[self.target_col] = df[self.target_col] * df['scaler']
+        else:
+            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
+
+        return df
+
     def create_infer_dataset(self, df, infer_till):
 
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=True)
 
         # pad dataframe
-        print("padding dataframe ...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #print("padding dataframe ...")
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1928,9 +1944,12 @@ class graphmodel():
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
+
+        # infer preprocess
+        base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
+        infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
         
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
