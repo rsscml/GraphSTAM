@@ -16,8 +16,6 @@ from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_sparse import SparseTensor
 import gc
 
-#from pytorch_forecasting.metrics import QuantileLoss, RMSE, MAE, TweedieLoss, PoissonLoss, MAPE, SMAPE
-
 # Data specific imports
 
 from torch_geometric.data import HeteroData, Data
@@ -46,10 +44,12 @@ if os == 'linux':
 else:
     backend = 'threading'
 
+
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
 
 # #### Models & Utils
+
 # Generic Layer to allow directionality consideration in any MPNN layer. Currently not released in PyG
 
 class DirGNNConv(torch.nn.Module):
@@ -359,9 +359,19 @@ class HeteroForecastSageConv(torch.nn.Module):
         self.skip_connection = skip_connection
         
         if self.use_linear_pretransform:
-            self.linear_layers = torch.nn.ModuleList()
-            lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
-            self.linear_layers.append(lin_dict)
+            self.transform_layers = torch.nn.ModuleList()
+            for _ in range(1):
+                transformed_feat_dict = torch.nn.ModuleDict()
+                for node_type in node_types:
+                    #if node_type == self.target_node_type:
+                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size = 1, 
+                                                                     hidden_size = hidden_channels, 
+                                                                     num_layers = num_layers, 
+                                                                     batch_first = True)
+                    #else:
+                    #    transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
+                        
+                self.transform_layers.append(transformed_feat_dict)
 
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -388,19 +398,28 @@ class HeteroForecastSageConv(torch.nn.Module):
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, hidden_channels)
+        
+    def apply_linear_layer(self, x_dict, tfr_dict):
+        transformed_x_dict = {}
+        for node_type, x in x_dict.items():
+            #if node_type == self.target_node_type:
+            o, _ = tfr_dict[node_type](torch.unsqueeze(x, dim=2)) # lstm input is 3 -d (N,L,1)
+            transformed_x_dict[node_type] = o[:,-1,:] # take last o/p (N,H)
+            #else:
+            #    transformed_x_dict[node_type] = tfr_dict[node_type](x)
+                
+        return transformed_x_dict
 
     def forward(self, x_dict, edge_index_dict):
         
         if self.use_linear_pretransform:
-            # linear transform node features
-            for lin_dict in self.linear_layers:
-                x_dict = lin_dict(x_dict)
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
+            # lstm transform node features
+            for tfr_dict in self.transform_layers:
+                x_dict = self.apply_linear_layer(x_dict, tfr_dict)
         
         if self.skip_connection:        
             res_x_dict = x_dict
-            #print("res_x_dict: ",res_x_dict.keys())
-
+           
         # apply dir sage layer to transformed dict
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)
@@ -662,6 +681,7 @@ class STGNN(torch.nn.Module):
                  alpha=0.5, 
                  dropout=0.0,
                  residual_conn_type='concat',
+                 loss_type='Quantile', 
                  positive_output=False,
                  aggr='mean',
                  use_linear_pretransform=True,
@@ -699,6 +719,7 @@ class STGNN(torch.nn.Module):
         self.pos_out = positive_output
         self.n_quantiles = n_quantiles
         self.num_layers = num_layers
+        self.loss_type = loss_type
         self.apply_norm_layers = apply_norm_layers
         self.use_dirgnn = use_dirgnn
         self.skip_connection = skip_connection
@@ -767,7 +788,8 @@ class STGNN(torch.nn.Module):
         if self.model_option == "BASIC":
             # direct projection from node embeddings
             self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.project_lin = Linear(self.hidden_channels, self.n_pred*self.n_quantiles)
+            self.increase_emb_dim = Linear(self.hidden_channels, self.hidden_channels * 2)
+            self.project_lin = Linear(self.hidden_channels*2, self.n_pred*self.n_quantiles)
         
         else:
             raise "Invalid model_option. model_option: [BASIC]"
@@ -787,7 +809,8 @@ class STGNN(torch.nn.Module):
         if self.model_option == "BASIC":
             
             # final projection layer
-            out = self.project_lin(x)
+            out = self.increase_emb_dim(x)
+            out = self.project_lin(out)
             
             if self.pos_out:
                 out = F.softplus(out)
@@ -799,6 +822,7 @@ class STGNN(torch.nn.Module):
                 
         return out
     
+
 
 # #### Graph Data Generator
 
@@ -814,8 +838,6 @@ class graphmodel():
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
                  directed_graph = True,
-                 include_rolling_features = True,
-                 rolling_window_size = 13,
                  shuffle = True,
                  interleave = 1,
                  PARALLEL_DATA_JOBS = 4, 
@@ -848,10 +870,10 @@ class graphmodel():
         self.max_history = int(1)
         self.max_lags = int(max_lags) if (max_lags is not None) and (max_lags>0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads>0) else 1
-        self.rolling_window_size = rolling_window_size
-        
+
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
+        # adjust train_till/test_till for delta|max_leads - fh| in split_* methods
         self.train_till = train_till
         self.test_till = test_till
         
@@ -859,12 +881,11 @@ class graphmodel():
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
-        self.include_rolling_features = include_rolling_features
         self.shuffle = shuffle
         self.interleave = interleave
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
-       
+        
         self.pad_constant = 0 #if self.scaling_method == 'mean_scaling' else -1
        
         # extract columnsets from col_dict
@@ -1056,29 +1077,6 @@ class graphmodel():
         
         return df
     
-    def get_target_roll_stats(self, df):
-        
-        # for each static col, get common target_col stats (moving average, wma, stddev etc.)
-        rolling_stat_window_size = self.rolling_window_size
-        
-        self.rolling_stat_cols = []
-        for col in [self.id_col]:
-            df[f'{col}_rollmean'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).mean().shift().bfill())
-            df[f'{col}_rollstd'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).std().shift().bfill())
-            df[f'{col}_rollqtile50'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.50).shift().bfill())
-            df[f'{col}_rollqtile75'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.75).shift().bfill())
-            df[f'{col}_rollqtile90'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.90).shift().bfill())
-            df[f'{col}_rollqtile97'] = df.groupby(col)[self.target_col].transform(lambda x: x.rolling(rolling_stat_window_size, 1).quantile(0.97).shift().bfill())
-            
-            # to keep track of rolling stat cols
-            self.rolling_stat_cols.append(f'{col}_rollmean')
-            self.rolling_stat_cols.append(f'{col}_rollstd')
-            self.rolling_stat_cols.append(f'{col}_rollqtile50')
-            self.rolling_stat_cols.append(f'{col}_rollqtile75')
-            self.rolling_stat_cols.append(f'{col}_rollqtile90')
-            self.rolling_stat_cols.append(f'{col}_rollqtile97')
-        
-        return df
     
     def create_lead_lag_features(self, df):
 
@@ -1086,7 +1084,6 @@ class graphmodel():
         self.lead_lag_features_dict = {}
         
         for col in [self.target_col] + \
-                    self.rolling_stat_cols + \
                     self.temporal_known_num_col_list + \
                     self.temporal_unknown_num_col_list + \
                     self.known_onehot_cols + \
@@ -1095,7 +1092,7 @@ class graphmodel():
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
             
-            for lag in range(1, self.max_lags + 1):
+            for lag in range(self.max_lags, 0, -1):
                 df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 
@@ -1105,15 +1102,21 @@ class graphmodel():
                     df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
-            if col in [self.target_col]:
-                self.node_features_label[col] = self.lead_lag_features_dict[col] + self.rolling_stat_cols
-            else:
-                self.node_features_label[col] = self.lead_lag_features_dict[col]
+            self.node_features_label[col] = self.lead_lag_features_dict[col]
+
+        # create multihorizon target
+        self.multihorizon_targets = {}
+        self.multihorizon_targets[self.target_col] = []
+
+        for lead in range(0, self.fh):
+            df[f'{self.target_col}_lead_{lead}'] = df.groupby(self.id_col)[self.target_col].shift(periods=-lead)
+            self.multihorizon_targets[self.target_col].append(f'{self.target_col}_lead_{lead}')
 
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        df = df.dropna(subset=all_lead_lag_cols)
+        #df = df.dropna(subset=all_lead_lag_cols) #self.multihorizon_targets[self.target_col]
+        #df = df.reset_index(drop=True)
         
         return df
     
@@ -1183,7 +1186,7 @@ class graphmodel():
                 df[col] = df[col].astype(str).astype(bool).astype(int)
         
         return df
-
+                
     def parallel_pad_dataframe(self, df):
         """
         Individually pad each key
@@ -1195,7 +1198,9 @@ class graphmodel():
         padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
+
         return gdf
+
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1218,11 +1223,7 @@ class graphmodel():
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
         
-        # obtain rolling stats
-        if self.include_rolling_features:
-            print("   preprocessing dataframe - get rolling stats by group...")
-            df = self.get_target_roll_stats(df)
-               
+
         # onehot encode
         if self.categorical_onehot_encoding:
             print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1272,12 +1273,16 @@ class graphmodel():
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
             
-        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
+        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
         # create lagged features
-        print("   preprocessing dataframe - create lead & lag features...")
+        print("   preprocessing dataframe - creade lead & lag features...")
         df = self.create_lead_lag_features(df)
-        
+
+        # create time_index_col leads (for melting the forecast df columns by time later on)
+        for lead in range(0, self.fh):
+            df[f'{self.time_index_col}_lead_{lead}'] = df.groupby(self.id_col)[self.time_index_col].shift(periods=-lead)
+
         return df
     
     def node_indexing(self, df, node_cols):
@@ -1307,12 +1312,14 @@ class graphmodel():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
             
         # Create HeteroData Object
+        #data = HeteroData({"y_mask":None})
+        
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get node features
 
-        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col] + self.rolling_stat_cols].to_numpy(), dtype=torch.float)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.multihorizon_targets[self.target_col]].to_numpy().reshape(-1,self.fh), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
         
@@ -1343,7 +1350,6 @@ class graphmodel():
             data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
-        
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
             
@@ -1401,7 +1407,6 @@ class graphmodel():
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
         """
-
         # directed edges are from covariates to target
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
@@ -1417,7 +1422,7 @@ class graphmodel():
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
                 
         # validate dataset
-        print("validate snapshot graph ...")    
+        # print("validate snapshot graph ...")
         data.validate(raise_on_error=True)
         
         return data
@@ -1435,15 +1440,6 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(data)
         
-        # scale dataset
-        #print("   preprocessing dataframe - scale numeric cols...")
-        #df = self.scale_dataset(df)
-        
-        # obtain rolling stats
-        if self.include_rolling_features:
-            print("   preprocessing dataframe - get rolling stats by group...")
-            df = self.get_target_roll_stats(df)
-               
         # onehot encode
         if self.categorical_onehot_encoding:
             print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1493,16 +1489,29 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
         
         return df
-
+        
+        
     def create_train_test_dataset(self, df):
+
         # preprocess
         print("preprocessing dataframe...")
         df = self.preprocess(df)
-        
+
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
+        # get list of all timestamps in ascending order
+        all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+        # get index of train & test till periods
+        train_till_idx = all_timestamps.index(self.train_till)
+        test_till_idx = all_timestamps.index(self.test_till)
+        # get index of actual timestamps where to train & test upto
+        actual_train_till_idx = int(train_till_idx - self.fh + 1)
+        actual_test_till_idx = int(test_till_idx - self.fh + 1)
+        self.actual_train_till = all_timestamps[actual_train_till_idx]
+        self.actual_test_till = all_timestamps[actual_test_till_idx]
+
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
         train_df, test_df = self.split_train_test(df)
@@ -1538,36 +1547,23 @@ class graphmodel():
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
 
         return train_dataset, test_dataset
+    
+    def create_infer_dataset(self, df, infer_start):
 
-    def infer_preprocess(self, df):
+        self.infer_start = infer_start
+
         # preprocess
         df = self.preprocess(df)
 
-        # pad dataframe
-        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
-
-        # rescale target
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            df[self.target_col] = df[self.target_col] * df['scaler']
-        else:
-            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
-
-        return df
-
-    def create_infer_dataset(self, df, infer_till):
-        
-        self.infer_till = infer_till
-        
-        # preprocess
-        df = self.preprocess(df)
-        
-        # pad dataframe
+        # pad dataframe if required (will return df unchanged if not)
+        print("padding dataframe...")
         df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+
         # split into train,test,infer
         infer_df = self.split_infer(df)
-
-        df_dict = {'infer':infer_df}
+        
+        #infer_df = self.pad_dataframe(infer_df)
+        df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1584,7 +1580,7 @@ class graphmodel():
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
                 # get node index map
-                df_node_map_index = df[df[self.time_index_col] == period].reset_index(drop=True)
+                df_node_map_index = df[df[self.time_index_col]==period].reset_index(drop=True)
                 self.node_index_map = self.node_indexing(df_node_map_index, [self.id_col])
 
             # Create a dataset iterator
@@ -1599,17 +1595,14 @@ class graphmodel():
     
     
     def split_train_test(self, data):
-        
-        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
+        train_data = data[data[self.time_index_col] <= self.actual_train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col] > self.actual_train_till)&(data[self.time_index_col] <= self.actual_test_till)].reset_index(drop=True)
         
         return train_data, test_data
     
     def split_infer(self, data):
+        infer_data = data[data[self.time_index_col] == self.infer_start].reset_index(drop=True)
         
-        #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
-        infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
-
         return infer_data
 
     def get_metadata(self, dataset):
@@ -1634,24 +1627,33 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, infer_df, model_output):
-        
-        if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
+    def process_output(self, df, model_output):
+       
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
             
         # preprocess
-        #print("preprocessing dataframe...")
-        #df = self.preprocess(df)
-        
+        print("preprocessing dataframe...")
+        df = self.preprocess(df)
+
         # pad dataframe if required (will return df unchanged if not)
-        #print("padding dataframe...")
-        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
-        
+        print("padding dataframe...")
+        df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
+        # get list of all timestamps in ascending order
+        all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+        # get index of train & test till periods
+        train_till_idx = all_timestamps.index(self.train_till)
+        test_till_idx = all_timestamps.index(self.test_till)
+        # get index of actual timestamps where to train & test upto
+        actual_train_till_idx = int(train_till_idx - self.fh + 1)
+        actual_test_till_idx = int(test_till_idx - self.fh + 1)
+        self.actual_train_till = all_timestamps[actual_train_till_idx]
+        self.actual_test_till = all_timestamps[actual_test_till_idx]
+
         # get infer df
-        #infer_df = self.split_infer(df)
+        infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -1665,49 +1667,35 @@ class graphmodel():
         else:
             scaler_cols = ['scaler_mu','scaler_std']
         
-        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
+        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.multihorizon_targets[self.target_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
         
-        model_output = model_output.reshape(-1,1)
-        output = pd.DataFrame(data=model_output, columns=['forecast'])
+        model_output = model_output.reshape(-1, self.fh)
+        output = pd.DataFrame(data=model_output, columns=[f'forecast_{i}' for i in range(self.fh)])
         
         # merge forecasts with infer df
         output = pd.concat([infer_df, output], axis=1)    
        
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            output['forecast'] = output['forecast']*output['scaler']
-            output[self.target_col] = output[self.target_col]*output['scaler']
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
         else:
-            output['forecast'] = output['forecast']*output['scaler_std'] + output['scaler_mu']
-            output[self.target_col] = output[self.target_col]*output['scaler_std'] + output['scaler_mu']
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
         
         return output
-        
-    def update_dataframe(self, df, output):
-        
-        # merge output & base_df
-        reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
-        df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
-        
-        # update target for current ts with forecasts
-        df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(), df_updated[self.target_col], df_updated['forecast'])
-        
-        # drop forecast column
-        df_updated = df_updated.drop(columns=['forecast'])
-        
-        return df_updated
-    
+
     def build_dataset(self, df):
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(df)
 
-    def build_infer_dataset(self, df, infer_till):
+    def build_infer_dataset(self, df, infer_start):
         # build graph datasets for infer
         try:
             del self.infer_dataset
             gc.collect()
         except:
             pass
-        _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+        self.infer_dataset = self.create_infer_dataset(df=df, infer_start=infer_start)
 
     def build(self,
               model_type = "SAGE", 
@@ -1743,11 +1731,12 @@ class graphmodel():
                            target_node = self.target_col,
                            context_nodes = self.global_context_col_list,
                            device = self.device,
-                           n_quantiles = max(len(self.forecast_quantiles),1),
+                           n_quantiles = max(len(self.forecast_quantiles), 1),
                            num_layers = num_layers,
                            alpha = 0.5, 
                            dropout = dropout,
                            residual_conn_type = residual_conn_type,
+                           loss_type = 'Quantile', 
                            positive_output = False,
                            aggr = aggr,
                            use_linear_pretransform = use_linear_pretransform,
@@ -1784,7 +1773,9 @@ class graphmodel():
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
-        
+
+        print("train & test adjusted cutoffs: {} & {}".format(self.actual_train_till, self.actual_test_till))
+
         self.loss_type = loss_type
         
         if self.loss_type == 'Quantile':
@@ -1949,151 +1940,71 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
-    
+
+    def change_device(self, device='cpu'):
+        self.device = torch.device(device)
+        self.model.load_state_dict(torch.load(self.best_model, map_location=self.device))
+
+    def disable_cuda_backend(self,):
+        self.change_device(device="cuda")
+        torch.backends.cudnn.enabled = False
+
+    """
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
-        
+
         base_df = df.copy()
 
-        # infer preprocess
-        #base_df = self.infer_preprocess(base_df)
-        
         # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
-        
+        infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
+
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
-        
-        forecast_df = pd.DataFrame() 
-        
+
+        forecast_df = pd.DataFrame()
+
         # infer fn
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
             model.train(False)
             output = []
-            with torch.no_grad(): 
+            with torch.no_grad():
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
 
-        for i,t in enumerate(infer_periods):
-            
-            print("forecasting period {} at lag {}".format(t, i))
-            
-            # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-            if self.include_rolling_features:
-                self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-            
-            if not self.categorical_onehot_encoding:
-                self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
-                self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
-        
-            # infer dataset creation 
-            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
-            output = infer_fn(self.model, self.best_model, infer_dataset)
-            
-            # select output quantile
-            output_arr = output[0]
-            output_arr = output_arr.cpu().numpy()
-            
-            # quantile selection
-            min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-            
-            if self.loss_type == 'Quantile':
-                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+        print("forecast period range: {} to {}".format(infer_periods[0], infer_periods[-1]))
 
-                try:
-                    q_index = self.forecast_quantiles(select_quantile)
-                    output_arr = output_arr[:,:,q_index] 
-                except:
-                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                    q_lower = int(q_upper - 1)
-                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                    q_lower_weight = 1 - q_upper_weight
-                    output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
-            else:
-                try:
-                    output_arr = output_arr[:, :, 0]
-                except:
-                    pass
-                
-            # show current o/p
-            scaled_output = self.process_output(infer_df, output_arr)
-            
-            # compute mape
-            if compute_mape:
-                scaled_output['forecast_sum'] = scaled_output.groupby(self.id_col)['forecast'].transform(lambda x: x.sum())
-                scaled_output['forecast_sum'] = np.where(scaled_output['forecast_sum']<0, 0, scaled_output['forecast_sum'])
-                scaled_output['abs_error'] = abs(scaled_output[self.target_col] - scaled_output['forecast'])
-                print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
-                
-            # append forecast
-            forecast_df = forecast_df.append(scaled_output)
-
-            # update df
-            base_df = self.update_dataframe(base_df, scaled_output)
-        
-        return forecast_df
-    
-    def infer_oneshot(self, df, select_quantile, compute_mape=False):
-        
-        base_df = df.copy()
-        
-        # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
-        
-        # print model used for inference
-        print("running inference using best saved model: ", self.best_model)
-        
-        # infer fn
-        def infer_fn(model, model_path, infer_dataset):
-            model.load_state_dict(torch.load(model_path))
-            model.eval()
-            model.train(False)
-            output = []
-            with torch.no_grad(): 
-                for i, batch in enumerate(infer_dataset):
-                    batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
-                    output.append(out)
-            return output
-
-            
-        print("forecasting for periods from {} to {}".format(infer_periods[0], infer_periods[-1]))
-            
-        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
-        if self.include_rolling_features:
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
-            
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
-        
-        # infer dataset creation 
+
+        # infer dataset creation
         infer_dataset = self.create_infer_dataset(base_df, infer_till=infer_periods[-1])
         output = infer_fn(self.model, self.best_model, infer_dataset)
-            
+
         # select output quantile
         output_arr = output[0]
         output_arr = output_arr.cpu().numpy()
-            
+
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
         if self.loss_type == 'Quantile':
+
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
 
             try:
                 q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[-self.n_prediction_nodes:,:,q_index]
+                output_arr = output_arr[:, :, q_index]
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
                 q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
                 q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight*output_arr[-self.n_prediction_nodes:,:,q_upper] + q_lower_weight*output_arr[-self.n_prediction_nodes:,:,q_lower]
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
         else:
             try:
                 output_arr = output_arr[:, :, 0]
@@ -2102,12 +2013,187 @@ class graphmodel():
 
         # show current o/p
         scaled_output = self.process_output(base_df, output_arr)
-            
-        # compute mape
-        if compute_mape:
-            scaled_output['abs_error'] = abs(scaled_output[self.target_col] - scaled_output['forecast'])
-            print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
-                
-        return scaled_output
-                
+
+        # append forecast
+        forecast_df = forecast_df.append(scaled_output)
+
+        return forecast_df
+    
+    """
+
+    def infer(self, df, infer_start, select_quantile):
+
+        # get list of infer periods
+        #infer_till = df[df[self.time_index_col] == infer_start][self.time_index_col].unique().tolist()[0]
+
+        # print model used for inference
+        print("running inference using best saved model: ", self.best_model)
+
+        # infer fn
+        def infer_fn(model, model_path, infer_dataset):
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+            model.train(False)
+            output = []
+            with torch.no_grad():
+                for i, batch in enumerate(infer_dataset):
+                    batch = batch.to(self.device)
+                    out = model(batch.x_dict, batch.edge_index_dict)
+                    output.append(out)
+            return output
+
+        print("forecast starts at: {} ".format(infer_start))
+
+        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
+
+        if not self.categorical_onehot_encoding:
+            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
+
+        # infer dataset creation
+        infer_df, infer_dataset = self.create_infer_dataset(df, infer_start=infer_start)
+        output_arr_list = infer_fn(self.model, self.best_model, infer_dataset)
+
+        # select output quantile
+        output_arr = output_arr_list[0]
+        output_arr = output_arr.cpu().numpy()
+
+        # quantile selection
+        min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+
+        if self.loss_type == 'Quantile':
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            try:
+                q_index = self.forecast_quantiles(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+        else:
+            try:
+                output_arr = output_arr[:, :, 0]
+            except:
+                pass
+
+        # show current o/p
+        output = pd.DataFrame(data=output_arr.reshape(-1, self.fh), columns=[f'forecast_{i}' for i in range(self.fh)])
+        output = pd.concat([infer_df, output], axis=1)
+
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+        else:
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+
+        return output
+
+    def backtest(self, df, infer_start, infer_end, select_quantile):
+
+        # create backtest dataset
+        def create_backtest_dataset(df):
+
+            # preprocess
+            print("preprocessing dataframe...")
+            df = self.preprocess(df)
+
+            # pad dataframe if required (will return df unchanged if not)
+            print("padding dataframe...")
+            df = self.parallel_pad_dataframe(df)  #self.pad_dataframe(df)
+
+            # get list of all timestamps in ascending order
+            all_timestamps = sorted(df[self.time_index_col].unique(), reverse=False)
+            # get index of train & test till periods
+            train_till_idx = all_timestamps.index(self.train_till)
+            test_till_idx = all_timestamps.index(self.test_till)
+            # get index of actual timestamps where to train & test upto
+            actual_train_till_idx = int(train_till_idx - self.fh + 1)
+            actual_test_till_idx = int(test_till_idx - self.fh + 1)
+            self.actual_train_till = all_timestamps[actual_train_till_idx]
+            self.actual_test_till = all_timestamps[actual_test_till_idx]
+
+            # filter to backtest duration
+            backtest_df = df[(df[self.time_index_col] >= infer_start) & (df[self.time_index_col] <= infer_end)].reset_index(drop=True)
+
+            df_dict = {'backtest': backtest_df}
+            def parallel_snapshot_graphs(df, period):
+                df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
+                snapshot_graph = self.create_snapshot_graph(df_snap, period)
+                return snapshot_graph
+
+            # for each split create graph dataset iterator
+            print("gather snapshot graphs...")
+            datasets = {}
+            for df_type, df in df_dict.items():
+                snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+                print("picking {} samples for {}".format(len(snap_periods_list), df_type))
+                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                # Create a dataset iterator
+                dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=False)  # Load full graph for each timestep
+                # append
+                datasets[df_type] = dataset
+
+            backtest_dataset = datasets.get('backtest')
+            return backtest_df, backtest_dataset
+
+        # infer fn
+        def infer_fn(model, model_path, infer_dataset):
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+            model.train(False)
+            output = []
+            with torch.no_grad():
+                for i, batch in enumerate(infer_dataset):
+                    batch = batch.to(self.device)
+                    out = model(batch.x_dict, batch.edge_index_dict)
+                    output.append(out)
+            return output
+
+        # reset rolling stats columns -- will be recalculated for each period & undo labelencoding & scaling
+
+        if not self.categorical_onehot_encoding:
+            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
+
+        backtest_df, backtest_dataset = create_backtest_dataset(df)
+        output_arr_list = infer_fn(self.model, self.best_model, backtest_dataset)
+        output_arr = torch.cat(output_arr_list, dim=0).cpu().numpy()
+
+        # quantile selection
+        min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+
+        if self.loss_type == 'Quantile':
+
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+
+            try:
+                q_index = self.forecast_quantiles(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+        else:
+            try:
+                output_arr = output_arr[:, :, 0]
+            except:
+                pass
+
+        # show current o/p
+        output = pd.DataFrame(data=output_arr.reshape(-1, self.fh), columns=[f'forecast_{i}' for i in range(self.fh)])
+        output = pd.concat([backtest_df, output], axis=1)
+
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler'], axis="index")
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+        else:
+            output[[f'forecast_{i}' for i in range(self.fh)]] = output[[f'forecast_{i}' for i in range(self.fh)]].multiply(output['scaler_std'], axis="index") + output['scaler_mu']
+            output[[self.target_col] + self.multihorizon_targets[self.target_col]] = output[[self.target_col] + self.multihorizon_targets[self.target_col]].multiply(output['scaler'], axis="index")
+
+        return output
 
