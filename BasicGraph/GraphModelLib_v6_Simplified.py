@@ -1196,7 +1196,7 @@ class graphmodel():
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         return gdf
-    def preprocess(self, data):
+    def preprocess(self, data, create_lead_lad_features=True):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1273,10 +1273,11 @@ class graphmodel():
                 self.unknown_onehot_cols += onehot_col_features
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
-        
-        # create lagged features
-        print("   preprocessing dataframe - creade lead & lag features...")
-        df = self.create_lead_lag_features(df)
+
+        if create_lead_lad_features:
+            # create lagged features
+            print("   preprocessing dataframe - create lead & lag features...")
+            df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1538,16 +1539,31 @@ class graphmodel():
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
 
         return train_dataset, test_dataset
-    
+
+    def infer_preprocess(self, df):
+        # preprocess
+        df = self.preprocess(df, create_lead_lad_features=False)
+
+        # pad dataframe
+        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+
+        # rescale target
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            df[self.target_col] = df[self.target_col] * df['scaler']
+        else:
+            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
+
+        return df
+
     def create_infer_dataset(self, df, infer_till):
         
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=True)
         
         # pad dataframe
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1581,7 +1597,7 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        return infer_dataset
+        return infer_df, infer_dataset
     
     
     def split_train_test(self, data):
@@ -1620,7 +1636,7 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, df, model_output):
+    def process_output(self, infer_df, model_output):
         
         if self.include_rolling_features:
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_stat_cols))
@@ -1629,15 +1645,15 @@ class graphmodel():
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
             
         # preprocess
-        print("preprocessing dataframe...")
-        df = self.preprocess(df)
+        #print("preprocessing dataframe...")
+        #df = self.preprocess(df)
         
         # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #print("padding dataframe...")
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # get infer df
-        infer_df = self.split_infer(df)
+        #infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -1939,6 +1955,9 @@ class graphmodel():
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
+
+        # infer preprocess
+        base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
@@ -1974,7 +1993,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -2003,7 +2022,7 @@ class graphmodel():
                     pass
                 
             # show current o/p
-            scaled_output = self.process_output(base_df, output_arr)
+            scaled_output = self.process_output(infer_df, output_arr)
             
             # compute mape
             if compute_mape:
