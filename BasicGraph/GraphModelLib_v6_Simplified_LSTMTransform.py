@@ -1562,7 +1562,7 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        return infer_dataset
+        return infer_df, infer_dataset
     
     
     def split_train_test(self, data):
@@ -1601,22 +1601,22 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, df, model_output):
+    def process_output(self, infer_df, model_output):
        
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
             
         # preprocess
-        print("preprocessing dataframe...")
-        df = self.preprocess(df)
+        #print("preprocessing dataframe...")
+        #df = self.preprocess(df)
         
         # pad dataframe if required (will return df unchanged if not)
-        print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #print("padding dataframe...")
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # get infer df
-        infer_df = self.split_infer(df)
+        #infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -1673,7 +1673,7 @@ class graphmodel():
         except:
             pass
 
-        self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+        _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
 
     def build(self,
               model_type = "SAGE", 
@@ -1959,7 +1959,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -1987,7 +1987,7 @@ class graphmodel():
                     pass
                 
             # show current o/p
-            scaled_output = self.process_output(base_df, output_arr)
+            scaled_output = self.process_output(infer_df, output_arr)
             
             # compute mape
             if compute_mape:
