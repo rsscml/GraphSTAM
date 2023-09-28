@@ -1189,7 +1189,7 @@ class graphmodel():
 
         return gdf
 
-    def preprocess(self, data, create_lead_lad_features=True):
+    def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1263,10 +1263,10 @@ class graphmodel():
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
 
-        if create_lead_lad_features:
-            # create lagged features
-            print("   preprocessing dataframe - create lead & lag features...")
-            df = self.create_lead_lag_features(df)
+
+        # create lagged features
+        print("   preprocessing dataframe - create lead & lag features...")
+        df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1523,7 +1523,7 @@ class graphmodel():
 
     def infer_preprocess(self, df):
         # preprocess
-        df = self.preprocess(df, create_lead_lad_features=False)
+        df = self.preprocess(df)
 
         # pad dataframe
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
@@ -1541,11 +1541,11 @@ class graphmodel():
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df, create_lead_lad_features=True)
+        df = self.preprocess(df)
 
         # pad dataframe
-        #print("padding dataframe ...")
-        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        print("padding dataframe ...")
+        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1943,10 +1943,10 @@ class graphmodel():
 
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
-        base_df = df.copy()
+        base_df = df.copy(deep=True)
 
         # infer preprocess
-        base_df = self.infer_preprocess(base_df)
+        #base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
