@@ -1709,7 +1709,9 @@ class graphmodel():
             gc.collect()
         except:
             pass
-        self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
+
+        df = self.infer_preprocess(df)
+        _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
 
     def build(self,
               model_type = "SAGE", 

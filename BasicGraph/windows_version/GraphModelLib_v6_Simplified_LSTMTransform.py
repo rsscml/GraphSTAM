@@ -1689,6 +1689,7 @@ class graphmodel():
         except:
             pass
 
+        df = self.infer_preprocess(df)
         _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
 
     def build(self,
