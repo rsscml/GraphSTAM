@@ -340,7 +340,8 @@ class gml(object):
             
             import TemporalSpatialGraph as graphmodel
             
-            self.common_data_config = {'scaling_method': 'mean_scaling',
+            self.common_data_config = {'batch': self.train_batch_size,
+                                       'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'shuffle': True,
@@ -362,7 +363,8 @@ class gml(object):
 
             import TemporalSpatialGraph as graphmodel
 
-            self.common_data_config = {'scaling_method': 'mean_scaling',
+            self.common_data_config = {'batch': self.train_batch_size,
+                                       'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'shuffle': True,
