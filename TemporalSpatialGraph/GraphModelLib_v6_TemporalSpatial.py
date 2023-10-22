@@ -1247,6 +1247,7 @@ class graphmodel():
     def __init__(self, 
                  col_dict, 
                  max_lags,
+                 batch,
                  train_till,
                  test_till,
                  scaling_method = 'mean_scaling',
@@ -1287,7 +1288,7 @@ class graphmodel():
         self.seq_len = int(max_lags)
         self.train_till = train_till
         self.test_till = test_till
-        self.batch = int(1)
+        self.batch = batch
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
