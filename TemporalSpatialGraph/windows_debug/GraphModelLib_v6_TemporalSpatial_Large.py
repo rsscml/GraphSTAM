@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[1]:
+
+
 # Model Specific imports
 
 import torch
@@ -14,7 +17,6 @@ from torch_sparse import mul
 from torch_sparse import sum as sparsesum
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_sparse import SparseTensor
-import gc
 
 #from pytorch_forecasting.metrics import QuantileLoss, RMSE, MAE, TweedieLoss, PoissonLoss, MAPE, SMAPE
 
@@ -37,7 +39,6 @@ warnings.filterwarnings("ignore")
 # utilities imports
 from joblib import Parallel, delayed
 import shutil
-import gc
 
 # #### Models & Utils
 
@@ -186,6 +187,9 @@ def compute_unidirectional_edges_ratio(edge_index):
     return (num_unidirectional / (num_undirected_edges / 2)) * 100
 
 
+# In[ ]:
+
+
 # Causal Masked Attention
 
 class MaskedCausalAttention(torch.nn.Module):
@@ -255,6 +259,10 @@ class AttentionStack(torch.nn.Module):
         return x
     
 
+
+# In[ ]:
+
+
 # GRN & Gating
 
 # torch equivalent
@@ -320,7 +328,7 @@ class add_norm_layer(torch.nn.Module):
     
 # torch equivalent
 class gated_residual_network(torch.nn.Module):
-    def __init__(self, hidden_layer_size, output_size, dropout_rate, grn_type='weight'):
+    def __init__(self, hidden_layer_size, output_size, dropout_rate):
         super().__init__()
         
         self.hidden_layer_size = hidden_layer_size
@@ -329,13 +337,10 @@ class gated_residual_network(torch.nn.Module):
         else: 
             self.output_size = output_size
         
-        if grn_type == 'weight':
-            self.linear = torch.nn.Linear(in_features=self.output_size, out_features=self.output_size) #hidden_layer_size
-            self.hidden_1 = linear_layer(input_dim=self.output_size, output_dim=hidden_layer_size)     #hidden_layer_size
-        else:
-            self.linear = torch.nn.Linear(in_features=1, out_features=self.output_size) #hidden_layer_size
-            self.hidden_1 = linear_layer(input_dim=1, output_dim=hidden_layer_size)     #hidden_layer_size
-            
+        
+        self.linear = torch.nn.Linear(in_features=hidden_layer_size, out_features=self.output_size) #hidden_layer_size
+        self.hidden_1 = linear_layer(input_dim=hidden_layer_size, output_dim=hidden_layer_size)     #hidden_layer_size
+        
         self.hidden1_activation = torch.nn.ELU()
         self.hidden_2 = linear_layer(input_dim=hidden_layer_size, output_dim=hidden_layer_size)
         self.gate = apply_gating_layer(hidden_layer_size=hidden_layer_size, output_size=self.output_size, dropout_rate=dropout_rate)
@@ -391,13 +396,11 @@ class temporal_variable_selection_layer(torch.nn.Module):
         self.num_vars = num_vars
         self.grn_var = torch.nn.ModuleList([gated_residual_network(hidden_layer_size=self.hidden_layer_size, 
                                                output_size=None, 
-                                               dropout_rate=self.dropout_rate,
-                                               grn_type='feature') for _ in range(self.num_vars)])
+                                               dropout_rate=self.dropout_rate) for _ in range(self.num_vars)])
         
-        self.grn_flat = gated_residual_network(hidden_layer_size=self.hidden_layer_size, 
+        self.grn_flat = gated_residual_network(hidden_layer_size=int(self.hidden_layer_size*self.num_vars), 
                                                output_size=self.num_vars, 
-                                               dropout_rate=self.dropout_rate,
-                                               grn_type='weight')
+                                               dropout_rate=self.dropout_rate)
         self.softmax_activation = torch.nn.Softmax()
   
     
@@ -433,8 +436,8 @@ class temporal_attention_layer(torch.nn.Module):
         super().__init__()
         
         self.target_nodetype = target_nodetype
-        #self.linear_transform = torch.nn.ModuleList([torch.nn.Linear(in_features=1, 
-        #                                                             out_features=hidden_layer_size) for _ in range(num_vars)])
+        self.linear_transform = torch.nn.ModuleList([torch.nn.Linear(in_features=1, 
+                                                                     out_features=hidden_layer_size) for _ in range(num_vars)])
         
         self.variable_selection_layer = temporal_variable_selection_layer(hidden_layer_size=hidden_layer_size, 
                                                                           num_vars=num_vars, 
@@ -461,13 +464,9 @@ class temporal_attention_layer(torch.nn.Module):
         #    var_list.append(torch.unsqueeze(var, dim=2))
         
         # linear transform
-        #for i, (lin_tfr, var) in enumerate(zip(self.linear_transform, list(x_dict.values()))):
-        #    var_list.append(lin_tfr(torch.unsqueeze(var, dim=2)))
-        
-        for i, var in enumerate(list(x_dict.values())):
-            var_list.append(torch.unsqueeze(var, dim=2))
-            #print(var_list[i].shape, list(x_dict.keys())[i])
-
+        for i, (lin_tfr, var) in enumerate(zip(self.linear_transform, list(x_dict.values()))):
+            var_list.append(lin_tfr(torch.unsqueeze(var, dim=2)))
+       
         # var select
         lstm_input, var_weights = self.variable_selection_layer(var_list)
         
@@ -525,6 +524,7 @@ class RMSE():
     def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
         loss = torch.pow(y_pred - target, 2)
         return loss
+
 
 # Reference implementation from the DirGNN paper: https://arxiv.org/abs/2305.10498 
 
@@ -722,6 +722,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         out = self.lin(x_dict[self.target_node_type])
 
         return out 
+    
 
 class HeteroForecastGCNConv(torch.nn.Module):
     
@@ -831,7 +832,6 @@ class HeteroForecastGCNConv(torch.nn.Module):
         out = self.lin(x_dict[self.target_node_type])
 
         return out 
-    
 
 class HeteroForecastGATConv(torch.nn.Module):
     
@@ -1050,7 +1050,6 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
 
         return out 
 
-
 # Models
 
 class STGNN(torch.nn.Module):
@@ -1238,6 +1237,7 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
             else:
                 out = torch.reshape(out, (-1, self.n_pred))
+
         return out
     
 
@@ -1514,7 +1514,7 @@ class graphmodel():
 
             # record feat labels for explainability
             self.node_features_label[col] = self.lead_lag_features_dict[col]
-        
+
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
@@ -1589,6 +1589,7 @@ class graphmodel():
         
         return df
 
+
     def parallel_pad_dataframe(self, df):
         """
         Individually pad each key
@@ -1602,8 +1603,8 @@ class graphmodel():
         gdf = gdf.reset_index(drop=True)
 
         return gdf
-
-    def preprocess(self, data):
+    
+    def preprocess(self, data, create_lead_lad_features=True):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1676,9 +1677,10 @@ class graphmodel():
             
         self.temporal_nodes =  [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.known_onehot_cols + self.unknown_onehot_cols
 
-        # create lagged features
-        print("   preprocessing dataframe - creade lead & lag features...")
-        df = self.create_lead_lag_features(df)
+        if create_lead_lad_features:
+            # create lagged features
+            print("   preprocessing dataframe - creade lead & lag features...")
+            df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1742,8 +1744,9 @@ class graphmodel():
             # data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
             feats_df = df_snap[onehot_col_features].drop_duplicates()
             data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
-                
+
         # bidirectional edges between global context node & target_col nodes
+        
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
             
@@ -1801,7 +1804,6 @@ class graphmodel():
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
         """
-
         # directed edges are from covariates to target
 
         # temporal features will be attended to by temporal attention 
@@ -1817,7 +1819,7 @@ class graphmodel():
             if not self.directed_graph:
                 rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-        
+
         # validate dataset
         print("validate snapshot graph ...")    
         data.validate(raise_on_error=True)
@@ -1886,7 +1888,8 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
         
         return df
-
+        
+        
     def create_train_test_dataset(self, df):
         # preprocess
         print("preprocessing dataframe...")
@@ -1934,7 +1937,7 @@ class graphmodel():
 
     def infer_preprocess(self, df):
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=False)
 
         # pad dataframe
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
@@ -1946,21 +1949,20 @@ class graphmodel():
             df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
 
         return df
-
     def create_infer_dataset(self, df, infer_till):
         
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=True)
         
         # pad dataframe
-        #print("padding dataframe ...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
-
+        
+        #infer_df = self.pad_dataframe(infer_df)
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -1990,11 +1992,12 @@ class graphmodel():
         infer_dataset = datasets.get('infer')
 
         return infer_df, infer_dataset
-
+    
+    
     def split_train_test(self, data):
         
-        train_data = data[data[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col] > self.train_till)&(data[self.time_index_col] <= self.test_till)].reset_index(drop=True)
+        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
         
         return train_data, test_data
     
@@ -2090,7 +2093,7 @@ class graphmodel():
     def build_dataset(self, df):
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(df)
-
+        
     def build_infer_dataset(self, df, infer_till):
         # build graph datasets for infer
         try:
@@ -2099,7 +2102,6 @@ class graphmodel():
         except:
             pass
         _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
-
     def build(self,
               model_type = "SAGE", 
               model_option = "TEMPORAL_SPATIAL", 
@@ -2366,10 +2368,10 @@ class graphmodel():
         base_df = df.copy()
 
         # infer preprocess
-        #base_df = self.infer_preprocess(base_df)
+        base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
+        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
         
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
@@ -2407,10 +2409,9 @@ class graphmodel():
             
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
-            
+
             if self.loss_type == 'Quantile':
                 assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
                     output_arr = output_arr[:,:,q_index] 

@@ -37,7 +37,6 @@ warnings.filterwarnings("ignore")
 # utilities imports
 from joblib import Parallel, delayed
 import shutil
-import gc
 
 # #### Models & Utils
 
@@ -1603,7 +1602,7 @@ class graphmodel():
 
         return gdf
 
-    def preprocess(self, data):
+    def preprocess(self, data, create_lead_lad_features=True):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1676,9 +1675,10 @@ class graphmodel():
             
         self.temporal_nodes =  [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.known_onehot_cols + self.unknown_onehot_cols
 
-        # create lagged features
-        print("   preprocessing dataframe - creade lead & lag features...")
-        df = self.create_lead_lag_features(df)
+        if create_lead_lad_features:
+            # create lagged features
+            print("   preprocessing dataframe - creade lead & lag features...")
+            df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1886,7 +1886,8 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
         
         return df
-
+        
+        
     def create_train_test_dataset(self, df):
         # preprocess
         print("preprocessing dataframe...")
@@ -1934,7 +1935,7 @@ class graphmodel():
 
     def infer_preprocess(self, df):
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=False)
 
         # pad dataframe
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
@@ -1952,11 +1953,11 @@ class graphmodel():
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df)
+        df = self.preprocess(df, create_lead_lad_features=True)
         
         # pad dataframe
         #print("padding dataframe ...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -2366,7 +2367,7 @@ class graphmodel():
         base_df = df.copy()
 
         # infer preprocess
-        #base_df = self.infer_preprocess(base_df)
+        base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
