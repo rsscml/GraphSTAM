@@ -1113,7 +1113,7 @@ class graphmodel():
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
-        df = df.dropna(subset=all_lead_lag_cols)
+        #df = df.dropna(subset=all_lead_lag_cols)
         
         return df
     
