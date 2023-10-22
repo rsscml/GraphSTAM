@@ -2155,7 +2155,7 @@ class graphmodel():
                            use_dirgnn = use_dirgnn)
         
         # init model
-        self.model = self.model.half().to(self.device)
+        self.model = self.model.to(self.device)
         
         # Lazy init.
         with torch.no_grad():
