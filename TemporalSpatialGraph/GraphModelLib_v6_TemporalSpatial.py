@@ -2155,11 +2155,11 @@ class graphmodel():
                            use_dirgnn = use_dirgnn)
         
         # init model
-        self.model = self.model.to(self.device)
+        self.model = self.model.to(self.device).half()
         
         # Lazy init.
         with torch.no_grad():
-            sample_batch = sample_batch.to(self.device)
+            sample_batch = sample_batch.to(self.device).half()
             out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
             
         # parameters count
@@ -2219,7 +2219,7 @@ class graphmodel():
             total_loss = 0
             for i, batch in enumerate(self.train_dataset):
                 optimizer.zero_grad()
-                batch = batch.to(self.device)
+                batch = batch.to(self.device).half()
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
                 
@@ -2266,7 +2266,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
-                    batch = batch.to(self.device)
+                    batch = batch.to(self.device).half()
                     out = self.model(batch.x_dict, batch.edge_index_dict)
                     
                     # compute loss masking out N/A targets -- last snapshot
@@ -2385,7 +2385,7 @@ class graphmodel():
             output = []
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
-                    batch = batch.to(self.device)
+                    batch = batch.to(self.device).half()
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
