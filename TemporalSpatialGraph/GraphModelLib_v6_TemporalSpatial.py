@@ -1742,7 +1742,7 @@ class graphmodel():
             # feats_df = feats_df.drop_duplicates()
             # data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
             feats_df = df_snap[onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.int16)
+            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float16)
                 
         # bidirectional edges between global context node & target_col nodes
         for col in self.global_context_col_list:
@@ -1816,7 +1816,7 @@ class graphmodel():
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
             
             if not self.directed_graph:
-                rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
+                rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col), col)
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
         
         # validate dataset
