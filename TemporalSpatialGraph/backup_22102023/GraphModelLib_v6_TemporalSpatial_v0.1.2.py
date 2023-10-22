@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[1]:
+
+
 # Model Specific imports
 
 import torch
@@ -14,7 +17,6 @@ from torch_sparse import mul
 from torch_sparse import sum as sparsesum
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_sparse import SparseTensor
-import gc
 
 #from pytorch_forecasting.metrics import QuantileLoss, RMSE, MAE, TweedieLoss, PoissonLoss, MAPE, SMAPE
 
@@ -185,6 +187,9 @@ def compute_unidirectional_edges_ratio(edge_index):
     return (num_unidirectional / (num_undirected_edges / 2)) * 100
 
 
+# In[ ]:
+
+
 # Causal Masked Attention
 
 class MaskedCausalAttention(torch.nn.Module):
@@ -253,6 +258,10 @@ class AttentionStack(torch.nn.Module):
       
         return x
     
+
+
+# In[ ]:
+
 
 # GRN & Gating
 
@@ -465,8 +474,7 @@ class temporal_attention_layer(torch.nn.Module):
         
         for i, var in enumerate(list(x_dict.values())):
             var_list.append(torch.unsqueeze(var, dim=2))
-            #print(var_list[i].shape, list(x_dict.keys())[i])
-
+        
         # var select
         lstm_input, var_weights = self.variable_selection_layer(var_list)
         
@@ -487,6 +495,12 @@ class temporal_attention_layer(torch.nn.Module):
         
         return x_attn_dict, var_weights
         
+           
+        
+
+
+# In[ ]:
+
 
 # loss function
 
@@ -524,6 +538,10 @@ class RMSE():
     def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
         loss = torch.pow(y_pred - target, 2)
         return loss
+
+
+# In[ ]:
+
 
 # Reference implementation from the DirGNN paper: https://arxiv.org/abs/2305.10498 
 
@@ -606,6 +624,10 @@ class DirGATv2Conv(torch.nn.Module):
         return (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) + self.alpha * self.conv_dst_to_src(x, edge_index_t)
     
 
+
+# In[ ]:
+
+
 # Forecast GNN Layers
 
 class HeteroForecastSageConv(torch.nn.Module):
@@ -642,7 +664,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type)])
+                                                                  types=self.context_node_type+self.static_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -681,7 +703,7 @@ class HeteroForecastSageConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -721,6 +743,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         out = self.lin(x_dict[self.target_node_type])
 
         return out 
+    
 
 class HeteroForecastGCNConv(torch.nn.Module):
     
@@ -756,7 +779,7 @@ class HeteroForecastGCNConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type)])
+                                                                  types=self.context_node_type+self.static_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -793,7 +816,7 @@ class HeteroForecastGCNConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -867,7 +890,7 @@ class HeteroForecastGATConv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type)])
+                                                                  types=self.context_node_type+self.static_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -902,7 +925,7 @@ class HeteroForecastGATConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -976,7 +999,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
         # transform static & context nodes
         self.linear_layers = torch.nn.ModuleList([HeteroDictLinear(in_channels=-1, 
                                                                   out_channels=hidden_channels, 
-                                                                  types=self.context_node_type)])
+                                                                  types=self.context_node_type+self.static_node_type)])
        
         self.temporal_attention = temporal_attention_layer(hidden_layer_size=hidden_channels, 
                                                            rnn_layers=rnn_layers, 
@@ -1011,7 +1034,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         
         # linear transform static & context node features
-        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type}
+        static_x_dict = {k: x_dict.get(k, None) for k in self.context_node_type+self.static_node_type}
         
         for lin_dict in self.linear_layers:
             static_x_dict = lin_dict(static_x_dict)
@@ -1048,6 +1071,9 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
         out = self.lin(x_dict[self.target_node_type])
 
         return out 
+
+
+# In[ ]:
 
 
 # Models
@@ -1213,15 +1239,15 @@ class STGNN(torch.nn.Module):
         else:
             raise "Invalid model_option. model_option: [TEMPORAL_SPATIAL]"
             
-    def forward(self, x_dict, edge_index_dict):
+    def forward(self, data):
     
         # gnn layer
-        x = self.gnn_layer(x_dict, edge_index_dict)
+        x = self.gnn_layer(data.x_dict, data.edge_index_dict)
         x = x.relu()
         
         if self.apply_norm_layers:
             x = self.layer_norm1(x)
-        x = F.dropout(x, self.dropout)
+        x = F.dropout(x, self.dropout, training=self.training)
         
         # output preds now without temporal attention
         
@@ -1232,15 +1258,17 @@ class STGNN(torch.nn.Module):
             
             if self.pos_out:
                 out = F.softplus(out)
-
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+                
+            out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
+                
         return out
     
 
+
 # #### Graph Data Generator
+
+# In[ ]:
+
 
 class graphmodel():
     def __init__(self, 
@@ -1481,15 +1509,14 @@ class graphmodel():
 
     def onehot_encode(self, df):
         
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
     
     
     def create_lead_lag_features(self, df):
-
-        self.node_features_label = {}
+        
         self.lead_lag_features_dict = {}
         
         for col in [self.target_col] + \
@@ -1510,9 +1537,6 @@ class graphmodel():
                 for lag in range(self.max_lags-1, -1, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
-
-            # record feat labels for explainability
-            self.node_features_label[col] = self.lead_lag_features_dict[col]
         
         # drop rows with NaNs in lag/lead cols
         all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
@@ -1521,7 +1545,7 @@ class graphmodel():
         
         return df
     
-    def pad_dataframe(self, df, dateindex):
+    def pad_dataframe(self, df):
         # this ensures num nodes in a graph don't change from period to period. Essentially, we introduce dummy nodes.
         
         # function to fill NaNs in group id & stat cols post padding
@@ -1529,7 +1553,7 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols:
+            for col in self.global_context_col_list:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -1561,7 +1585,7 @@ class graphmodel():
             return x   
 
         # get a df of all timestamps in the dataset
-        #dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
+        dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col]) 
         
         # "padded" dataset with padding constant used as nan filler
         df = df.groupby(self.id_col, sort=False).apply(lambda x: fillgrpid(x).fillna(self.pad_constant)).reset_index(drop=True)
@@ -1587,22 +1611,9 @@ class graphmodel():
                 df[col] = df[col].astype(str).astype(bool).astype(int)
         
         return df
-
-    def parallel_pad_dataframe(self, df):
-        """
-        Individually pad each key
-        """
-        # get a df of all timestamps in the dataset
-        dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
-
-        groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
-        gdf = pd.concat(padded_gdfs, axis=0)
-        gdf = gdf.reset_index(drop=True)
-
-        return gdf
-
-    def preprocess(self, data, create_lead_lad_features=True):
+                
+    
+    def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
         # check null
@@ -1647,15 +1658,8 @@ class graphmodel():
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         
         self.node_features = {}
-        self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
-
-        for node in self.global_context_col_list:
-            onehot_cols_prefix = str(node) + '_'
-            onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
-            self.node_features[node] = onehot_col_features
-            self.global_context_onehot_cols += onehot_col_features
 
         for node in self.node_cols:
             if node not in self.cat_col_list:
@@ -1674,11 +1678,10 @@ class graphmodel():
                 self.unknown_onehot_cols += onehot_col_features
             
         self.temporal_nodes =  [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.known_onehot_cols + self.unknown_onehot_cols
-
-        if create_lead_lad_features:
-            # create lagged features
-            print("   preprocessing dataframe - creade lead & lag features...")
-            df = self.create_lead_lag_features(df)
+        
+        # create lagged features
+        print("   preprocessing dataframe - creade lead & lag features...")
+        df = self.create_lead_lag_features(df)
         
         return df
     
@@ -1734,16 +1737,13 @@ class graphmodel():
             
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
-            onehot_cols_prefix = str(col) + '_'
-            onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
-            # feats_df = df_snap[[col]]
-            # feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
-            # feats_df = feats_df.drop_duplicates()
-            # data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
-            feats_df = df_snap[onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
+                feats_df = df_snap[[col]]
+                feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
+                feats_df = feats_df.drop_duplicates()
+                data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
+        
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
             
@@ -1794,16 +1794,16 @@ class graphmodel():
             data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
                  
         # static nodes only required in this kind of connection
-        """
+        
         for col in self.static_cat_col_list:
             feats_df = df_snap[[col]]
             feats_df[f'dummy_static_{col}'] = 1  # assign a constant as dummy feature
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
-        """
-
+                
         # directed edges are from covariates to target
-
+        
+        '''
         # temporal features will be attended to by temporal attention 
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
@@ -1817,6 +1817,7 @@ class graphmodel():
             if not self.directed_graph:
                 rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+        '''
         
         # validate dataset
         print("validate snapshot graph ...")    
@@ -1895,7 +1896,7 @@ class graphmodel():
         
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        df = self.pad_dataframe(df)
         
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1932,37 +1933,22 @@ class graphmodel():
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
 
         return train_dataset, test_dataset
-
-    def infer_preprocess(self, df):
-        # preprocess
-        df = self.preprocess(df, create_lead_lad_features=False)
-
-        # pad dataframe
-        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
-
-        # rescale target
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            df[self.target_col] = df[self.target_col] * df['scaler']
-        else:
-            df[self.target_col] = df[self.target_col] * df['scaler_std'] + df['scaler_mu']
-
-        return df
-
+    
     def create_infer_dataset(self, df, infer_till):
         
         self.infer_till = infer_till
         
         # preprocess
-        df = self.preprocess(df, create_lead_lad_features=True)
+        df = self.preprocess(df)
         
         # pad dataframe
-        #print("padding dataframe ...")
-        #df = self.parallel_pad_dataframe(df) #self.pad_dataframe(df)
+        df = self.pad_dataframe(df)
         
         # split into train,test,infer
         infer_df = self.split_infer(df)
-
-        df_dict = {'infer': infer_df}
+        
+        #infer_df = self.pad_dataframe(infer_df)
+        df_dict = {'infer':infer_df}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1978,9 +1964,6 @@ class graphmodel():
                 df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
-                # get node index map
-                df_node_map_index = df[df[self.time_index_col] == period].reset_index(drop=True)
-                self.node_index_map = self.node_indexing(df_node_map_index, [self.id_col])
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=1, shuffle=False) 
@@ -1990,20 +1973,20 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        return infer_df, infer_dataset
-
+        return infer_dataset
+    
+    
     def split_train_test(self, data):
         
-        train_data = data[data[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col] > self.train_till)&(data[self.time_index_col] <= self.test_till)].reset_index(drop=True)
+        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
         
         return train_data, test_data
     
     def split_infer(self, data):
         
-        #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
-        infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
-
+        infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
+        
         return infer_data
 
     def get_metadata(self, dataset):
@@ -2028,22 +2011,22 @@ class graphmodel():
         
         return statistics
       
-    def process_output(self, infer_df, model_output):
+    def process_output(self, df, model_output):
        
         if not self.categorical_onehot_encoding:
             self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
             
         # preprocess
-        #print("preprocessing dataframe...")
-        #df = self.preprocess(df)
+        print("preprocessing dataframe...")
+        df = self.preprocess(df)
         
         # pad dataframe if required (will return df unchanged if not)
-        #print("padding dataframe...")
-        #df = self.pad_dataframe(df)
+        print("padding dataframe...")
+        df = self.pad_dataframe(df)
         
         # get infer df
-        #infer_df = self.split_infer(df)
+        infer_df = self.split_infer(df)
         #print("in process_output: ", infer_df.shape)
         
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
@@ -2091,16 +2074,8 @@ class graphmodel():
     def build_dataset(self, df):
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(df)
-
-    def build_infer_dataset(self, df, infer_till):
-        # build graph datasets for infer
-        try:
-            del self.infer_dataset
-            gc.collect()
-        except:
-            pass
-        _, self.infer_dataset = self.create_infer_dataset(df=df, infer_till=infer_till)
-
+        
+            
     def build(self,
               model_type = "SAGE", 
               model_option = "TEMPORAL_SPATIAL", 
@@ -2141,7 +2116,7 @@ class graphmodel():
                            temporal_nodes = self.temporal_nodes,
                            static_nodes = self.static_cat_col_list,
                            device = self.device,
-                           n_quantiles = max(len(self.forecast_quantiles), 1),
+                           n_quantiles = len(self.forecast_quantiles), 
                            num_layers = num_layers,
                            rnn_layers = rnn_layers,
                            attn_layers = attn_layers,
@@ -2159,8 +2134,7 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            sample_batch = sample_batch.to(self.device)
-            out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
+            out = self.model(sample_batch.to(self.device))
             
         # parameters count
         try:
@@ -2221,29 +2195,17 @@ class graphmodel():
                 optimizer.zero_grad()
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
-                out = self.model(batch.x_dict, batch.edge_index_dict)
+                out = self.model(batch)
                 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss_type == 'Quantile':
-                    try:
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
-                    except:
-                        loss = loss_fn.loss(torch.unsqueeze(out, dim=1), batch[self.target_col].y)
-
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                 elif self.loss_type == 'Huber':
-                    try:
-                        loss = loss_fn(out[:, -1, :], batch[self.target_col].y)
-                    except:
-                        loss = loss_fn(out, batch[self.target_col].y)
-
+                    loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
                     mask = batch[self.target_col].y_mask
                 else:
-                    try:
-                        loss = loss_fn.loss(out[:, -1, :], batch[self.target_col].y)
-                    except:
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
-
+                    loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
                     mask = batch[self.target_col].y_mask
                 
                 if sample_weights:
@@ -2267,29 +2229,17 @@ class graphmodel():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
-                    out = self.model(batch.x_dict, batch.edge_index_dict)
+                    out = self.model(batch)
                     
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss_type == 'Quantile':
-                        try:
-                            loss = loss_fn.loss(out, batch[self.target_col].y)
-                        except:
-                            loss = loss_fn.loss(torch.unsqueeze(out, dim=1), batch[self.target_col].y)
-
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
                     elif self.loss_type == 'Huber':
-                        try:
-                            loss = loss_fn(out[:, -1, :], batch[self.target_col].y)
-                        except:
-                            loss = loss_fn(out, batch[self.target_col].y)
-
+                        loss = loss_fn(out[:,-1,:], batch[self.target_col].y)
                         mask = batch[self.target_col].y_mask
                     else:
-                        try:
-                            loss = loss_fn.loss(out[:, -1, :], batch[self.target_col].y)
-                        except:
-                            loss = loss_fn.loss(out, batch[self.target_col].y)
-
+                        loss = loss_fn.loss(out[:,-1,:], batch[self.target_col].y)
                         mask = batch[self.target_col].y_mask
                     
                     if sample_weights:
@@ -2354,23 +2304,13 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 break
-
-    def change_device(self, device='cpu'):
-        self.device = torch.device(device)
-        self.model.load_state_dict(torch.load(self.best_model, map_location=self.device))
-
-    def disable_cuda_backend(self,):
-        self.change_device(device="cuda")
-        torch.backends.cudnn.enabled = False
+    
     def infer(self, df, infer_start, infer_end, select_quantile, compute_mape=False):
         
         base_df = df.copy()
-
-        # infer preprocess
-        base_df = self.infer_preprocess(base_df)
         
         # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
+        infer_periods = sorted(base_df[(base_df[self.time_index_col]>=infer_start) & (base_df[self.time_index_col]<=infer_end)][self.time_index_col].unique().tolist())
         
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
@@ -2386,7 +2326,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
                     batch = batch.to(self.device)
-                    out = model(batch.x_dict, batch.edge_index_dict)
+                    out = model(batch)
                     output.append(out)
             return output
 
@@ -2399,7 +2339,7 @@ class graphmodel():
                 self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
         
             # infer dataset creation 
-            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
+            infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
             
             # select output quantile
@@ -2409,9 +2349,9 @@ class graphmodel():
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
             
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            
             if self.loss_type == 'Quantile':
-                assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
                     output_arr = output_arr[:,:,q_index] 
@@ -2422,13 +2362,10 @@ class graphmodel():
                     q_lower_weight = 1 - q_upper_weight
                     output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
             else:
-                try:
-                    output_arr = output_arr[:, :, 0]
-                except:
-                    pass
+                output_arr = output_arr[:,:,0] 
                 
             # show current o/p
-            scaled_output = self.process_output(infer_df, output_arr)
+            scaled_output = self.process_output(base_df, output_arr)
             
             # compute mape
             if compute_mape:

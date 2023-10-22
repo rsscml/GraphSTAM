@@ -1550,7 +1550,7 @@ class graphmodel():
         # split into train,test,infer
         infer_df = self.split_infer(df)
 
-        df_dict = {'infer':infer_df}
+        df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1583,8 +1583,8 @@ class graphmodel():
     
     def split_train_test(self, data):
         
-        train_data = data[data[self.time_index_col]<=self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col]>self.train_till)&(data[self.time_index_col]<=self.test_till)].reset_index(drop=True)
+        train_data = data[data[self.time_index_col] <= self.train_till].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col] > self.train_till)&(data[self.time_index_col] <= self.test_till)].reset_index(drop=True)
         
         return train_data, test_data
     
