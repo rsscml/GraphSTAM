@@ -1713,25 +1713,25 @@ class graphmodel():
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get target node features, weights & masks
-        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float16)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float16)
-        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float16)
-        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float16)
+        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
         
         # store snapshot period
         data[self.target_col].time_attr = period
         
         for col in self.temporal_known_num_col_list:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
             
         for col in self.temporal_unknown_num_col_list:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
         
         for col in self.known_onehot_cols:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
         
         for col in self.unknown_onehot_cols:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
             
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
@@ -1742,7 +1742,7 @@ class graphmodel():
             # feats_df = feats_df.drop_duplicates()
             # data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
             feats_df = df_snap[onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float16)
+            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
         # bidirectional edges between global context node & target_col nodes
         for col in self.global_context_col_list:
