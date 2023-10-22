@@ -1713,25 +1713,25 @@ class graphmodel():
         data = HeteroData({"y_mask":None, "y_weight":None})
         
         # get target node features, weights & masks
-        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float16)
+        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float16)
+        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float16)
+        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.int8)
         
         # store snapshot period
         data[self.target_col].time_attr = period
         
         for col in self.temporal_known_num_col_list:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
             
         for col in self.temporal_unknown_num_col_list:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float16)
         
         for col in self.known_onehot_cols:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.int8)
         
         for col in self.unknown_onehot_cols:
-            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.int8)
             
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
@@ -1742,7 +1742,7 @@ class graphmodel():
             # feats_df = feats_df.drop_duplicates()
             # data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
             feats_df = df_snap[onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.int8)
                 
         # bidirectional edges between global context node & target_col nodes
         for col in self.global_context_col_list:
@@ -1760,11 +1760,11 @@ class graphmodel():
             # fwd edges
             edges = np.concatenate(fwd_edges_stack, axis=0)
             edge_name = (self.target_col,'hascontext_{}'.format(col),col)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int8)
             # reverse edges
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
             rev_edge_name = (col,'{}_contextof'.format(col),self.target_col)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.int8)
             
         # bidirectional edges exist between target_col nodes related by various static cols
         
@@ -1791,8 +1791,8 @@ class graphmodel():
             # add edges to Data()
             edges = np.concatenate(fwd_edges_stack, axis=0)
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int8)
+            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.int8)
                  
         # static nodes only required in this kind of connection
         """
@@ -1813,11 +1813,11 @@ class graphmodel():
             edges = np.column_stack([nodes, nodes])
                 
             edge_name = (col,'{}_effect'.format(col),self.target_col)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int8)
             
             if not self.directed_graph:
                 rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
-                data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+                data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int8)
         
         # validate dataset
         print("validate snapshot graph ...")    
@@ -2159,7 +2159,7 @@ class graphmodel():
         
         # Lazy init.
         with torch.no_grad():
-            sample_batch = sample_batch.to(self.device).half()
+            sample_batch = sample_batch.to(self.device)
             out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
             
         # parameters count
@@ -2219,7 +2219,7 @@ class graphmodel():
             total_loss = 0
             for i, batch in enumerate(self.train_dataset):
                 optimizer.zero_grad()
-                batch = batch.to(self.device).half()
+                batch = batch.to(self.device)
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
                 
@@ -2266,7 +2266,7 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
-                    batch = batch.to(self.device).half()
+                    batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
                     
                     # compute loss masking out N/A targets -- last snapshot
@@ -2385,7 +2385,7 @@ class graphmodel():
             output = []
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
-                    batch = batch.to(self.device).half()
+                    batch = batch.to(self.device)
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
