@@ -1796,13 +1796,15 @@ class graphmodel():
         time_since_improvement = 0
         train_loss_hist = []
         val_loss_hist = []
-        
+
+        # gradient accumulation
+        accum_iter = self.batch
         def train_fn():
             self.model.train(True)
             total_examples = 0 
             total_loss = 0
             for i, batch in enumerate(self.train_dataset):
-                optimizer.zero_grad()
+                #optimizer.zero_grad()
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -1833,8 +1835,17 @@ class graphmodel():
                     wt = 1
                 
                 loss = torch.mean(loss*mask*wt)
+
+                # normalize loss to account for batch accumulation
+                loss = loss / accum_iter
+
                 loss.backward()
-                optimizer.step()
+                #optimizer.step()
+                # weights update
+                if ((i + 1) % accum_iter == 0) or (i + 1 == len(self.train_dataset)):
+                    optimizer.step()
+                    optimizer.zero_grad()
+
                 total_examples += batch_size
                 total_loss += float(loss)
                 

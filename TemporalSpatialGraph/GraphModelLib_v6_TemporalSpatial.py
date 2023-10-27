@@ -1760,11 +1760,11 @@ class graphmodel():
             # fwd edges
             edges = np.concatenate(fwd_edges_stack, axis=0)
             edge_name = (self.target_col,'hascontext_{}'.format(col),col)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             # reverse edges
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
             rev_edge_name = (col,'{}_contextof'.format(col),self.target_col)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.int16)
+            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
             
         # bidirectional edges exist between target_col nodes related by various static cols
         
@@ -1791,8 +1791,8 @@ class graphmodel():
             # add edges to Data()
             edges = np.concatenate(fwd_edges_stack, axis=0)
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.int16)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
                  
         # static nodes only required in this kind of connection
         """
@@ -1813,11 +1813,11 @@ class graphmodel():
             edges = np.column_stack([nodes, nodes])
                 
             edge_name = (col,'{}_effect'.format(col),self.target_col)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
+            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             
             if not self.directed_graph:
                 rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col), col)
-                data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.int16)
+                data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
         
         # validate dataset
         print("validate snapshot graph ...")    
