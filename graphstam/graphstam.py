@@ -268,8 +268,8 @@ class gml(object):
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
         self.train_infer_device = self.model_config.get('device')
         self.train_batch_size = self.data_config.get('batch')
-        self.grad_accum = self.data_config.get('grad_accum', default=True)
-        self.accum_iter = self.data_config.get('accum_iter', default=1)
+        self.grad_accum = self.data_config.get('grad_accum', True)
+        self.accum_iter = self.data_config.get('accum_iter', 1)
         self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
