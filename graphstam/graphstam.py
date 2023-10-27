@@ -268,6 +268,8 @@ class gml(object):
         self.baseline_col_dict = copy.deepcopy(self.col_dict)
         self.train_infer_device = self.model_config.get('device')
         self.train_batch_size = self.data_config.get('batch')
+        self.grad_accum = self.data_config.get('grad_accum', default=True)
+        self.accum_iter = self.data_config.get('accum_iter', default=1)
         self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
@@ -291,6 +293,8 @@ class gml(object):
             # deault common configs
             self.common_data_config = {'fh': self.fh,
                                        'batch': self.train_batch_size,
+                                       #'grad_accum': self.grad_accum,
+                                       #'accum_iter': self.accum_iter,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
@@ -317,6 +321,8 @@ class gml(object):
             # deault common configs
             self.common_data_config = {'fh': self.fh,
                                        'batch': self.train_batch_size,
+                                       'grad_accum': self.grad_accum,
+                                       'accum_iter': self.accum_iter,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,

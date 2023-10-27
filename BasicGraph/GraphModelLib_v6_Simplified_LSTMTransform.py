@@ -831,7 +831,9 @@ class graphmodel():
                  train_till,
                  test_till,
                  fh = 1,
-                 batch = 1, 
+                 batch = 1,
+                 grad_accum = True,
+                 accum_iter = 1,
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
                  directed_graph = True,
@@ -875,6 +877,8 @@ class graphmodel():
         self.test_till = test_till
         
         self.batch = batch
+        self.grad_accum = grad_accum
+        self.accum_iter = accum_iter
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
@@ -1797,8 +1801,6 @@ class graphmodel():
         train_loss_hist = []
         val_loss_hist = []
 
-        # gradient accumulation
-        accum_iter = self.batch
         def train_fn():
             self.model.train(True)
             total_examples = 0 
@@ -1837,14 +1839,18 @@ class graphmodel():
                 loss = torch.mean(loss*mask*wt)
 
                 # normalize loss to account for batch accumulation
-                loss = loss / accum_iter
-
-                loss.backward()
-                #optimizer.step()
-                # weights update
-                if ((i + 1) % accum_iter == 0) or (i + 1 == len(self.train_dataset)):
+                if self.grad_accum:
+                    loss = loss / self.accum_iter
+                    loss.backward()
+                    # weights update
+                    if ((i + 1) % self.accum_iter == 0) or (i + 1 == len(self.train_dataset)):
+                        optimizer.step()
+                        optimizer.zero_grad()
+                else:
+                    loss.backward()
                     optimizer.step()
                     optimizer.zero_grad()
+
 
                 total_examples += batch_size
                 total_loss += float(loss)
