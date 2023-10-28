@@ -1247,9 +1247,11 @@ class graphmodel():
     def __init__(self, 
                  col_dict, 
                  max_lags,
-                 batch,
                  train_till,
                  test_till,
+                 batch = 1,
+                 grad_accum=False,
+                 accum_iter=1,
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
                  directed_graph = True,
@@ -1289,6 +1291,8 @@ class graphmodel():
         self.train_till = train_till
         self.test_till = test_till
         self.batch = batch
+        self.grad_accum = grad_accum
+        self.accum_iter = accum_iter
         self.scaling_method = scaling_method
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
@@ -2218,7 +2222,9 @@ class graphmodel():
             total_examples = 0 
             total_loss = 0
             for i, batch in enumerate(self.train_dataset):
-                optimizer.zero_grad()
+                if not self.grad_accum:
+                    optimizer.zero_grad()
+
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -2252,8 +2258,19 @@ class graphmodel():
                     wt = 1
                 
                 loss = torch.mean(loss*mask*wt)
-                loss.backward()
-                optimizer.step()
+
+                # normalize loss to account for batch accumulation
+                if self.grad_accum:
+                    loss = loss / self.accum_iter
+                    loss.backward()
+                    # weights update
+                    if ((i + 1) % self.accum_iter == 0) or (i + 1 == len(self.train_dataset)):
+                        optimizer.step()
+                        optimizer.zero_grad()
+                else:
+                    loss.backward()
+                    optimizer.step()
+
                 total_examples += batch_size
                 total_loss += float(loss)
                 

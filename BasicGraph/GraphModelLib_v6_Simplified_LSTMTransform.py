@@ -832,7 +832,7 @@ class graphmodel():
                  test_till,
                  fh = 1,
                  batch = 1,
-                 grad_accum = True,
+                 grad_accum = False,
                  accum_iter = 1,
                  scaling_method = 'mean_scaling',
                  categorical_onehot_encoding = True,
@@ -1806,7 +1806,9 @@ class graphmodel():
             total_examples = 0 
             total_loss = 0
             for i, batch in enumerate(self.train_dataset):
-                #optimizer.zero_grad()
+                if not self.grad_accum:
+                    optimizer.zero_grad()
+
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -1849,8 +1851,6 @@ class graphmodel():
                 else:
                     loss.backward()
                     optimizer.step()
-                    optimizer.zero_grad()
-
 
                 total_examples += batch_size
                 total_loss += float(loss)

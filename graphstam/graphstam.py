@@ -293,8 +293,8 @@ class gml(object):
             # deault common configs
             self.common_data_config = {'fh': self.fh,
                                        'batch': self.train_batch_size,
-                                       #'grad_accum': self.grad_accum,
-                                       #'accum_iter': self.accum_iter,
+                                       'grad_accum': self.grad_accum,
+                                       'accum_iter': self.accum_iter,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
@@ -347,6 +347,8 @@ class gml(object):
             import TemporalSpatialGraph as graphmodel
             
             self.common_data_config = {'batch': self.train_batch_size,
+                                       'grad_accum': self.grad_accum,
+                                       'accum_iter': self.accum_iter,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
@@ -370,6 +372,8 @@ class gml(object):
             import TemporalSpatialGraph as graphmodel
 
             self.common_data_config = {'batch': self.train_batch_size,
+                                       'grad_accum': self.grad_accum,
+                                       'accum_iter': self.accum_iter,
                                        'scaling_method': 'mean_scaling',
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
