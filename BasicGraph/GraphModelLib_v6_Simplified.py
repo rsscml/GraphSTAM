@@ -814,6 +814,8 @@ class graphmodel():
                  grad_accum = False,
                  accum_iter = 1,
                  scaling_method = 'mean_scaling',
+                 iqr_high = 0.75,
+                 iqr_low = 0.25,
                  categorical_onehot_encoding = True,
                  directed_graph = True,
                  include_rolling_features = True,
@@ -861,6 +863,8 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
+        self.iqr_high = iqr_high
+        self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
         self.directed_graph = directed_graph
         self.include_rolling_features = include_rolling_features
@@ -959,6 +963,26 @@ class graphmodel():
             else:
                 unknown_scale = [0, 1]
 
+        # new in 1.2
+        elif self.scaling_method == 'quantile_scaling':
+            med = scale_gdf[self.target_col].quantile(q=0.5)
+            iqr = scale_gdf[self.target_col].quantile(q=self.iqr_high) - scale_gdf[self.target_col].quantile(q=self.iqr_low)
+            scale = [med, np.maximum(iqr, 1.0)]
+
+            if len(self.temporal_known_num_col_list) > 0:
+                known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
+                known_scale = np.divide(known_sum, known_nz_count) + 1.0
+            else:
+                known_scale = 1
+
+            if len(self.temporal_unknown_num_col_list) > 0:
+                unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
+                unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+            else:
+                unknown_scale = 1
+
         elif self.scaling_method == 'no_scaling':
             scale = 1.0
             known_scale = 1.0
@@ -972,7 +996,12 @@ class graphmodel():
             gdf[self.target_col] = gdf[self.target_col]/scale
             gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
             gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
-        
+
+        elif self.scaling_method == 'quantile_scaling':
+            gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
+            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
+            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
+
         elif self.scaling_method == 'standard_scaling':
             gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
             gdf[self.temporal_known_num_col_list] = (gdf[self.temporal_known_num_col_list] - known_scale[0])/known_scale[1]
@@ -981,6 +1010,9 @@ class graphmodel():
         # Store scaler as a column
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             gdf['scaler'] = scale
+        elif self.scaling_method == 'quantile_scaling':
+            gdf['scaler_median'] = scale[0]
+            gdf['scaler_iqr'] = scale[1]
         elif self.scaling_method == 'standard_scaling':
             gdf['scaler_mu'] = scale[0]
             gdf['scaler_std'] = scale[1]
@@ -1666,6 +1698,8 @@ class graphmodel():
         # infer_df.shape[0] == model_output.shape[0]
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             scaler_cols = ['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            scaler_cols = ['scaler_iqr', 'scaler_median']
         else:
             scaler_cols = ['scaler_mu','scaler_std']
         
@@ -1680,6 +1714,9 @@ class graphmodel():
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             output['forecast'] = output['forecast']*output['scaler']
             output[self.target_col] = output[self.target_col]*output['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            output['forecast'] = output['forecast'] * output['scaler_iqr'] + output['scaler_median']
+            output[self.target_col] = output[self.target_col] * output['scaler_iqr'] + output['scaler_median']
         else:
             output['forecast'] = output['forecast']*output['scaler_std'] + output['scaler_mu']
             output[self.target_col] = output[self.target_col]*output['scaler_std'] + output['scaler_mu']

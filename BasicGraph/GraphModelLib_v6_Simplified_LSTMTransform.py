@@ -1679,8 +1679,10 @@ class graphmodel():
         # infer_df.shape[0] == model_output.shape[0]
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             scaler_cols = ['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            scaler_cols = ['scaler_iqr', 'scaler_median']
         else:
-            scaler_cols = ['scaler_mu','scaler_std']
+            scaler_cols = ['scaler_mu', 'scaler_std']
         
         infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
         

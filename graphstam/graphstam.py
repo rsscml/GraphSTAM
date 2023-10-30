@@ -400,7 +400,7 @@ class gml(object):
             # deault common configs
             self.common_data_config = {'fh': 1,
                                        'batch': 1,
-                                       'scaling_method': 'mean_scaling',
+                                       'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'include_rolling_features': True,
