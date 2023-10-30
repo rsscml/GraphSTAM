@@ -270,6 +270,7 @@ class gml(object):
         self.train_batch_size = self.data_config.get('batch')
         self.grad_accum = self.data_config.get('grad_accum', True)
         self.accum_iter = self.data_config.get('accum_iter', 1)
+        self.scaling_method = self.data_config.get('scaling_method', 'mean_scaling')
         self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
@@ -295,7 +296,7 @@ class gml(object):
                                        'batch': self.train_batch_size,
                                        'grad_accum': self.grad_accum,
                                        'accum_iter': self.accum_iter,
-                                       'scaling_method': 'mean_scaling',
+                                       'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'include_rolling_features': True,
@@ -323,7 +324,7 @@ class gml(object):
                                        'batch': self.train_batch_size,
                                        'grad_accum': self.grad_accum,
                                        'accum_iter': self.accum_iter,
-                                       'scaling_method': 'mean_scaling',
+                                       'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'shuffle': True,
@@ -349,7 +350,7 @@ class gml(object):
             self.common_data_config = {'batch': self.train_batch_size,
                                        'grad_accum': self.grad_accum,
                                        'accum_iter': self.accum_iter,
-                                       'scaling_method': 'mean_scaling',
+                                       'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'shuffle': True,
@@ -374,7 +375,7 @@ class gml(object):
             self.common_data_config = {'batch': self.train_batch_size,
                                        'grad_accum': self.grad_accum,
                                        'accum_iter': self.accum_iter,
-                                       'scaling_method': 'mean_scaling',
+                                       'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
                                        'shuffle': True,
@@ -417,8 +418,10 @@ class gml(object):
             
             self.data_config.update(self.common_data_config)
             self.model_config.update(self.common_model_config)
-            
-            
+
+            # show scaling method used
+            print("Using {} scaling method".format(self.scaling_method))
+
         else:
             raise ValueError("Not a supported model type!")
 
