@@ -1222,9 +1222,25 @@ class graphmodel():
         padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
-
         return gdf
 
+    def fillna_lead_lag_features(self, df):
+        """
+        Fill lead/lag feature cols with 0 post "create_lead_lag_features" step.
+        """
+        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+        return df
+
+    def parallel_fillna_lead_lag_features(self, df):
+        """
+        parallelize fillna_lead_lag_features
+        """
+        groups = df.groupby([self.id_col])
+        filled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(
+            delayed(self.fillna_lead_lag_features())(gdf) for _, gdf in groups)
+        gdf = pd.concat(filled_gdfs, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        return gdf
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1459,7 +1475,8 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # fillna all lead/lag cols with 0
-        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+        #df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+        df = self.parallel_fillna_lead_lag_features(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1506,7 +1523,8 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # fillna lead/lag cols with 0
-        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+        #df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+        df = self.parallel_fillna_lead_lag_features(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1540,8 +1558,7 @@ class graphmodel():
         infer_dataset = datasets.get('infer')
 
         return infer_df, infer_dataset
-    
-    
+
     def split_train_test(self, data):
         
         train_data = data[data[self.time_index_col] <= self.train_till].reset_index(drop=True)
