@@ -1236,8 +1236,7 @@ class graphmodel():
         parallelize fillna_lead_lag_features
         """
         groups = df.groupby([self.id_col])
-        filled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(
-            delayed(self.fillna_lead_lag_features())(gdf) for _, gdf in groups)
+        filled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.fillna_lead_lag_features)(gdf) for _, gdf in groups)
         gdf = pd.concat(filled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         return gdf
