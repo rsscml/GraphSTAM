@@ -448,6 +448,8 @@ class gml(object):
             self.data_config.update({'col_dict':self.col_dict})
 
         # init graphmodel object
+        print("Testing Optimized version!")
+
         if self.model_type in ['SimpleGraphSageAuto','TransformerGraphSageLarge']:
             self.graphobj = graphmodel.graphmodel_large(**self.data_config)
         elif self.model_type in ['SimpleGraphSageOneshot']:
