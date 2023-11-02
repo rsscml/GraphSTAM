@@ -1138,7 +1138,7 @@ class graphmodel():
             self.node_features_label[col] = self.lead_lag_features_dict[col]
 
         # drop rows with NaNs in lag/lead cols
-        all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
+        self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
         #df = df.dropna(subset=all_lead_lag_cols)
         
@@ -1458,6 +1458,9 @@ class graphmodel():
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
 
+        # fillna all lead/lag cols with 0
+        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
+
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
         train_df, test_df = self.split_train_test(df)
@@ -1501,6 +1504,9 @@ class graphmodel():
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
+
+        # fillna lead/lag cols with 0
+        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
