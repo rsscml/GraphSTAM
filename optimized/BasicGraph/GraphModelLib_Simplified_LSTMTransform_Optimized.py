@@ -37,13 +37,15 @@ from joblib import Parallel, delayed
 from joblib.externals.loky import get_reusable_executor
 import shutil
 import sys
-
+import time
 os = sys.platform
 
 if os == 'linux':
     backend = 'loky'
+    timeout = 30
 else:
     backend = 'loky'
+    timeout = 30
 
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
@@ -929,7 +931,7 @@ class graphmodel():
         df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min()<self.train_till)
 
         groups = df.groupby([self.id_col])
-        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
+        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
@@ -1144,7 +1146,7 @@ class graphmodel():
         Parallelize feature creation
         """
         groups = df.groupby([self.id_col])
-        fe_gdf = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
+        fe_gdf = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
         gdf = pd.concat(fe_gdf, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
@@ -1217,7 +1219,7 @@ class graphmodel():
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
         groups = df.groupby([self.id_col])
-        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
+        padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
@@ -1433,6 +1435,8 @@ class graphmodel():
         self.onetime_prep_df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
 
     def create_train_test_dataset(self, df):
+        # allow joblib processes to die-out
+        time.sleep(30)
 
         # create lagged features
         print("create lead & lag features...")
@@ -1478,6 +1482,7 @@ class graphmodel():
     def create_infer_dataset(self, df, infer_till):
 
         self.infer_till = infer_till
+        time.sleep(30)
 
         # create lagged features
         print("create lead & lag features...")
