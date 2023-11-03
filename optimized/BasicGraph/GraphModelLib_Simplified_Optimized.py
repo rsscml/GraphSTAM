@@ -44,7 +44,7 @@ os = sys.platform
 if os == 'linux':
     backend = 'loky'
 else:
-    backend = 'threading'
+    backend = 'loky'
 
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
