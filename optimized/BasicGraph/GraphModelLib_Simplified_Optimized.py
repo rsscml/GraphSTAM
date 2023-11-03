@@ -1111,13 +1111,13 @@ class graphmodel():
             self.lead_lag_features_dict[col] = []
 
             for lag in range(1, self.max_lags + 1):
-                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
+                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag).fillna(0)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
                 for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead).fillna(0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             if col in [self.target_col]:
