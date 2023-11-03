@@ -36,6 +36,7 @@ warnings.filterwarnings("ignore")
 
 # utilities imports
 from joblib import Parallel, delayed
+from joblib.externals.loky import get_reusable_executor
 import shutil
 import sys
 
@@ -913,7 +914,7 @@ class graphmodel():
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
-       
+        get_reusable_executor().shutdown(wait=True)
         return gdf
     
 
@@ -1153,6 +1154,7 @@ class graphmodel():
         fe_gdf = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
         gdf = pd.concat(fe_gdf, axis=0)
         gdf = gdf.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
         return gdf
     
     def pad_dataframe(self, df, dateindex):
@@ -1225,6 +1227,7 @@ class graphmodel():
         padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
         return gdf
 
     def preprocess(self, data):
@@ -1481,6 +1484,7 @@ class graphmodel():
             datasets[df_type] = dataset
         
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
+        get_reusable_executor().shutdown(wait=True)
 
         return train_dataset, test_dataset
 
