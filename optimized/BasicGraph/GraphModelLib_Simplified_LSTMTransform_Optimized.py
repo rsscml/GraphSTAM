@@ -1092,29 +1092,29 @@ class graphmodel():
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
         
         return df
-    
-    def create_lead_lag_feature_names(self):
-        """
-        Obtain all lead/lag feature col names
-        """
+
+    def create_lead_lag_features(self, df):
+
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
 
         for col in [self.target_col] + \
-                    self.temporal_known_num_col_list + \
-                    self.temporal_unknown_num_col_list + \
-                    self.known_onehot_cols + \
-                    self.unknown_onehot_cols:
+                   self.temporal_known_num_col_list + \
+                   self.temporal_unknown_num_col_list + \
+                   self.known_onehot_cols + \
+                   self.unknown_onehot_cols:
 
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
 
             for lag in range(self.max_lags, 0, -1):
+                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
                 for lead in range(0, self.max_leads):
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
@@ -1122,36 +1122,8 @@ class graphmodel():
         # drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
 
-    def create_lead_lag_features(self, df):
-        """
-        Create lead/lag features
-        """
-        for col in [self.target_col] + \
-                    self.temporal_known_num_col_list + \
-                    self.temporal_unknown_num_col_list + \
-                    self.known_onehot_cols + \
-                    self.unknown_onehot_cols:
-
-            for lag in range(self.max_lags, 0, -1):
-                df[f'{col}_lag_{lag}'] = df[col].shift(periods=lag).fillna(0)
-
-            if col in self.temporal_known_num_col_list + self.known_onehot_cols:
-                for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df[col].shift(periods=-lead).fillna(0)
-
         return df
 
-    def parallel_create_lead_lag_features(self, df):
-        """
-        Parallelize feature creation
-        """
-        groups = df.groupby([self.id_col])
-        fe_gdf = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
-        gdf = pd.concat(fe_gdf, axis=0)
-        gdf = gdf.reset_index(drop=True)
-        get_reusable_executor().shutdown(wait=True)
-        return gdf
-    
     def pad_dataframe(self, df, dateindex):
         # this ensures num nodes in a graph don't change from period to period. Essentially, we introduce dummy nodes.
         
@@ -1283,9 +1255,6 @@ class graphmodel():
                 self.unknown_onehot_cols += onehot_col_features
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
-
-        # create lead/lag feature names
-        self.create_lead_lag_feature_names()
 
         return df
     
@@ -1435,12 +1404,10 @@ class graphmodel():
         self.onetime_prep_df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
 
     def create_train_test_dataset(self, df):
-        # allow joblib processes to die-out
-        time.sleep(30)
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.parallel_create_lead_lag_features(df)
+        df = self.create_lead_lag_features(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1480,13 +1447,11 @@ class graphmodel():
         return train_dataset, test_dataset
 
     def create_infer_dataset(self, df, infer_till):
-
         self.infer_till = infer_till
-        time.sleep(30)
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.parallel_create_lead_lag_features(df)
+        df = self.create_lead_lag_features(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
