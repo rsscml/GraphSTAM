@@ -1036,26 +1036,7 @@ class graphmodel():
             gdf['scaler_std'] = scale[1]
         
         return gdf
-    
-    def scale_labelencodings(self, df):
-        """
-        1. Create & store label encodings
-        2. Max scale label encoded columns across dataset
-        """
-        try:
-            # reuse encoders for inference
-            for col in self.label_encoded_col_list:
-                df[col] = self.label_encoders[col].fit_transform(df[col])
-                df[col] = df[col]/max(df[col].max(), 1)
-        except:
-            self.label_encoders = {}
-            for col in self.label_encoded_col_list:
-                self.label_encoders[col] = preprocessing.LabelEncoder()
-                df[col] = self.label_encoders[col].fit_transform(df[col])
-                df[col] = df[col]/max(df[col].max(), 1)
 
-        return df
-    
     def sort_dataset(self, data):
         """
         sort pandas dataframe by provided col list & order
@@ -1101,7 +1082,6 @@ class graphmodel():
             null_status == False
         
         return null_status, null_cols
-    
 
     def onehot_encode(self, df):
         
@@ -1110,39 +1090,63 @@ class graphmodel():
         
         return df
     
-    
-    def create_lead_lag_features(self, df):
-
+    def create_lead_lag_feature_names(self):
+        """
+        Obtain all lead/lag feature col names
+        """
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
-        
+
         for col in [self.target_col] + \
                     self.temporal_known_num_col_list + \
                     self.temporal_unknown_num_col_list + \
                     self.known_onehot_cols + \
                     self.unknown_onehot_cols:
-            
+
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
-            
+
             for lag in range(self.max_lags, 0, -1):
-                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag).fillna(0)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
-                
+
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
                 for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead).fillna(0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
 
         # drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
-        
-        #df = df.dropna(subset=all_lead_lag_cols)
-        
+
+    def create_lead_lag_features(self, df):
+        """
+        Create lead/lag features
+        """
+        for col in [self.target_col] + \
+                    self.temporal_known_num_col_list + \
+                    self.temporal_unknown_num_col_list + \
+                    self.known_onehot_cols + \
+                    self.unknown_onehot_cols:
+
+            for lag in range(self.max_lags, 0, -1):
+                df[f'{col}_lag_{lag}'] = df[col].shift(periods=lag).fillna(0)
+
+            if col in self.temporal_known_num_col_list + self.known_onehot_cols:
+                for lead in range(0, self.max_leads):
+                    df[f'{col}_lead_{lead}'] = df[col].shift(periods=-lead).fillna(0)
+
         return df
+
+    def parallel_create_lead_lag_features(self, df):
+        """
+        Parallelize feature creation
+        """
+        groups = df.groupby([self.id_col])
+        fe_gdf = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
+        gdf = pd.concat(fe_gdf, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        return gdf
     
     def pad_dataframe(self, df, dateindex):
         # this ensures num nodes in a graph don't change from period to period. Essentially, we introduce dummy nodes.
@@ -1183,15 +1187,9 @@ class graphmodel():
             
             return x   
 
-        # get a df of all timestamps in the dataset
-        #dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
-        
         # "padded" dataset with padding constant used as nan filler
         df = df.groupby(self.id_col, sort=False).apply(lambda x: fillgrpid(x).fillna(self.pad_constant)).reset_index(drop=True)
-        
-        # add target mask
-        #df['y_mask'] = np.where(df[self.target_col]==self.pad_constant, 0, 1)
-        
+
         # align datatypes within columns; some columns may have mixed types as a result of pad_constant
         for col, datatype in df.dtypes.to_dict().items():
             if col != 'Unnamed: 0':
@@ -1201,8 +1199,6 @@ class graphmodel():
                     df[col] = df[col].astype(datatype)
                     
         # convert all bool columns to 1/0 (problem on linux only)
-        #print("converting bool to int")
-        
         for col in self.known_onehot_cols+self.unknown_onehot_cols:
             if df[col].dtypes.name == 'bool':
                 df[col] = df[col]*1.0
@@ -1224,22 +1220,6 @@ class graphmodel():
         gdf = gdf.reset_index(drop=True)
         return gdf
 
-    def fillna_lead_lag_features(self, df):
-        """
-        Fill lead/lag feature cols with 0 post "create_lead_lag_features" step.
-        """
-        df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
-        return df
-
-    def parallel_fillna_lead_lag_features(self, df):
-        """
-        parallelize fillna_lead_lag_features
-        """
-        groups = df.groupby([self.id_col])
-        filled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(self.fillna_lead_lag_features)(gdf) for _, gdf in groups)
-        gdf = pd.concat(filled_gdfs, axis=0)
-        gdf = gdf.reset_index(drop=True)
-        return gdf
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1261,27 +1241,12 @@ class graphmodel():
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
-        
 
         # onehot encode
-        if self.categorical_onehot_encoding:
-            print("   preprocessing dataframe - onehot encode categorical columns...")
-            df = self.onehot_encode(df)
-        else:
-            print("   preprocessing dataframe - label encode & scale categorical columns...")
-            # use label encoding as numeric feature
-            self.temporal_known_num_col_list += self.temporal_known_cat_col_list
-            self.temporal_unknown_num_col_list += self.temporal_unknown_cat_col_list
-            # keep record of label encoded columns for padding in a later step
-            self.label_encoded_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
-            # empty the cat col lists
-            self.temporal_known_cat_col_list = []
-            self.temporal_unknown_cat_col_list = []
-            # create & scale labelencodings
-            df = self.scale_labelencodings(df)
-            
+        print("   preprocessing dataframe - onehot encode categorical columns...")
+        df = self.onehot_encode(df)
+
         print("   preprocessing dataframe - gather node specific feature cols...")
-        
         # node types & node features
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         
@@ -1312,7 +1277,10 @@ class graphmodel():
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
             
-        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list 
+        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+
+        # create lead/lag feature names
+        self.create_lead_lag_feature_names()
 
         return df
     
@@ -1343,9 +1311,7 @@ class graphmodel():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
             
         # Create HeteroData Object
-        #data = HeteroData({"y_mask":None})
-        
-        data = HeteroData({"y_mask":None, "y_weight":None})
+        data = HeteroData({"y_mask": None, "y_weight": None})
         
         # get node features
 
@@ -1373,10 +1339,6 @@ class graphmodel():
         for col in self.global_context_col_list:
             onehot_cols_prefix = str(col) + '_'
             onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
-            #feats_df = df_snap[[col]]
-            #feats_df[f'dummy_global_{col}'] = 1  # assign a constant as dummy feature
-            #feats_df = feats_df.drop_duplicates()
-            #data[col].x = torch.tensor(feats_df[[f'dummy_global_{col}']].to_numpy(), dtype=torch.float)
             feats_df = df_snap[onehot_col_features].drop_duplicates()
             data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
@@ -1471,11 +1433,7 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.create_lead_lag_features(df)
-
-        # fillna all lead/lag cols with 0
-        #df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
-        #df = self.parallel_fillna_lead_lag_features(df)
+        df = self.parallel_create_lead_lag_features(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1519,11 +1477,7 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.create_lead_lag_features(df)
-
-        # fillna lead/lag cols with 0
-        #df[self.all_lead_lag_cols] = df[self.all_lead_lag_cols].fillna(0)
-        #df = self.parallel_fillna_lead_lag_features(df)
+        df = self.parallel_create_lead_lag_features(df)
 
         # split into train,test,infer
         infer_df = self.split_infer(df)
@@ -1566,8 +1520,7 @@ class graphmodel():
         return train_data, test_data
     
     def split_infer(self, data):
-        
-        #infer_data = data[(data[self.time_index_col]>self.test_till)&(data[self.time_index_col]<=self.infer_till)].reset_index(drop=True)
+
         infer_data = data[data[self.time_index_col] <= self.infer_till].reset_index(drop=True)
         
         return infer_data
