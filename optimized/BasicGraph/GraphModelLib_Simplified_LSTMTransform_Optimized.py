@@ -38,14 +38,15 @@ from joblib.externals.loky import get_reusable_executor
 import shutil
 import sys
 import time
+
 os = sys.platform
 
 if os == 'linux':
     backend = 'loky'
-    timeout = 30
+    timeout = 3600
 else:
     backend = 'loky'
-    timeout = 30
+    timeout = 3600
 
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
@@ -1108,13 +1109,13 @@ class graphmodel():
             self.lead_lag_features_dict[col] = []
 
             for lag in range(self.max_lags, 0, -1):
-                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag, fill_value=0)
+                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
                 for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead, fill_value=0)
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
@@ -1447,7 +1448,14 @@ class graphmodel():
         return train_dataset, test_dataset
 
     def create_infer_dataset(self, df, infer_till):
+
         self.infer_till = infer_till
+
+        # drop lead/lag features if present
+        try:
+            df.drop(columns=self.all_lead_lag_cols, inplace=True)
+        except:
+            pass
 
         # create lagged features
         print("create lead & lag features...")

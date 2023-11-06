@@ -1132,13 +1132,13 @@ class graphmodel():
             self.lead_lag_features_dict[col] = []
             
             for lag in range(1, self.max_lags + 1):
-                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col)[col].shift(periods=lag)
+                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
                 self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
 
                 for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col)[col].shift(periods=-lead)
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             if col in [self.target_col]:
@@ -1147,7 +1147,7 @@ class graphmodel():
                 self.node_features_label[col] = self.lead_lag_features_dict[col]
 
         # drop rows with NaNs in lag/lead cols
-        all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
+        self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
         
         #df = df.dropna(subset=all_lead_lag_cols)
         
@@ -1593,6 +1593,12 @@ class graphmodel():
     def create_infer_dataset(self, df, infer_till):
         
         self.infer_till = infer_till
+
+        # drop lead/lag features if present
+        try:
+            df.drop(columns=self.all_lead_lag_cols, inplace=True)
+        except:
+            pass
         
         # preprocess
         df = self.preprocess(df)
