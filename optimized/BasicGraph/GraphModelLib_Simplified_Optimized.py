@@ -1229,6 +1229,8 @@ class graphmodel():
         if self.include_rolling_features:
             print("   preprocessing dataframe - get rolling stats by group...")
             df = self.get_target_roll_stats(df)
+        else:
+            self.rolling_stat_cols = []
                
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns if any...")

@@ -271,6 +271,7 @@ class gml(object):
         self.grad_accum = self.data_config.get('grad_accum', True)
         self.accum_iter = self.data_config.get('accum_iter', 1)
         self.scaling_method = self.data_config.get('scaling_method', 'mean_scaling')
+        self.include_rolling_features = self.data_config.get('include_rolling_features', True)
         self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
@@ -303,7 +304,7 @@ class gml(object):
                                        'scaling_method': self.scaling_method,
                                        'categorical_onehot_encoding': True,
                                        'directed_graph': True,
-                                       'include_rolling_features': True,
+                                       'include_rolling_features': self.include_rolling_features,
                                        'shuffle': True,
                                        'interleave': 1}
             
