@@ -1062,10 +1062,9 @@ class graphmodel():
         else:
             data['Key_Weight'] = data[self.wt_col]
             data['Key_Weight'] = data.groupby(self.id_col)['Key_Weight'].ffill()
-        
-        data['Key_Weight'] = data['Key_Weight']/data['Key_Weight'].max()
 
-        # -- 07-01-24
+        # 07/01/24
+        #data['Key_Weight'] = data['Key_Weight']/data['Key_Weight'].max()
         #wt_median = data['Key_Weight'].median()
         #data['Key_Weight'] = data['Key_Weight'].clip(lower=wt_median)
 
