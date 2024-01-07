@@ -1064,12 +1064,13 @@ class graphmodel():
             data['Key_Weight'] = data.groupby(self.id_col)['Key_Weight'].ffill()
         
         data['Key_Weight'] = data['Key_Weight']/data['Key_Weight'].max()
-        wt_median = data['Key_Weight'].median()
-        data['Key_Weight'] = data['Key_Weight'].clip(lower=wt_median)
-            
+
+        # -- 07-01-24
+        #wt_median = data['Key_Weight'].median()
+        #data['Key_Weight'] = data['Key_Weight'].clip(lower=wt_median)
+
         return data
-    
-    
+
     def check_null(self, data):
         """
         Check for columns containing NaN
@@ -1120,7 +1121,7 @@ class graphmodel():
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
 
-        # drop rows with NaNs in lag/lead cols
+        # don't drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
 
         return df
