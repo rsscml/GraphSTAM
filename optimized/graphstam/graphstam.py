@@ -467,7 +467,7 @@ class gml(object):
 
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
-        self.infer_config.update({'df': data})
+
         self.infer_quantiles = self.infer_config['select_quantile']
         if len(self.infer_quantiles) == 0:
             self.infer_quantiles = [0.5]
@@ -646,7 +646,7 @@ class gml(object):
         from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
         import pickle
 
-        data = self.infer_config['df']
+        #data = self.infer_config['df']
 
         if self.model_type == 'SimpleGraphSage':
 
@@ -670,7 +670,7 @@ class gml(object):
             self.explanations_dict = {}
 
             for period in explain_periods:
-                self.graphobj.build_infer_dataset(data, infer_till=period)
+                self.graphobj.build_infer_dataset(infer_till=period)
                 infer_dataset = self.graphobj.infer_dataset
                 infer_batch = next(iter(infer_dataset))
                 infer_batch = infer_batch.to(self.graphobj.device)
@@ -724,7 +724,7 @@ class gml(object):
             self.explanations_dict = {}
 
             for period in explain_periods:
-                self.graphobj.build_infer_dataset(data, infer_till=period)
+                self.graphobj.build_infer_dataset(infer_till=period)
                 infer_dataset = self.graphobj.infer_dataset
                 infer_batch = next(iter(infer_dataset))
                 infer_batch = infer_batch.to(self.graphobj.device)

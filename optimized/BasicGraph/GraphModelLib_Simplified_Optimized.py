@@ -1587,7 +1587,7 @@ class graphmodel():
         # build graph datasets for train/test
         self.train_dataset, self.test_dataset = self.create_train_test_dataset(self.onetime_prep_df)
 
-    def build_infer_dataset(self, df, infer_till):
+    def build_infer_dataset(self, infer_till):
         # build graph datasets for infer
         try:
             del self.infer_dataset
