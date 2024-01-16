@@ -467,7 +467,7 @@ class gml(object):
 
         self.graphobj.build_dataset(data)
         self.graphobj.build(**self.model_config)
-
+        self.infer_config.update({'df': data})
         self.infer_quantiles = self.infer_config['select_quantile']
         if len(self.infer_quantiles) == 0:
             self.infer_quantiles = [0.5]
