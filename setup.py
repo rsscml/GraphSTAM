@@ -16,7 +16,8 @@ setup(
     author="Rahul Sinha",
     author_email="rahul.sinha@unilever.com",
     packages=["graphstam", "BasicGraph", "SpatialTemporalGraph", "TemporalSpatialGraph", "optimized.graphstam",
-              "optimized.BasicGraph", "optimized.SpatialTemporalGraph", "optimized.TemporalSpatialGraph"],
+              "optimized.BasicGraph", "optimized.SpatialTemporalGraph", "optimized.TemporalSpatialGraph",
+              "probabilistic.graphstam", "probabilistic.BasicGraph"],
     include_package_data=True,
     install_requires=[]
 )
