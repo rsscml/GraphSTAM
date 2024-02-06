@@ -801,7 +801,7 @@ class STGNN(torch.nn.Module):
             prior_covariance = torch.reshape(prior_out[:, self.state_dim:], (-1, self.state_dim, self.state_dim))
             # ensure positive definite cov matrix
             prior_covariance = torch.matmul(prior_covariance, torch.transpose(prior_covariance, 1, 2))
-            prior_covariance = prior_covariance.add_(torch.eye(self.state_dim) * eps)
+            prior_covariance.add_(torch.eye(self.state_dim).to(device=self.device) * eps)
 
             # transition params
             transition_out = self.project_transition(x)
@@ -810,7 +810,7 @@ class STGNN(torch.nn.Module):
             transition_covariance = torch.reshape(transition_out[:, self.state_dim*self.state_dim:], (-1, self.state_dim, self.state_dim))
             # ensure positive definite cov matrix
             transition_covariance = torch.matmul(transition_covariance, torch.transpose(transition_covariance, 1, 2))
-            transition_covariance = transition_covariance.add_(torch.eye(self.state_dim) * eps)
+            transition_covariance.add_(torch.eye(self.state_dim).to(device=self.device) * eps)
 
             # observation params
             observation_out = self.project_observation(x)
@@ -819,7 +819,7 @@ class STGNN(torch.nn.Module):
             observation_covariance = torch.reshape(observation_out[:, self.state_dim*self.obs_dim:], (-1, self.obs_dim, self.obs_dim))
             # ensure positive definite cov matrix
             observation_covariance = torch.matmul(observation_covariance, torch.transpose(observation_covariance, 1, 2))
-            observation_covariance = observation_covariance.add_(torch.eye(self.obs_dim) * eps)
+            observation_covariance.add_(torch.eye(self.obs_dim).to(device=self.device) * eps)
 
                 
         return prior_mean, prior_covariance, transition_matrix, transition_covariance, observation_matrix, observation_covariance
