@@ -816,7 +816,7 @@ class STGNN(torch.nn.Module):
         # output preds now without temporal attention
         
         if self.model_option == "BASIC":
-            eps = 0.001
+            eps = 0.01
             # latent priors
             prior_out = self.project_prior(x)
             prior_out = torch.reshape(prior_out, (-1, self.prior_dims))
@@ -825,7 +825,7 @@ class STGNN(torch.nn.Module):
                                              (-1, self.state_dim, self.state_dim))
             # ensure positive definite cov matrix
             prior_covariance = torch.matmul(prior_covariance, torch.transpose(prior_covariance, 1, 2))
-            prior_covariance.add_(torch.eye(self.state_dim)*eps)
+            prior_covariance = prior_covariance.add_(torch.eye(self.state_dim)*eps)
 
             # transition params
             transition_out = self.project_transition(x)
@@ -836,7 +836,7 @@ class STGNN(torch.nn.Module):
                                                   (-1, self.state_dim, self.state_dim))
             # ensure positive definite cov matrix
             transition_covariance = torch.matmul(transition_covariance, torch.transpose(transition_covariance, 1, 2))
-            transition_covariance.add_(torch.eye(self.state_dim)*eps)
+            transition_covariance = transition_covariance.add_(torch.eye(self.state_dim)*eps)
 
             # observation params
             observation_out = self.project_observation(x)
@@ -847,7 +847,7 @@ class STGNN(torch.nn.Module):
                                                    (-1, self.obs_dim, self.obs_dim))
             # ensure positive definite cov matrix
             observation_covariance = torch.matmul(observation_covariance, torch.transpose(observation_covariance, 1, 2))
-            observation_covariance.add_(torch.eye(self.obs_dim)*eps)
+            observation_covariance = observation_covariance.add_(torch.eye(self.obs_dim)*eps)
 
         return prior_mean, prior_covariance, transition_matrix, transition_covariance, observation_matrix, observation_covariance
     
