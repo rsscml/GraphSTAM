@@ -1879,6 +1879,7 @@ class graphmodel():
                     prior_mu, prior_cov, trans_mu, trans_cov, obs_mu, obs_cov = model(batch.x_dict,
                                                                                       batch.edge_index_dict)
                     out = lgssmsample(num_samples=num_samples,
+                                      device=self.device,
                                       z_prior_mean=prior_mu,
                                       z_prior_covariance=prior_cov,
                                       transition_matrix=trans_mu,
