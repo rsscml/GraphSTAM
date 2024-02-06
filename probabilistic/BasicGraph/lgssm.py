@@ -60,7 +60,7 @@ def lgssmsample(num_samples,
     for _ in range(num_samples):
         init_state = t.distributions.MultivariateNormal(z_prior_mean.squeeze(-1), z_prior_covariance).sample()  # (bs, z_size)
         state = t.matmul(transition_matrix, init_state.unsqueeze(-1)).squeeze(-1) + t.distributions.MultivariateNormal(t.zeros(z_size), transition_covariance).sample()
-        observation = t.matmul(observation_matrix, state.unsqueeze(-1)).squeeze(-1) + t.distributions.MultivariateNormal(t.zeros(x_size), observation_covariance).sample()
+        observation = t.matmul(t.transpose(observation_matrix, 1, 2), state.unsqueeze(-1)).squeeze(-1) + t.distributions.MultivariateNormal(t.zeros(x_size), observation_covariance).sample()
         samples.append(observation)
 
     return t.cat(samples, dim=1)
