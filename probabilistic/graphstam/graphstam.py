@@ -313,7 +313,7 @@ class gml(object):
                                         'attention_heads': 1,
                                         'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
+                                        #'aggr': 'mean',
                                         'use_linear_pretransform': True,
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
@@ -341,7 +341,7 @@ class gml(object):
                                         'attention_heads': 1,
                                         'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
+                                        #'aggr': 'mean',
                                         'use_linear_pretransform': True,
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
@@ -367,7 +367,7 @@ class gml(object):
                                         'spatial_attention_heads': 1,
                                         'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
+                                        #'aggr': 'mean',
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
             
@@ -392,7 +392,7 @@ class gml(object):
                                         'spatial_attention_heads': 1,
                                         'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
+                                        #'aggr': 'mean',
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
 
@@ -417,7 +417,7 @@ class gml(object):
                                         'model_option': "LSTMATTENTION", 
                                         'forecast_quantiles': self.forecast_quantiles,
                                         'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
+                                        #'aggr': 'mean',
                                         'use_linear_pretransform': True,
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
