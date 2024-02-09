@@ -1771,6 +1771,9 @@ class graphmodel():
 
                     total_examples += batch_size
                     total_loss += float(loss)
+
+                del loader
+                gc.collect()
                 
             return total_loss / total_examples
         
@@ -1825,6 +1828,9 @@ class graphmodel():
                         loss = torch.mean(loss * mask * wt)
                         total_examples += batch_size
                         total_loss += float(loss)
+
+                    del loader
+                    gc.collect()
 
             return total_loss / total_examples
         
