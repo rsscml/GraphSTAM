@@ -1427,9 +1427,10 @@ class graphmodel():
         for df_type, df in df_dict.items():
             
             snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-            
+
             # restrict samples for very large datasets based on interleaving
             if (self.interleave > 1) and (df_type == 'train'):
+                snap_periods_list = snap_periods_list[int(self.max_lags-1):]
                 snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
