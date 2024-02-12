@@ -25,7 +25,7 @@ def lgssmlogprob(x: t.Tensor,
     # this version: https://github.com/rasmusbergpalm/pytorch-lgssm/blob/main/lgssm/lgssm.py
     x_mean = t.matmul(t.transpose(z_prior_mean, 1, 2), observation_matrix) #z_mean @ self.observation_matrix  # (bs, 1, 1)
     x_covariance = observation_covariance + t.transpose(observation_matrix, 1, 2) @ z_prior_covariance @ observation_matrix  # (bs, 1, 1)
-    logpx = t.distributions.MultivariateNormal(x_mean.squeeze(-1), x_covariance).log_prob(x).unsqueeze(-1)  # (bs,1)
+    logpx = -t.distributions.MultivariateNormal(x_mean.squeeze(-1), x_covariance).log_prob(x).unsqueeze(-1)  # (bs,1)
 
     return logpx  # (bs,1)
 
