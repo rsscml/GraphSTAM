@@ -15,7 +15,7 @@ from torch_sparse import sum as sparsesum
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_sparse import SparseTensor
 import gc
-from .lgssm import lgssmlogprob, lgssmsample
+from .lgssm_alt import lgssmlogprob, lgssmsample
 
 # Data specific imports
 from torch_geometric.data import HeteroData, Data
