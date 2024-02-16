@@ -1855,6 +1855,9 @@ class graphmodel():
 
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
+                print("clearing gpu memory: ")
+                torch.cuda.empty_cache()
+
                 break
 
     def change_device(self, device='cpu'):

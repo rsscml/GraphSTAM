@@ -30,6 +30,7 @@ from torch_geometric.utils import to_networkx
 import pandas as pd
 import numpy as np
 import itertools
+import random
 from sklearn import preprocessing
 import warnings
 warnings.filterwarnings("ignore")
@@ -1130,7 +1131,7 @@ class graphmodel():
             else:
                 self.node_features_label[col] = self.lead_lag_features_dict[col]
 
-        # drop rows with NaNs in lag/lead cols
+        # don't drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in self.lead_lag_features_dict.items()]))
 
         return df
@@ -1435,7 +1436,7 @@ class graphmodel():
         df_dict = {'train': train_df, 'test': test_df}
 
         def parallel_snapshot_graphs(df, period):
-            df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
+            df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
             return snapshot_graph
         
