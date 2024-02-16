@@ -1856,6 +1856,8 @@ class graphmodel():
             if ((time_since_improvement > patience) and (epoch > min_epochs)) or (epoch == max_epochs - 1):
                 print("Terminating Training. Best Model: {}".format(self.best_model))
                 print("clearing gpu memory: ")
+                del self.train_dataset, self.test_dataset
+                gc.collect()
                 torch.cuda.empty_cache()
 
                 break
@@ -1904,7 +1906,11 @@ class graphmodel():
             # infer dataset creation 
             infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
             output = infer_fn(self.model, self.best_model, infer_dataset)
-            
+
+            del infer_dataset
+            gc.collect()
+            torch.cuda.empty_cache()
+
             # select output quantile
             output_arr = output[0]
             output_arr = output_arr.cpu().numpy()
