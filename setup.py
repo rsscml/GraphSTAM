@@ -18,7 +18,7 @@ setup(
     packages=["graphstam", "BasicGraph", "SpatialTemporalGraph", "TemporalSpatialGraph", "optimized.graphstam",
               "optimized.BasicGraph", "optimized.SpatialTemporalGraph", "optimized.TemporalSpatialGraph",
               "probabilistic.graphstam", "probabilistic.BasicGraph", "subgraphsampling.graphstam", "subgraphsampling.BasicGraph",
-              "smallgraph.graphstam", "smallgraph.BasicGraph"],
+              "smallgraph.graphstam", "smallgraph.BasicGraph", "hierarchical.graphstam", "hierarchical.BasicGraph"],
     include_package_data=True,
     install_requires=[]
 )

@@ -984,7 +984,7 @@ class graphmodel():
                     df_temp = df_temp.drop_duplicates(subset=[k, v2, self.time_index_col] + v)
                 df_temp[self.id_col] = df[k]
                 df_temp[self.target_col] = df[v2]
-                df_temp["key_level"] = ",".join(v)
+                df_temp["key_level"] = k  # ",".join(v)
                 df_temp = df_temp.drop(columns=[k, v2])
                 df_temp = df_temp.loc[:, ~df_temp.columns.duplicated()].reset_index(drop=True)
                 df_stack_list.append(df_temp)
@@ -1018,7 +1018,7 @@ class graphmodel():
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
 
-        if scale_gdf['key_level'] == ",".join(self.key_levels_dict[self.covar_key_level]):
+        if scale_gdf['key_level'] == self.covar_key_level:  # ",".join(self.key_levels_dict[self.covar_key_level]):
             # for lowest level keys, scale both target & co-variates
             if self.scaling_method == 'mean_scaling':
                 target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -1328,14 +1328,10 @@ class graphmodel():
         # get weights
         #print("   preprocessing dataframe - get id weights...")
         #df = self.get_key_weights(data)
-        
-        # sort
-        print("   preprocessing dataframe - sort by datetime & id...")
-        df = self.sort_dataset(data)
 
         # create new keys
         print("   preprocessing dataframe - creating aggregate keys...")
-        df = self.create_new_keys(df)
+        df = self.create_new_keys(data)
 
         # create new targets
         print("   preprocessing dataframe - creating new targets for aggregate keys...")
@@ -1344,6 +1340,10 @@ class graphmodel():
         # stack subkey level dfs into one df
         print("   preprocessing dataframe - consolidating all keys into one df...")
         df = self.stack_key_level_dataframes(df)
+
+        # sort
+        print("   preprocessing dataframe - sort by datetime & id...")
+        df = self.sort_dataset(df)
 
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
@@ -1384,7 +1384,7 @@ class graphmodel():
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
             
-        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+        self.temporal_nodes = self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
         return df
     
@@ -1420,9 +1420,9 @@ class graphmodel():
         # get node features
 
         data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
         
         # store snapshot period
         data[self.target_col].time_attr = period
@@ -1454,48 +1454,95 @@ class graphmodel():
             rev_edges_stack = []
             for value in col_unique_values:
                 # get subset of all nodes with common col value
-                edges = df_snap[df_snap[col]==value][[self.id_col, col]].to_numpy()
-                rev_edges = df_snap[df_snap[col]==value][[col, self.id_col]].to_numpy()
+                edges = df_snap[(df_snap[col] == value) & (df_snap['key_level'] == self.covar_key_level)][[self.id_col, col]].to_numpy()
+                rev_edges = df_snap[(df_snap[col] == value) & (df_snap['key_level'] == self.covar_key_level)][[col, self.id_col]].to_numpy()
                 fwd_edges_stack.append(edges)
                 rev_edges_stack.append(rev_edges)
                     
             # fwd edges
             edges = np.concatenate(fwd_edges_stack, axis=0)
-            edge_name = (self.target_col,'hascontext_{}'.format(col),col)
+            edge_name = (self.target_col, 'hascontext_{}'.format(col), col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             # reverse edges
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            rev_edge_name = (col,'{}_contextof'.format(col),self.target_col)
+            rev_edge_name = (col, '{}_contextof'.format(col), self.target_col)
             data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
             
         # bidirectional edges exist between target_col nodes related by various static cols
-        
-        for col in self.static_cat_col_list:
-            col_unique_values = sorted(df_snap[col].unique().tolist())
-        
-            fwd_edges_stack = []
-            rev_edges_stack = []
-            for value in col_unique_values:
-                # get subset of all nodes with common col value
-                nodes = df_snap[df_snap[col]==value][self.id_col].to_numpy()
-                # Build all combinations of connected nodes
-                permutations = list(itertools.combinations(nodes, 2))
-                edges_source = [e[0] for e in permutations]
-                edges_target = [e[1] for e in permutations]
-                edges = np.column_stack([edges_source, edges_target])
-                rev_edges = np.column_stack([edges_target, edges_source])
-                fwd_edges_stack.append(edges)
-                rev_edges_stack.append(rev_edges)
-                    
-            # edge names
-            edge_name = (self.target_col,'relatedby_{}'.format(col),self.target_col)
-            rev_edge_name = (self.target_col,'rev_relatedby_{}'.format(col),self.target_col)
-            # add edges to Data()
-            edges = np.concatenate(fwd_edges_stack, axis=0)
-            rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
-                 
+
+        # get all key levels
+        key_levels = df_snap['key_level'].unique().tolist()
+
+        # for each key_level created intra key_level edges
+        intra_key_level_edges = {}
+
+        for key_level in key_levels:
+
+            for col in self.static_cat_col_list:
+                col_unique_values = sorted(df_snap[col].unique().tolist())
+
+                fwd_edges_stack = []
+                rev_edges_stack = []
+                for value in col_unique_values:
+                    # get subset of all nodes with common col value
+                    nodes = df_snap[(df_snap[col] == value) & (df_snap['key_level'] == key_level)][self.id_col].to_numpy()
+                    # Build all combinations of connected nodes
+                    permutations = list(itertools.combinations(nodes, 2))
+                    intra_key_level_edges[key_level] = permutations
+                    edges_source = [e[0] for e in permutations]
+                    edges_target = [e[1] for e in permutations]
+                    edges = np.column_stack([edges_source, edges_target])
+                    rev_edges = np.column_stack([edges_target, edges_source])
+                    fwd_edges_stack.append(edges)
+                    rev_edges_stack.append(rev_edges)
+
+                # edge names
+                edge_name = (self.target_col, 'relatedby_{}_at_{}'.format(col, key_level), self.target_col)
+                rev_edge_name = (self.target_col, 'rev_relatedby_{}_at_{}'.format(col, key_level), self.target_col)
+                # add edges to Data()
+                edges = np.concatenate(fwd_edges_stack, axis=0)
+                rev_edges = np.concatenate(rev_edges_stack, axis=0)
+                data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+                data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+
+        # get inter key_level edges based on static col similarities, using the following algo:
+        # 1. get all the possible edges between all the keys not in current key_level
+        # 2. subtract the set of intra key_level edges, leaving us with only aggregation edges
+
+        for key_level in key_levels:
+
+            for col in self.static_cat_col_list:
+                col_unique_values = sorted(df_snap[col].unique().tolist())
+
+                fwd_edges_stack = []
+                rev_edges_stack = []
+                for value in col_unique_values:
+                    # get subset of all nodes with common col value
+                    nodes = df_snap[(df_snap[col] == value) & (df_snap['key_level'] != key_level)][self.id_col].to_numpy()
+                    # Build all combinations of connected nodes
+                    permutations = list(itertools.combinations(nodes, 2))
+                    # remove intra key_level edges
+                    for k, v in intra_key_level_edges.items():
+                        if k != key_level:
+                            permutations -= v
+
+                    edges_source = [e[0] for e in permutations]
+                    edges_target = [e[1] for e in permutations]
+                    edges = np.column_stack([edges_source, edges_target])
+                    rev_edges = np.column_stack([edges_target, edges_source])
+                    fwd_edges_stack.append(edges)
+                    rev_edges_stack.append(rev_edges)
+
+                # edge names
+                edge_name = (self.target_col, 'aggregatedby_{}_minus_{}'.format(col, key_level), self.target_col)
+                rev_edge_name = (self.target_col, 'rev_aggregatedby_{}_minus_{}'.format(col, key_level), self.target_col)
+                # add edges to Data()
+                edges = np.concatenate(fwd_edges_stack, axis=0)
+                rev_edges = np.concatenate(rev_edges_stack, axis=0)
+                data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+                data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+
+
         # static nodes only required in this kind of connection
         """
         for col in self.static_cat_col_list:
@@ -1504,18 +1551,18 @@ class graphmodel():
             feats_df = feats_df.drop_duplicates()
             data[col].x = torch.tensor(feats_df[[f'dummy_static_{col}']].to_numpy(), dtype=torch.float)
         """
-        # directed edges are from covariates to target
+        # directed edges are from co-variates to target
         
         for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
 
-            nodes = df_snap[self.id_col].to_numpy()
+            nodes = df_snap[df_snap['key_level'] == self.covar_key_level][self.id_col].to_numpy()
             edges = np.column_stack([nodes, nodes])
                 
-            edge_name = (col,'{}_effect'.format(col),self.target_col)
+            edge_name = (col, '{}_effect'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             
             if not self.directed_graph:
-                rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
+                rev_edge_name = (self.target_col, 'covar_embed_update_{}'.format(col), col)
                 data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
                 
         # validate dataset
