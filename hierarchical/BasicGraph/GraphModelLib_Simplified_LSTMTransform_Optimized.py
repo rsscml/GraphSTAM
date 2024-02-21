@@ -1538,7 +1538,7 @@ class graphmodel():
                     # remove intra key_level edges
                     for k, v in intra_key_level_edges.items():
                         if k != key_level:
-                            permutations -= v
+                            permutations = list(set(permutations) - set(v))
 
                     edges_source = [e[0] for e in permutations]
                     edges_target = [e[1] for e in permutations]
