@@ -1018,7 +1018,8 @@ class graphmodel():
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
 
-        if scale_gdf['key_level'] == self.covar_key_level:  # ",".join(self.key_levels_dict[self.covar_key_level]):
+        if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:  # ",".join(self.key_levels_dict[self.covar_key_level]):
+
             # for lowest level keys, scale both target & co-variates
             if self.scaling_method == 'mean_scaling':
                 target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -1113,6 +1114,7 @@ class graphmodel():
                 gdf['scaler_std'] = scale[1]
 
         else:
+
             # For aggregate keys, co-variate scaling is not required
             if self.scaling_method == 'mean_scaling':
                 target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
