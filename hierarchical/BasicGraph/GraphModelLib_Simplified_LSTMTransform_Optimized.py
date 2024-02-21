@@ -851,6 +851,7 @@ class graphmodel():
         """
         col_dict: dictionary of various column groups {id_col:'',
                                                        key_combinations:[(),(),...],
+                                                       key_combination_weights:{key_combination_1: wt, key_combination_2: wt,...}
                                                        lowest_key_combination: (),
                                                        target_col: '',
                                                        time_index_col: '',
@@ -900,15 +901,17 @@ class graphmodel():
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
         
-        self.pad_constant = 0 #if self.scaling_method == 'mean_scaling' else -1
+        self.pad_constant = 0  # if self.scaling_method == 'mean_scaling' else -1
        
         # extract columnsets from col_dict
         # hierarchy specific keys
         self.id_col = self.col_dict.get('id_col')
         self.key_combinations = self.col_dict.get('key_combinations')
+        self.key_combination_weights = self.col_dict.get('key_combination_weights', None)
         self.lowest_key_combination = self.col_dict.get('lowest_key_combination')
         self.new_key_cols = []
         self.key_levels_dict = {}
+        self.key_levels_weight_dict = {}
         self.covar_key_level = None
         self.key_targets_dict = {}
 
@@ -959,7 +962,15 @@ class graphmodel():
             df[key] = df[list(k)].astype(str).apply(lambda x: "_".join(x), axis=1)
             self.key_levels_dict[key] = list(k)  # (",".join(k))
             if k == self.lowest_key_combination:
-                self.covar_key_level = key #",".join(k)
+                self.covar_key_level = key  # ",".join(k)
+
+        if self.key_combination_weights is not None:
+            for k, v in self.key_combination_weights.items():
+                key = "key_" + "_".join(k)
+                self.key_levels_weight_dict[key] = v
+        else:
+            for key, _ in self.key_levels_dict.items():
+                self.key_levels_weight_dict[key] = 1
 
         print("created new key cols: ", self.new_key_cols)
         print("created new key to subkeys mapping: ", self.key_levels_dict)
@@ -991,6 +1002,8 @@ class graphmodel():
 
         # replace df with stacked dataframe
         df = pd.concat(df_stack_list, axis=0, ignore_index=True)
+        # Add 'Key_Weight' col
+        df['Key_Weight'] = df['key_level'].map(self.key_levels_weight_dict)
         # new col list
         self.col_list = df.columns.tolist()
         return df
@@ -1008,7 +1021,6 @@ class graphmodel():
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
         return gdf
-    
 
     def df_scaler(self, gdf):
         """
@@ -1175,9 +1187,9 @@ class graphmodel():
         obtain weights for each id for weighted training option
         """
         if self.wt_col is None:
-            data['Key_Sum'] = data[data[self.time_index_col]<=self.test_till].groupby(self.id_col)[self.target_col].transform(lambda x: x.sum()) 
+            data['Key_Sum'] = data[data[self.time_index_col] <= self.test_till].groupby(self.id_col)[self.target_col].transform(lambda x: x.sum())
             data['Key_Sum'] = data.groupby(self.id_col)['Key_Sum'].ffill()
-            data['Key_Weight'] = data['Key_Sum']/data[data[self.time_index_col]<=self.test_till][self.target_col].sum()
+            data['Key_Weight'] = data['Key_Sum']/data[data[self.time_index_col] <= self.test_till][self.target_col].sum()
         else:
             data['Key_Weight'] = data[self.wt_col]
             data['Key_Weight'] = data.groupby(self.id_col)['Key_Weight'].ffill()
