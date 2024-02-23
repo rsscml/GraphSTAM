@@ -1604,10 +1604,10 @@ class graphmodel():
         print("splitting dataframe for training & testing...")
         train_df, test_df = self.split_train_test(df)
         
-        df_dict = {'train':train_df, 'test':test_df}
+        df_dict = {'train': train_df, 'test': test_df}
         
         def parallel_snapshot_graphs(df, period):
-            df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
+            df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
             return snapshot_graph
         
@@ -1631,10 +1631,16 @@ class graphmodel():
                 if (self.interleave > 1) and (df_type == 'train'):
                     snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
-                for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
-                    df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i+self.subgraph_sample_size])]
+                if self.subgraph_sample_size > 0:
+                    for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
+                        df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i+self.subgraph_sample_size])]
+                        # sample snapshot graphs
+                        sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in snap_periods_list)
+                        snapshot_list.append(sample_snapshot_list)
+                else:
                     # sample snapshot graphs
-                    sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in snap_periods_list)
+                    sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS,
+                                                    batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
                     snapshot_list.append(sample_snapshot_list)
 
                 # Create a dataset iterator
@@ -1858,8 +1864,8 @@ class graphmodel():
               patience, 
               min_delta, 
               model_prefix,
-              loss_type = 'Quantile',
-              delta = 1.0,
+              loss_type='Quantile',
+              delta=1.0,
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
