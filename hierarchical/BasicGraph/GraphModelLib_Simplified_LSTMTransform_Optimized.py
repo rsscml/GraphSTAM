@@ -1747,7 +1747,7 @@ class graphmodel():
         else:
             scaler_cols = ['scaler_mu', 'scaler_std']
         
-        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
+        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
         
         model_output = model_output.reshape(-1,1)
         output = pd.DataFrame(data=model_output, columns=['forecast'])
@@ -1760,8 +1760,8 @@ class graphmodel():
     def update_dataframe(self, df, output):
         
         # merge output & base_df
-        reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
-        df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
+        reduced_output_df = output[[self.id_col, 'key_level', self.time_index_col, 'forecast']]
+        df_updated = df.merge(reduced_output_df, on=[self.id_col, 'key_level', self.time_index_col], how='left')
         
         # update target for current ts with forecasts
         df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(), df_updated[self.target_col], df_updated['forecast'])
