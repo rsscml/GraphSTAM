@@ -853,7 +853,6 @@ class graphmodel():
                                                        key_combinations:[(),(),...],
                                                        key_combination_weights:{key_combination_1: wt, key_combination_2: wt,...}
                                                        lowest_key_combination: (),
-                                                       highest_key_combination: (),
                                                        target_col: '',
                                                        time_index_col: '',
                                                        global_context_col_list: [],
@@ -910,7 +909,6 @@ class graphmodel():
         self.key_combinations = self.col_dict.get('key_combinations')
         self.key_combination_weights = self.col_dict.get('key_combination_weights', None)
         self.lowest_key_combination = self.col_dict.get('lowest_key_combination')
-        self.highest_key_combination = self.col_dict.get('highest_key_combination')
         self.new_key_cols = []
         self.key_levels_dict = {}
         self.key_levels_weight_dict = {}
@@ -942,8 +940,8 @@ class graphmodel():
                 raise ValueError("non-tuple found in key_combinations list!")
 
         # check for non-tuple in lowest_key_combination
-        if (type(self.lowest_key_combination) is not tuple) or (type(self.highest_key_combination) is not tuple):
-            raise ValueError("non-tuple found for lowest_key_combination or highest_key_combination!")
+        if type(self.lowest_key_combination) is not tuple:
+            raise ValueError("non-tuple found for lowest_key_combination!")
 
         # full columnset for train/test/infer
         self.col_list = [self.id_col] + [self.target_col] + \
@@ -1010,63 +1008,167 @@ class graphmodel():
         self.col_list = df.columns.tolist()
         return df
 
-    def scale_target(self, df):
-        """
-        Scale using scalers for the highest key combination in the hierarchy
-        """
-        if self.scaling_method == 'mean_scaling':
-            highest_key_cols = list(self.highest_key_combination)
-            df['scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(highest_key_cols)[self.target_col].transform(lambda x: np.maximum(x.max(), 1.0))
-            df['scaler'] = df.groupby(highest_key_cols)['scaler'].transform(lambda x: x.ffill().bfill())
-            df[self.target_col] = df[self.target_col]/df['scaler']
-
-        elif self.scaling_method == 'no_scaling':
-            df['scaler'] = 1.0
-            df[self.target_col] = df[self.target_col] / df['scaler']
-
-        return df
-
-    def scale_covariates(self, df):
+    def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
+        # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
+        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min()<self.train_till)
+
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
-
         return gdf
 
     def df_scaler(self, gdf):
         """
-        Scale covariates for lowest_key_level only
+        Scales a dataframe based on the chosen scaling method & columns specification 
         """
         # obtain scalers
         
-        scale_gdf = gdf.reset_index(drop=True)
+        scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
 
-        if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:
+        if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:  # ",".join(self.key_levels_dict[self.covar_key_level]):
 
             # for lowest level keys, scale both target & co-variates
             if self.scaling_method == 'mean_scaling':
+                target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
+                target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
+                scale = np.divide(target_sum, target_nz_count) + 1.0
 
                 if len(self.temporal_known_num_col_list) > 0:
                     known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                     known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
                 else:
-                    known_scale = 1.0
+                    known_scale = 1
+
+                if len(self.temporal_unknown_num_col_list) > 0:
+                    unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                    unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
+                    unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                else:
+                    unknown_scale = 1
+
+            elif self.scaling_method == 'standard_scaling':
+                scale_mu = scale_gdf[self.target_col].mean()
+                scale_std = np.maximum(scale_gdf[self.target_col].std(), 0.0001)
+                scale = [scale_mu, scale_std]
+
+                if len(self.temporal_known_num_col_list) > 0:
+                    known_mean = np.mean(scale_gdf[self.temporal_known_num_col_list].values, axis=0)
+                    known_stddev = np.maximum(np.std(scale_gdf[self.temporal_known_num_col_list].values, axis=0), 0.0001)
+                    known_scale = [known_mean, known_stddev]
+                else:
+                    known_scale = [0, 1]
+
+                if len(self.temporal_unknown_num_col_list) > 0:
+                    unknown_mean = np.mean(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0)
+                    unknown_stddev = np.maximum(np.std(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0), 0.0001)
+                    unknown_scale = [unknown_mean, unknown_stddev]
+                else:
+                    unknown_scale = [0, 1]
+
+            # new in 1.2
+            elif self.scaling_method == 'quantile_scaling':
+                med = scale_gdf[self.target_col].quantile(q=0.5)
+                iqr = scale_gdf[self.target_col].quantile(q=self.iqr_high) - scale_gdf[self.target_col].quantile(q=self.iqr_low)
+                scale = [med, np.maximum(iqr, 1.0)]
+
+                if len(self.temporal_known_num_col_list) > 0:
+                    known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
+                    known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                else:
+                    known_scale = 1
+
+                if len(self.temporal_unknown_num_col_list) > 0:
+                    unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                    unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
+                    unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                else:
+                    unknown_scale = 1
 
             elif self.scaling_method == 'no_scaling':
+                scale = 1.0
                 known_scale = 1.0
+                unknown_scale = 1.0
 
             # reset index
             gdf = gdf.reset_index(drop=True)
 
             # scale each feature independently
             if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+                gdf[self.target_col] = gdf[self.target_col]/scale
                 gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
+                gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
+
+            elif self.scaling_method == 'quantile_scaling':
+                gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
+                gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
+                gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
+
+            elif self.scaling_method == 'standard_scaling':
+                gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
+                gdf[self.temporal_known_num_col_list] = (gdf[self.temporal_known_num_col_list] - known_scale[0])/known_scale[1]
+                gdf[self.temporal_unknown_num_col_list] = (gdf[self.temporal_unknown_num_col_list] - unknown_scale[0])/unknown_scale[1]
+
+            # Store scaler as a column
+            if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+                gdf['scaler'] = scale
+            elif self.scaling_method == 'quantile_scaling':
+                gdf['scaler_median'] = scale[0]
+                gdf['scaler_iqr'] = scale[1]
+            elif self.scaling_method == 'standard_scaling':
+                gdf['scaler_mu'] = scale[0]
+                gdf['scaler_std'] = scale[1]
+
+        else:
+
+            # For aggregate keys, co-variate scaling is not required
+            if self.scaling_method == 'mean_scaling':
+                target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
+                target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
+                scale = np.divide(target_sum, target_nz_count) + 1.0
+
+            elif self.scaling_method == 'standard_scaling':
+                scale_mu = scale_gdf[self.target_col].mean()
+                scale_std = np.maximum(scale_gdf[self.target_col].std(), 0.0001)
+                scale = [scale_mu, scale_std]
+
+            # new in 1.2
+            elif self.scaling_method == 'quantile_scaling':
+                med = scale_gdf[self.target_col].quantile(q=0.5)
+                iqr = scale_gdf[self.target_col].quantile(q=self.iqr_high) - scale_gdf[self.target_col].quantile(q=self.iqr_low)
+                scale = [med, np.maximum(iqr, 1.0)]
+
+            elif self.scaling_method == 'no_scaling':
+                scale = 1.0
+
+            # reset index
+            gdf = gdf.reset_index(drop=True)
+
+            # scale each feature independently
+            if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+                gdf[self.target_col] = gdf[self.target_col] / scale
+
+            elif self.scaling_method == 'quantile_scaling':
+                gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
+
+            elif self.scaling_method == 'standard_scaling':
+                gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
+
+            # Store scaler as a column
+            if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+                gdf['scaler'] = scale
+            elif self.scaling_method == 'quantile_scaling':
+                gdf['scaler_median'] = scale[0]
+                gdf['scaler_iqr'] = scale[1]
+            elif self.scaling_method == 'standard_scaling':
+                gdf['scaler_mu'] = scale[0]
+                gdf['scaler_std'] = scale[1]
 
         return gdf
 
@@ -1258,10 +1360,8 @@ class graphmodel():
         df = self.sort_dataset(df)
 
         # scale dataset
-        print("   preprocessing dataframe - scale target...")
-        df = self.scale_target(df)
-        print("   preprocessing dataframe - scale numeric known cols...")
-        df = self.scale_covariates(df)
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
