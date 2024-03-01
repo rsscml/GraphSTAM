@@ -830,17 +830,17 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred))
 
             # constrain the higher level key o/ps to be the sum of their constituents
-            print("keybom, before aggregation: ")
-            print(keybom[:5])
-            print("out, before aggregation: ")
-            print(out[:5])
+            #print("keybom, before aggregation: ")
+            #print(keybom[:5])
+            #print("out, before aggregation: ")
+            #print(out[:5])
             #agg_out = torch.zeros_like(out)
             for i in range(out.shape[0]):
                 out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
                 #out[i] = torch.index_select(out, 0, torch.autograd.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
             #out.retain_grad()
-            print("out, after aggregation: ")
-            print(out[:5])
+            #print("out, after aggregation: ")
+            #print(out[:5])
 
         return out
     
