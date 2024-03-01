@@ -1365,7 +1365,8 @@ class graphmodel():
 
         #print(col_map_dict[self.id_col]['index'])
         # convert 'key_list' to key indices
-        print([[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
+        #print([[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
+        print([[col_map_dict[self.id_col]['index'][k] for k in row] for row in df_snap.key_list])
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
         #print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
