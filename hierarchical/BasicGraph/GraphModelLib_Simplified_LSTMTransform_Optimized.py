@@ -798,7 +798,13 @@ class STGNN(torch.nn.Module):
             raise "Invalid model_option. model_option: [BASIC]"
             
     def forward(self, x_dict, edge_index_dict):
-    
+
+        # get keybom
+        keybom = x_dict['keybom']
+
+        # del keybom from x_dict
+        del x_dict['keybom']
+
         # gnn layer
         x = self.gnn_layer(x_dict, edge_index_dict)
         x = x.relu()
@@ -821,6 +827,10 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
             else:
                 out = torch.reshape(out, (-1, self.n_pred))
+
+            # constrain the higher level key o/ps to be the sum of their constituents
+            for i in range(out.shape[0]):
+                out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
                 
         return out
     
@@ -1360,7 +1370,9 @@ class graphmodel():
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
-        data[self.target_col].keybom = keybom_padded
+
+        # get keybom for index_select in the model
+        data['keybom'].x = keybom_padded
         
         # store snapshot period
         data[self.target_col].time_attr = period
