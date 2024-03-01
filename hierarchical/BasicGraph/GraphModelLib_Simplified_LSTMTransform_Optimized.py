@@ -833,7 +833,7 @@ class STGNN(torch.nn.Module):
             print(out[:5])
             for i in range(out.shape[0]):
                 out[i] = torch.index_select(out, 0, torch.autograd.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
-            out.retain_grad()
+            #out.retain_grad()
             print("out, after aggregation: ")
             print(out[:5])
 
