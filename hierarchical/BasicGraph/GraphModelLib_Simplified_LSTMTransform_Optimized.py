@@ -834,14 +834,15 @@ class STGNN(torch.nn.Module):
             print(keybom[:5])
             print("out, before aggregation: ")
             print(out[:5])
-            agg_out = torch.zeros_like(out)
+            #agg_out = torch.zeros_like(out)
             for i in range(out.shape[0]):
-                agg_out[i] = torch.index_select(out, 0, torch.autograd.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
+                out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
+                #out[i] = torch.index_select(out, 0, torch.autograd.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
             #out.retain_grad()
             print("out, after aggregation: ")
-            print(agg_out[:5])
+            print(out[:5])
 
-        return agg_out
+        return out
     
 
 # #### Graph Data Generator
@@ -1364,14 +1365,14 @@ class graphmodel():
         for col, id_map in col_map_dict.items():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
 
-        print(col_map_dict[self.id_col]['index'])
+        #print(col_map_dict[self.id_col]['index'])
         # convert 'key_list' to key indices
         #print([ [col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
-        print([literal_eval(row) for row in df_snap.key_list])
+        #print([literal_eval(row) for row in df_snap.key_list])
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in literal_eval(row) if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
-        print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
+        #print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
-        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64)
+        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
         keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
 
         # Create HeteroData Object
