@@ -1356,6 +1356,8 @@ class graphmodel():
     
     def create_snapshot_graph(self, df_snap, period):
 
+        print(df_snap[[self.id_col, 'key_list']].head())
+
         # index nodes
         col_map_dict = self.node_indexing(df_snap, [self.id_col]+self.static_cat_col_list+self.global_context_col_list)
         
@@ -1365,7 +1367,7 @@ class graphmodel():
 
         # convert 'key_list' to key indices
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
-        print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
+        #print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
         keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64)
         keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
