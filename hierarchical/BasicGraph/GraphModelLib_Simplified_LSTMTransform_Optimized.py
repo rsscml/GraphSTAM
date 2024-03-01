@@ -1349,6 +1349,8 @@ class graphmodel():
         # convert 'key_list' to key indices
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
+        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
+        keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
 
         # Create HeteroData Object
         data = HeteroData({"y_mask": None, "y_weight": None})
@@ -1358,7 +1360,7 @@ class graphmodel():
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
-        data[self.target_col].keybom = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
+        data[self.target_col].keybom = keybom_padded
         
         # store snapshot period
         data[self.target_col].time_attr = period
