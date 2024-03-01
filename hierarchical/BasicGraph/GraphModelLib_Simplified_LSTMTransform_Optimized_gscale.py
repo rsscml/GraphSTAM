@@ -658,7 +658,7 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
             x_dict = conv(x_dict, edge_index_dict)
             if self.skip_connection:
                 res_x_dict = {key: res_x_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x)  in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
             x_dict = {key: x.relu() for key, x in x_dict.items()}
 
         out = self.lin(x_dict[self.target_node_type])
@@ -985,20 +985,7 @@ class graphmodel():
             self.key_targets_dict[key] = f'{key}_target'
         return df
 
-    def get_keybom(self, df):
-        """
-        For every key at every key_level, obtain a list of constituent keys
-        """
-        keybom_list = []
-        for key in self.new_key_cols:
-            df_key_map = df.groupby([key, self.time_index_col])[self.covar_key_level].apply(lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={key: self.id_col})
-            keybom_list.append(df_key_map)
-        df_keybom = pd.concat(keybom_list, axis=0)
-        df_keybom = df_keybom.reset_index(drop=True)
-
-        return df_keybom
-
-    def stack_key_level_dataframes(self, df, df_keybom):
+    def stack_key_level_dataframes(self, df):
         df_stack_list = []
         for (k, v), (k2, v2) in zip(self.key_levels_dict.items(), self.key_targets_dict.items()):
             if k == k2:
@@ -1010,8 +997,7 @@ class graphmodel():
                     df_temp = df_temp.drop_duplicates(subset=[k, v2, self.time_index_col] + v)
                 df_temp[self.id_col] = df[k]
                 df_temp[self.target_col] = df[v2]
-                df_temp["key_level"] = k
-                df_temp = df_temp.merge(df_keybom, on=[self.id_col, self.time_index_col], how='inner')
+                df_temp["key_level"] = k  # ",".join(v)
                 df_temp = df_temp.drop(columns=[k, v2])
                 df_temp = df_temp.loc[:, ~df_temp.columns.duplicated()].reset_index(drop=True)
                 df_stack_list.append(df_temp)
@@ -1176,7 +1162,7 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols + ['key_level', 'key_list', 'Key_Weight']:
+            for col in self.global_context_col_list + self.global_context_onehot_cols + ['key_level', 'Key_Weight']:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -1263,13 +1249,9 @@ class graphmodel():
         print("   preprocessing dataframe - creating new targets for aggregate keys...")
         df = self.create_new_targets(df)
 
-        # create keybom
-        print("   preprocessing dataframe - creating key bom...")
-        df_keybom = self.get_keybom(df)
-
         # stack subkey level dfs into one df
         print("   preprocessing dataframe - consolidating all keys into one df...")
-        df = self.stack_key_level_dataframes(df, df_keybom)
+        df = self.stack_key_level_dataframes(df)
 
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
@@ -1345,20 +1327,16 @@ class graphmodel():
         # map id to indices
         for col, id_map in col_map_dict.items():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
-
-        # convert 'key_list' to key indices
-        df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
-        df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
-
+            
         # Create HeteroData Object
         data = HeteroData({"y_mask": None, "y_weight": None})
         
         # get node features
+
         data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
-        data[self.target_col].keybom = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
         
         # store snapshot period
         data[self.target_col].time_attr = period
