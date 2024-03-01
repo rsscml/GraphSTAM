@@ -1355,9 +1355,7 @@ class graphmodel():
         return col_id_map
     
     def create_snapshot_graph(self, df_snap, period):
-
-        print(df_snap[[self.id_col, 'key_list']].head())
-
+        #print(df_snap[[self.id_col, 'key_list']].head())
         # index nodes
         col_map_dict = self.node_indexing(df_snap, [self.id_col]+self.static_cat_col_list+self.global_context_col_list)
         
@@ -1365,6 +1363,7 @@ class graphmodel():
         for col, id_map in col_map_dict.items():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
 
+        print(col_map_dict[self.id_col]['index'])
         # convert 'key_list' to key indices
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
         #print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
