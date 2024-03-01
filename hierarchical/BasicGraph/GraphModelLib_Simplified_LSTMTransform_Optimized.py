@@ -829,12 +829,16 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred))
 
             # constrain the higher level key o/ps to be the sum of their constituents
+            print("out, before aggregation: ")
+            print(out[:5])
             for i in range(out.shape[0]):
-                out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
-                
+                out[i] = torch.index_select(out, 0, torch.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
+            out.retain_grad()
+            print("out, after aggregation: ")
+            print(out[:5])
+
         return out
     
-
 
 # #### Graph Data Generator
 
@@ -1359,7 +1363,7 @@ class graphmodel():
         # convert 'key_list' to key indices
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap.key_list])
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
-        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64)
+        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
         keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
 
         # Create HeteroData Object
