@@ -803,8 +803,13 @@ class STGNN(torch.nn.Module):
         # get keybom
         keybom = x_dict['keybom']
 
+        # get key_aggregation_status
+        key_agg_status = x_dict['key_aggregation_status']
+        agg_indices = (key_agg_status == 1).nonzero(as_tuple=True)[0].tolist()
+
         # del keybom from x_dict
         del x_dict['keybom']
+        del x_dict['key_aggregation_status']
 
         # gnn layer
         x = self.gnn_layer(x_dict, edge_index_dict)
@@ -830,17 +835,10 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred))
 
             # constrain the higher level key o/ps to be the sum of their constituents
-            #print("keybom, before aggregation: ")
-            #print(keybom[:5])
-            #print("out, before aggregation: ")
-            #print(out[:5])
-            #agg_out = torch.zeros_like(out)
-            for i in range(out.shape[0]):
+            #for i in range(out.shape[0]):
+
+            for i in agg_indices:
                 out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
-                #out[i] = torch.index_select(out, 0, torch.autograd.Variable(keybom[i][keybom[i] != -1])).sum(dim=0)
-            #out.retain_grad()
-            #print("out, after aggregation: ")
-            #print(out[:5])
 
         return out
     
@@ -1357,7 +1355,6 @@ class graphmodel():
         return col_id_map
     
     def create_snapshot_graph(self, df_snap, period):
-        #print(df_snap[[self.id_col, 'key_list']].head())
         # index nodes
         col_map_dict = self.node_indexing(df_snap, [self.id_col]+self.static_cat_col_list+self.global_context_col_list)
         
@@ -1365,7 +1362,6 @@ class graphmodel():
         for col, id_map in col_map_dict.items():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
 
-        #print(col_map_dict[self.id_col]['index'])
         # convert 'key_list' to key indices
         #print([ [col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
         #print([literal_eval(row) for row in df_snap.key_list])
@@ -1386,6 +1382,9 @@ class graphmodel():
 
         # get keybom for index_select in the model
         data['keybom'].x = keybom_padded
+
+        # get status of key based on whether key_level == covar_key_level
+        data['key_aggregation_status'].x = torch.tensor(np.where(df_snap['key_level'] == self.covar_key_level, 0, 1).reshape(-1, 1), dtype=torch.int64)
         
         # store snapshot period
         data[self.target_col].time_attr = period
