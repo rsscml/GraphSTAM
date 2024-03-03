@@ -1583,6 +1583,7 @@ class graphmodel():
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
                         df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i+self.subgraph_sample_size])]
                         # sample snapshot graphs
+                        print("  gathering for subgraph_col_values: ", all_subgraph_col_values[i:i+self.subgraph_sample_size])
                         sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in snap_periods_list)
                         snapshot_list.append(sample_snapshot_list)
                 else:
