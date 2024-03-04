@@ -863,6 +863,8 @@ class graphmodel():
                  directed_graph = True,
                  shuffle = True,
                  interleave = 1,
+                 recency_weights = False,
+                 recency_alpha = 0,
                  PARALLEL_DATA_JOBS = 4, 
                  PARALLEL_DATA_JOBS_BATCHSIZE = 128):
         """
@@ -916,6 +918,8 @@ class graphmodel():
         self.directed_graph = directed_graph
         self.shuffle = shuffle
         self.interleave = interleave
+        self.recency_weights = recency_weights
+        self.recency_alpha = recency_alpha
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
         
@@ -1258,6 +1262,19 @@ class graphmodel():
         get_reusable_executor().shutdown(wait=True)
         return gdf
 
+    def get_relative_time_index(self, df):
+        """
+        Obtain a numeric feature indicating recency of a timestamp. This feature is also used to impl. recency_weights.
+        Ensure to run this after dataframe padding.
+        """
+        num_unique_ts = int(df[self.time_index_col].nunique())
+        df['relative_time_index'] = df.groupby(self.id_col)[self.time_index_col].transform(lambda x: np.range(num_unique_ts))
+        df['relative_time_index'] = df['relative_time_index']/num_unique_ts
+        df['receny_weights'] = np.exp(self.recency_alpha * df['relative_time_index'])
+
+        return df
+
+
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1363,10 +1380,7 @@ class graphmodel():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
 
         # convert 'key_list' to key indices
-        #print([ [col_map_dict[self.id_col]['index'][k] for k in row if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
-        #print([literal_eval(row) for row in df_snap.key_list])
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in literal_eval(row) if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
-        #print(df_snap[[self.id_col, 'key_list', 'mapped_key_list']].head())
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
         keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
         keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
@@ -1379,13 +1393,15 @@ class graphmodel():
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        if self.recency_weights:
+            data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         # get keybom for index_select in the model
         data['keybom'].x = keybom_padded
 
         # get status of key based on whether key_level == covar_key_level
         data['key_aggregation_status'].x = torch.tensor(np.where(df_snap['key_level'] == self.covar_key_level, 0, 1).reshape(-1, 1), dtype=torch.int64)
-        
+
         # store snapshot period
         data[self.target_col].time_attr = period
         
@@ -1540,7 +1556,11 @@ class graphmodel():
 
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        self.onetime_prep_df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        print("creating relative time index & recency weights...")
+        self.onetime_prep_df = self.get_relative_time_index(df)
+        # add 'relative time index' to self.temporal_known_num_col_list
+        self.temporal_known_num_col_list = self.temporal_known_num_col_list + ['relative_time_index']
 
     def create_train_test_dataset(self, df):
 
