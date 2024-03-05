@@ -1299,7 +1299,7 @@ class graphmodel():
         Ensure to run this after dataframe padding.
         """
         num_unique_ts = int(df[self.time_index_col].nunique())
-        df['relative_time_index'] = df.groupby(self.id_col)[self.time_index_col].transform(lambda x: np.range(num_unique_ts))
+        df['relative_time_index'] = df.groupby(self.id_col)[self.time_index_col].transform(lambda x: np.arange(num_unique_ts))
         df['relative_time_index'] = df['relative_time_index']/num_unique_ts
         df['recency_weights'] = np.exp(self.recency_alpha * df['relative_time_index'])
 
