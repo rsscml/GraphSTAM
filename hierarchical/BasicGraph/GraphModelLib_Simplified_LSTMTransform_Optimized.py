@@ -369,10 +369,10 @@ class HeteroForecastSageConv(torch.nn.Module):
                 transformed_feat_dict = torch.nn.ModuleDict()
                 for node_type in node_types:
                     #if node_type == self.target_node_type:
-                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size = 1, 
-                                                                     hidden_size = hidden_channels, 
-                                                                     num_layers = num_layers, 
-                                                                     batch_first = True)
+                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                     hidden_size=hidden_channels,
+                                                                     num_layers=1,
+                                                                     batch_first=True)
                     #else:
                     #    transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
                         
@@ -388,13 +388,13 @@ class HeteroForecastSageConv(torch.nn.Module):
                         #conv_dict[e] = DirGNNConv(conv = mpnn, alpha = alpha, root_weight = True)
                         conv_dict[e] = DirSageConv(input_dim=-1, output_dim=hidden_channels, alpha=alpha)
                     else:
-                        conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels)
+                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                 elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
                     # global context nodes
-                    conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels)
+                    conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                 else:
                     if i == 0:
-                        conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels)
+                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                     else:
                         # layers after first layer operate only on demand nodes & not covariates
                         pass
@@ -409,7 +409,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         for node_type, x in x_dict.items():
             #if node_type == self.target_node_type:
             o, _ = tfr_dict[node_type](torch.unsqueeze(x, dim=2)) # lstm input is 3 -d (N,L,1)
-            transformed_x_dict[node_type] = o[:,-1,:] # take last o/p (N,H)
+            transformed_x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
             #else:
             #    transformed_x_dict[node_type] = tfr_dict[node_type](x)
                 
@@ -614,12 +614,28 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
         self.context_node_type = context_node_type
         self.use_linear_pretransform = use_linear_pretransform
         self.skip_connection = skip_connection
-        
+
+        if self.use_linear_pretransform:
+            self.transform_layers = torch.nn.ModuleList()
+            for _ in range(1):
+                transformed_feat_dict = torch.nn.ModuleDict()
+                for node_type in node_types:
+                    # if node_type == self.target_node_type:
+                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                     hidden_size=hidden_channels,
+                                                                     num_layers=1,
+                                                                     batch_first=True)
+                    # else:
+                    #    transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
+                self.transform_layers.append(transformed_feat_dict)
+
+        """
         if self.use_linear_pretransform:  
             self.linear_layers = torch.nn.ModuleList()
             lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
             self.linear_layers.append(lin_dict)
-   
+        """
+
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
             conv_dict = {}
@@ -643,14 +659,32 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
 
         self.lin = Linear(hidden_channels, hidden_channels)
 
+    def apply_linear_layer(self, x_dict, tfr_dict):
+        transformed_x_dict = {}
+        for node_type, x in x_dict.items():
+            # if node_type == self.target_node_type:
+            o, _ = tfr_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+            transformed_x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            # else:
+            #    transformed_x_dict[node_type] = tfr_dict[node_type](x)
+
+        return transformed_x_dict
+
     def forward(self, x_dict, edge_index_dict):
-        
+
+        if self.use_linear_pretransform:
+            # lstm transform node features
+            for tfr_dict in self.transform_layers:
+                x_dict = self.apply_linear_layer(x_dict, tfr_dict)
+
+        """
         if self.use_linear_pretransform:  
             # linear transform node features
             for lin_dict in self.linear_layers:
                 x_dict = lin_dict(x_dict)
                 x_dict = {key: x.relu() for key, x in x_dict.items()}
-        
+        """
+
         if self.skip_connection:        
             res_x_dict = x_dict 
 
@@ -665,7 +699,6 @@ class HeteroForecastGATv2Conv(torch.nn.Module):
         out = self.lin(x_dict[self.target_node_type])
 
         return out 
-
 
 # Models
 
@@ -835,8 +868,6 @@ class STGNN(torch.nn.Module):
                 out = torch.reshape(out, (-1, self.n_pred))
 
             # constrain the higher level key o/ps to be the sum of their constituents
-            #for i in range(out.shape[0]):
-
             for i in agg_indices:
                 out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
 
