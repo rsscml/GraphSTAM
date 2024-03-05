@@ -1270,7 +1270,7 @@ class graphmodel():
         num_unique_ts = int(df[self.time_index_col].nunique())
         df['relative_time_index'] = df.groupby(self.id_col)[self.time_index_col].transform(lambda x: np.range(num_unique_ts))
         df['relative_time_index'] = df['relative_time_index']/num_unique_ts
-        df['receny_weights'] = np.exp(self.recency_alpha * df['relative_time_index'])
+        df['recency_weights'] = np.exp(self.recency_alpha * df['relative_time_index'])
 
         return df
 
@@ -1904,8 +1904,13 @@ class graphmodel():
                     wt = batch[self.target_col].y_weight
                 else:
                     wt = 1
-                
-                loss = torch.mean(loss*mask*wt)
+
+                if self.recency_weights:
+                    recency_wt = batch[self.target_col].recency_weight
+                else:
+                    recency_wt = 1
+
+                loss = torch.mean(loss*mask*wt*recency_wt)
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1958,8 +1963,13 @@ class graphmodel():
                         wt = batch[self.target_col].y_weight
                     else:
                         wt = 1
+
+                    if self.recency_weights:
+                        recency_wt = batch[self.target_col].recency_weight
+                    else:
+                        recency_wt = 1
                     
-                    loss = torch.mean(loss*mask*wt) 
+                    loss = torch.mean(loss*mask*wt*recency_wt)
                     total_examples += batch_size
                     total_loss += float(loss)
                     
