@@ -1305,7 +1305,6 @@ class graphmodel():
 
         return df
 
-
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")

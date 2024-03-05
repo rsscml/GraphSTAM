@@ -846,6 +846,8 @@ class graphmodel():
                  directed_graph = True,
                  shuffle = True,
                  interleave = 1,
+                 recency_weights=False,
+                 recency_alpha=0,
                  PARALLEL_DATA_JOBS = 4, 
                  PARALLEL_DATA_JOBS_BATCHSIZE = 128):
         """
@@ -895,6 +897,8 @@ class graphmodel():
         self.directed_graph = directed_graph
         self.shuffle = shuffle
         self.interleave = interleave
+        self.recency_weights = recency_weights
+        self.recency_alpha = recency_alpha
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
         
@@ -1203,6 +1207,18 @@ class graphmodel():
         get_reusable_executor().shutdown(wait=True)
         return gdf
 
+    def get_relative_time_index(self, df):
+        """
+        Obtain a numeric feature indicating recency of a timestamp. This feature is also used to impl. recency_weights.
+        Ensure to run this after dataframe padding.
+        """
+        num_unique_ts = int(df[self.time_index_col].nunique())
+        df['relative_time_index'] = df.groupby(self.id_col)[self.time_index_col].transform(lambda x: np.arange(num_unique_ts))
+        df['relative_time_index'] = df['relative_time_index']/num_unique_ts
+        df['recency_weights'] = np.exp(self.recency_alpha * df['relative_time_index'])
+
+        return df
+
     def preprocess(self, data):
         
         print("   preprocessing dataframe - check for null columns...")
@@ -1299,7 +1315,9 @@ class graphmodel():
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
-        
+        if self.recency_weights:
+            data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
+
         # store snapshot period
         data[self.target_col].time_attr = period
         
@@ -1407,7 +1425,11 @@ class graphmodel():
 
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
-        self.onetime_prep_df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        print("creating relative time index & recency weights...")
+        self.onetime_prep_df = self.get_relative_time_index(df)
+        # add 'relative time index' to self.temporal_known_num_col_list
+        self.temporal_known_num_col_list = self.temporal_known_num_col_list + ['relative_time_index']
 
     def create_train_test_dataset(self, df):
 
@@ -1744,8 +1766,13 @@ class graphmodel():
                     wt = batch[self.target_col].y_weight
                 else:
                     wt = 1
+
+                if self.recency_weights:
+                    recency_wt = batch[self.target_col].recency_weight
+                else:
+                    recency_wt = 1
                 
-                loss = torch.mean(loss*mask*wt)
+                loss = torch.mean(loss*mask*wt*recency_wt)
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1798,8 +1825,13 @@ class graphmodel():
                         wt = batch[self.target_col].y_weight
                     else:
                         wt = 1
+
+                    if self.recency_weights:
+                        recency_wt = batch[self.target_col].recency_weight
+                    else:
+                        recency_wt = 1
                     
-                    loss = torch.mean(loss*mask*wt) 
+                    loss = torch.mean(loss*mask*wt*recency_wt)
                     total_examples += batch_size
                     total_loss += float(loss)
                     
