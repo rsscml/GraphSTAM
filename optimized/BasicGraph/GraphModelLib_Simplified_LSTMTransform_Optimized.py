@@ -286,14 +286,14 @@ class DirGCNConv(torch.nn.Module):
 
 
 class DirSageConv(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, alpha, aggr='mean'):
+    def __init__(self, input_dim, output_dim, alpha):
         super(DirSageConv, self).__init__()
 
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.conv_src_to_dst = SAGEConv(input_dim, output_dim, flow="source_to_target", aggr=aggr, root_weight=False)
-        self.conv_dst_to_src = SAGEConv(input_dim, output_dim, flow="target_to_source", aggr=aggr, root_weight=False)
+        self.conv_src_to_dst = SAGEConv(input_dim, output_dim, flow="source_to_target", root_weight=False)
+        self.conv_dst_to_src = SAGEConv(input_dim, output_dim, flow="target_to_source", root_weight=False)
         self.lin_self = Linear(input_dim, output_dim)
         self.alpha = alpha
 
@@ -384,20 +384,20 @@ class HeteroForecastSageConv(torch.nn.Module):
                     if use_dirgnn:
                         #mpnn = SAGEConv(in_channels=-1, out_channels=hidden_channels)
                         #conv_dict[e] = DirGNNConv(conv = mpnn, alpha = alpha, root_weight = True)
-                        conv_dict[e] = DirSageConv(input_dim=-1, output_dim=hidden_channels, alpha=alpha, aggr=aggr)
+                        conv_dict[e] = DirSageConv(input_dim=-1, output_dim=hidden_channels, alpha=alpha)
                     else:
-                        conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels, aggr=aggr)
+                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                 elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
                     # global context nodes
-                    conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels, aggr=aggr)
+                    conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                 else:
                     if i == 0:
-                        conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels, aggr=aggr)
+                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
                     else:
                         # layers after first layer operate only on demand nodes & not covariates
                         pass
                     
-            conv = HeteroConv(conv_dict, aggr="sum")
+            conv = HeteroConv(conv_dict, aggr=aggr)
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, hidden_channels)
