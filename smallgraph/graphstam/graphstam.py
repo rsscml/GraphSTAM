@@ -318,8 +318,13 @@ class gml(object):
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
             
-            self.data_config.update(self.common_data_config)
-            self.model_config.update(self.common_model_config)
+            #self.data_config.update(self.common_data_config)
+            #self.model_config.update(self.common_model_config)
+            self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
+            self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
+            print("Using data_config: ", self.data_config)
+            print("\n")
+            print("Using model_config: ", self.model_config)
 
         elif model_type in ['SimpleGraphSageAuto', 'SimpleGraphSageAutoOneshot']:
             
@@ -346,8 +351,13 @@ class gml(object):
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
             
-            self.data_config.update(self.common_data_config)
-            self.model_config.update(self.common_model_config)
+            #self.data_config.update(self.common_data_config)
+            #self.model_config.update(self.common_model_config)
+            self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
+            self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
+            print("Using data_config: ", self.data_config)
+            print("\n")
+            print("Using model_config: ", self.model_config)
             
         elif model_type in ['TransformerGraphSage']:
             
@@ -371,8 +381,13 @@ class gml(object):
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
             
-            self.data_config.update(self.common_data_config)
-            self.model_config.update(self.common_model_config)
+            #self.data_config.update(self.common_data_config)
+            #self.model_config.update(self.common_model_config)
+            self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
+            self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
+            print("Using data_config: ", self.data_config)
+            print("\n")
+            print("Using model_config: ", self.model_config)
 
         elif model_type in ['TransformerGraphSageLarge']:
 
@@ -396,8 +411,13 @@ class gml(object):
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
 
-            self.data_config.update(self.common_data_config)
-            self.model_config.update(self.common_model_config)
+            #self.data_config.update(self.common_data_config)
+            #self.model_config.update(self.common_model_config)
+            self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
+            self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
+            print("Using data_config: ", self.data_config)
+            print("\n")
+            print("Using model_config: ", self.model_config)
 
         elif model_type in ['GraphSageLSTM']:
             
@@ -422,8 +442,13 @@ class gml(object):
                                         'apply_norm_layers': True,
                                         'use_dirgnn': True}
             
-            self.data_config.update(self.common_data_config)
-            self.model_config.update(self.common_model_config)
+            #self.data_config.update(self.common_data_config)
+            #self.model_config.update(self.common_model_config)
+            self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
+            self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
+            print("Using data_config: ", self.data_config)
+            print("\n")
+            print("Using model_config: ", self.model_config)
 
             # show scaling method used
             print("Using {} scaling method".format(self.scaling_method))
