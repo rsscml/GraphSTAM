@@ -397,7 +397,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                         # layers after first layer operate only on demand nodes & not covariates
                         pass
                     
-            conv = HeteroConv(conv_dict, aggr=None)
+            conv = HeteroConv(conv_dict, aggr="sum")
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, hidden_channels)
