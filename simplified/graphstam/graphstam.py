@@ -35,13 +35,10 @@ class gml(object):
         if self.fh is None:
             self.fh = 1
 
-        if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
-            self.forecast_quantiles = [0.5]  # placeholder to make the code work
-        elif self.train_config.get('loss_type') == 'Quantile':
-            self.forecast_quantiles = self.model_config.get('forecast_quantiles', None)
-            if self.forecast_quantiles is None:
-                print("Training for default quantiles: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]")
-                self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+        self.forecast_quantiles = self.model_config.get('forecast_quantiles', None)
+        if self.forecast_quantiles is None:
+            print("Training for default quantiles: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]")
+            self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
 
         # default common configs
         self.common_data_config = {'fh': self.fh,
