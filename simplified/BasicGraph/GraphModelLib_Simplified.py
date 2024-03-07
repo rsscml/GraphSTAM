@@ -107,9 +107,54 @@ class DirSageConv(torch.nn.Module):
 # Forecast GNN Layers
 
 
+class HeteroForecastSageConv(torch.nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 dropout,
+                 edge_types,
+                 node_types,
+                 target_node_type,
+                 first_layer,
+                 is_output_layer=False):
+
+        super().__init__()
+
+        self.target_node_type = target_node_type
+
+        conv_dict = {}
+        for e in edge_types:
+            if e[0] == e[2]:
+                conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
+            else:
+                if first_layer:
+                    conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
+        self.conv = HeteroConv(conv_dict)
+
+        if not is_output_layer:
+            self.dropout = torch.nn.Dropout(dropout)
+            self.norm_dict = torch.nn.ModuleDict({
+                node_type:
+                    BatchNorm(out_channels)
+                for node_type in node_types
+            })
+
+        self.is_output_layer = is_output_layer
+
+    def forward(self, x_dict, edge_index_dict):
+        x_dict = self.conv(x_dict, edge_index_dict)
+        if not self.is_output_layer:
+            for node_type, norm in self.norm_dict.items():
+                print(node_type, x_dict[node_type])
+                x = norm(self.dropout(x_dict[node_type]).relu())
+                x_dict[node_type] = x
+        return x_dict
+
+
 class HeteroSAGEConv(torch.nn.Module):
     def __init__(self, in_channels, out_channels, dropout, node_types, edge_types, is_output_layer=False):
         super().__init__()
+
         self.conv = HeteroConv({
             edge_type: SAGEConv(in_channels, out_channels) for edge_type in edge_types
         })
@@ -150,12 +195,11 @@ class HeteroGraphSAGE(torch.nn.Module):
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=1,
                                                                       batch_first=True)
-            else:
-                self.transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
+            """
             conv = HeteroSAGEConv(
                 in_channels=in_channels,  # if i == 0 else hidden_channels,
                 out_channels=out_channels if i == num_layers - 1 else hidden_channels,
@@ -164,6 +208,16 @@ class HeteroGraphSAGE(torch.nn.Module):
                 edge_types=edge_types,
                 is_output_layer=i == num_layers - 1,
             )
+            """
+            conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
+                                          out_channels=out_channels if i == num_layers - 1 else hidden_channels,
+                                          dropout=dropout,
+                                          node_types=node_types,
+                                          edge_types=edge_types,
+                                          target_node_type=target_node_type,
+                                          first_layer=i == 0,
+                                          is_output_layer=i == num_layers - 1)
+
             self.conv_layers.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
@@ -173,8 +227,6 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-            else:
-                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
 
         # run convolutions
         for conv in self.conv_layers:
@@ -732,27 +784,20 @@ class graphmodel():
             feats_df = df_snap[onehot_col_features].drop_duplicates()
             data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
                 
-        # bidirectional edges between global context node & target_col nodes
+        # directed edges from global context node to target_col nodes
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
-            
-            fwd_edges_stack = []
-            rev_edges_stack = []
+
+            edges_stack = []
             for value in col_unique_values:
                 # get subset of all nodes with common col value
-                edges = df_snap[df_snap[col] == value][[self.id_col, col]].to_numpy()
-                rev_edges = df_snap[df_snap[col] == value][[col, self.id_col]].to_numpy()
-                fwd_edges_stack.append(edges)
-                rev_edges_stack.append(rev_edges)
-                    
-            # fwd edges
-            edges = np.concatenate(fwd_edges_stack, axis=0)
-            edge_name = (self.target_col,'hascontext_{}'.format(col),col)
+                edges = df_snap[df_snap[col] == value][[col, self.id_col]].to_numpy()
+                edges_stack.append(edges)
+
+            # edges
+            edges = np.concatenate(edges_stack, axis=0)
+            edge_name = (col, '{}_context'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-            # reverse edges
-            rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            rev_edge_name = (col,'{}_contextof'.format(col),self.target_col)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
             
         # bidirectional edges exist between target_col nodes related by various static cols
         for col in self.static_cat_col_list:
@@ -773,8 +818,8 @@ class graphmodel():
                 rev_edges_stack.append(rev_edges)
                     
             # edge names
-            edge_name = (self.target_col,'relatedby_{}'.format(col),self.target_col)
-            rev_edge_name = (self.target_col,'rev_relatedby_{}'.format(col),self.target_col)
+            edge_name = (self.target_col, 'related_by_{}'.format(col), self.target_col)
+            rev_edge_name = (self.target_col, 'rev_related_by_{}'.format(col), self.target_col)
             # add edges to Data()
             edges = np.concatenate(fwd_edges_stack, axis=0)
             rev_edges = np.concatenate(rev_edges_stack, axis=0)
@@ -786,12 +831,9 @@ class graphmodel():
                    self.unknown_onehot_cols:
             nodes = df_snap[self.id_col].to_numpy()
             edges = np.column_stack([nodes, nodes])
-            edge_name = (col,'{}_effect'.format(col),self.target_col)
+            edge_name = (col, '{}_effects'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-            if not self.directed_graph:
-                rev_edge_name = (self.target_col,'covar_embed_update_{}'.format(col),col)
-                data[rev_edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-                
+
         # validate dataset
         print("validate snapshot graph ...")    
         data.validate(raise_on_error=True)
