@@ -128,6 +128,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
             else:
                 if first_layer:
+                    print("first layer edges")
                     conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
         self.conv = HeteroConv(conv_dict)
 
@@ -143,6 +144,8 @@ class HeteroForecastSageConv(torch.nn.Module):
 
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
+        print("after conv")
+        print(x_dict)
         if not self.is_output_layer:
             for node_type, norm in self.norm_dict.items():
                 print(node_type, x_dict[node_type])
@@ -227,7 +230,8 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-
+        print("after transformation")
+        print(x_dict)
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
