@@ -170,8 +170,8 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-            else:
-                x_dict[node_type] = x
+
+        print(x_dict)
 
         # run convolutions
         for conv in self.conv_layers:
