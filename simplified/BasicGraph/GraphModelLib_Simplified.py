@@ -7,17 +7,12 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import GATConv, GATv2Conv, Linear, to_hetero, HeteroConv, GCNConv, SAGEConv, GraphConv, HeteroDictLinear
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
-from torch_sparse import mul
-from torch_sparse import sum as sparsesum
-from torch_geometric.nn.conv.gcn_conv import gcn_norm
-from torch_sparse import SparseTensor
 import gc
 
 # Data specific imports
-
 from torch_geometric.data import HeteroData, Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.loader import NeighborLoader
@@ -53,180 +48,15 @@ torch.set_default_dtype(torch.float32)
 
 # #### Models & Utils
 
-# Generic Layer to allow directionality consideration in any MPNN layer. Currently not released in PyG
-
-class DirGNNConv(torch.nn.Module):
-    r"""A generic wrapper for computing graph convolution on directed
-    graphs as described in the `"Edge Directionality Improves Learning on
-    Heterophilic Graphs" <https://arxiv.org/abs/2305.10498>`_ paper.
-    :class:`DirGNNConv` will pass messages both from source nodes to target
-    nodes and from target nodes to source nodes.
-
-    Args:
-        conv (MessagePassing): The underlying
-            :class:`~torch_geometric.nn.conv.MessagePassing` layer to use.
-        alpha (float, optional): The alpha coefficient used to weight the
-            aggregations of in- and out-edges as part of a convex combination.
-            (default: :obj:`0.5`)
-        root_weight (bool, optional): If set to :obj:`True`, the layer will add
-            transformed root node features to the output.
-            (default: :obj:`True`)
-    """
-    def __init__(
-        self,
-        conv: MessagePassing,
-        alpha: float = 0.5,
-        root_weight: bool = True,):
-        super().__init__()
-
-        self.alpha = alpha
-        self.root_weight = root_weight
-
-        self.conv_in = copy.deepcopy(conv)
-        self.conv_out = copy.deepcopy(conv)
-
-        if hasattr(conv, 'add_self_loops'):
-            self.conv_in.add_self_loops = False
-            self.conv_out.add_self_loops = False
-        if hasattr(conv, 'root_weight'):
-            self.conv_in.root_weight = False
-            self.conv_out.root_weight = False
-
-        if root_weight:
-            self.lin = Linear(conv.in_channels, conv.out_channels)
-        else:
-            self.lin = None
-
-        self.reset_parameters()
-        
-    def reset_parameters(self):
-        r"""Resets all learnable parameters of the module."""
-        self.conv_in.reset_parameters()
-        self.conv_out.reset_parameters()
-        if self.lin is not None:
-            self.lin.reset_parameters()
-
-    def forward(self, x: Tensor, edge_index: Tensor) -> Tensor:
-        r""""""
-        x_in = self.conv_in(x, edge_index)
-        x_out = self.conv_out(x, edge_index.flip([0]))
-
-        out = self.alpha * x_out + (1 - self.alpha) * x_in
-
-        if self.root_weight:
-            out = out + self.lin(x)
-
-        return out
-
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.conv_in}, alpha={self.alpha})'
-    
-# additional helper functions from: https://github.com/emalgorithm/directed-graph-neural-network for paper: https://arxiv.org/abs/2305.10498  
-    
-def row_norm(adj):
-    """
-    Applies the row-wise normalization:
-        \mathbf{D}_{out}^{-1} \mathbf{A}
-    """
-    row_sum = sparsesum(adj, dim=1)
-
-    return mul(adj, 1 / row_sum.view(-1, 1))
-
-
-def directed_norm(adj):
-    """
-    Applies the normalization for directed graphs:
-        \mathbf{D}_{out}^{-1/2} \mathbf{A} \mathbf{D}_{in}^{-1/2}.
-    """
-    in_deg = sparsesum(adj, dim=0)
-    in_deg_inv_sqrt = in_deg.pow_(-0.5)
-    in_deg_inv_sqrt.masked_fill_(in_deg_inv_sqrt == float("inf"), 0.0)
-
-    out_deg = sparsesum(adj, dim=1)
-    out_deg_inv_sqrt = out_deg.pow_(-0.5)
-    out_deg_inv_sqrt.masked_fill_(out_deg_inv_sqrt == float("inf"), 0.0)
-
-    adj = mul(adj, out_deg_inv_sqrt.view(-1, 1))
-    adj = mul(adj, in_deg_inv_sqrt.view(1, -1))
-    return adj
-
-
-def get_norm_adj(adj, norm):
-    if norm == "sym":
-        return gcn_norm(adj, add_self_loops=False)
-    elif norm == "row":
-        return row_norm(adj)
-    elif norm == "dir":
-        return directed_norm(adj)
-    else:
-        raise ValueError(f"{norm} normalization is not supported")
-
-
-def get_mask(idx, num_nodes):
-    """
-    Given a tensor of ids and a number of nodes, return a boolean mask of size num_nodes which is set to True at indices
-    in `idx`, and to False for other indices.
-    """
-    mask = torch.zeros(num_nodes, dtype=torch.bool)
-    mask[idx] = 1
-    return mask
-
-
-def get_adj(edge_index, num_nodes, graph_type="directed"):
-    """
-    Return the type of adjacency matrix specified by `graph_type` as sparse tensor.
-    """
-    if graph_type == "transpose":
-        edge_index = torch.stack([edge_index[1], edge_index[0]])
-    elif graph_type == "undirected":
-        edge_index = torch_geometric.utils.to_undirected(edge_index)
-    elif graph_type == "directed":
-        pass
-    else:
-        raise ValueError(f"{graph_type} is not a valid graph type")
-
-    value = torch.ones((edge_index.size(1),), device=edge_index.device)
-    return SparseTensor(row=edge_index[0], col=edge_index[1], value=value, sparse_sizes=(num_nodes, num_nodes))
-
-
-def compute_unidirectional_edges_ratio(edge_index):
-    num_directed_edges = edge_index.shape[1]
-    num_undirected_edges = torch_geometric.utils.to_undirected(edge_index).shape[1]
-
-    num_unidirectional = num_undirected_edges - num_directed_edges
-
-    return (num_unidirectional / (num_undirected_edges / 2)) * 100
-
-
-# Causal Masked Attention
-
-class MaskedCausalAttention(torch.nn.Module):
-    def __init__(self, embed_dim, heads, size, device):
-        super().__init__()
-        
-        mask = (torch.triu(torch.ones(size,size))==1).transpose(0,1)
-        self.attn_mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to(device)
-        
-        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=heads, batch_first=True)
-    
-    def forward(self, node_embeddings):
-        attn_out, _ = self.multihead_attn(query=node_embeddings, 
-                                          key=node_embeddings, 
-                                          value=node_embeddings, 
-                                          attn_mask=self.attn_mask, 
-                                          is_causal=True)
-        return attn_out
-        
-
 # loss function
 
-class QuantileLoss():
+
+class QuantileLoss:
     """
     Quantile loss, i.e. a quantile of ``q=0.5`` will give half of the mean absolute error as it is calculated as
 
     Defined as ``max(q * (y-y_pred), (1-q) * (y_pred-y))``
     """
-
     def __init__(self, quantiles = [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]):
         self.quantiles = quantiles
 
@@ -240,49 +70,20 @@ class QuantileLoss():
         losses = 2 * torch.cat(losses, dim=2)
 
         return losses
-      
-class RMSE():
+
+
+class RMSE:
     """
     Root mean square error
 
     Defined as ``(y_pred - target)**2``
     """
-
     def __init__(self):
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
         loss = torch.pow(y_pred - target, 2)
         return loss
-
-
-# Reference implementation from the DirGNN paper: https://arxiv.org/abs/2305.10498 
-
-class DirGCNConv(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, alpha):
-        super(DirGCNConv, self).__init__()
-
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        self.lin_src_to_dst = Linear(input_dim, output_dim)
-        self.lin_dst_to_src = Linear(input_dim, output_dim)
-        self.alpha = alpha
-        self.adj_norm, self.adj_t_norm = None, None
-
-    def forward(self, x, edge_index):
-        if self.adj_norm is None:
-            row, col = edge_index
-            num_nodes = x.shape[0]
-
-            adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
-            self.adj_norm = get_norm_adj(adj, norm="dir")
-
-            adj_t = SparseTensor(row=col, col=row, sparse_sizes=(num_nodes, num_nodes))
-            self.adj_t_norm = get_norm_adj(adj_t, norm="dir")
-
-        return self.alpha * self.lin_src_to_dst(self.adj_norm @ x) + (1 - self.alpha) * self.lin_dst_to_src(
-            self.adj_t_norm @ x)
 
 
 class DirSageConv(torch.nn.Module):
@@ -299,556 +100,145 @@ class DirSageConv(torch.nn.Module):
 
     def forward(self, x, edge_index):
         return (
-            self.lin_self(x) + (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) + self.alpha * self.conv_dst_to_src(x, edge_index)
-        )
-
-
-class DirGATConv(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, heads, alpha):
-        super(DirGATConv, self).__init__()
-
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        self.conv_src_to_dst = GATConv(input_dim, output_dim, heads=heads, concat=True)
-        self.conv_dst_to_src = GATConv(input_dim, output_dim, heads=heads, concat=True)
-        self.alpha = alpha
-
-    def forward(self, x, edge_index):
-        edge_index_t = torch.stack([edge_index[1], edge_index[0]], dim=0)
-
-        return (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) + self.alpha * self.conv_dst_to_src(x, edge_index_t)
-    
-
-class DirGATv2Conv(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, heads, alpha):
-        super(DirGATv2Conv, self).__init__()
-
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        self.conv_src_to_dst = GATv2Conv(input_dim, output_dim, heads=heads, concat=True)
-        self.conv_dst_to_src = GATv2Conv(input_dim, output_dim, heads=heads, concat=True)
-        self.alpha = alpha
-
-    def forward(self, x, edge_index):
-        edge_index_t = torch.stack([edge_index[1], edge_index[0]], dim=0)
-
-        return (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) + self.alpha * self.conv_dst_to_src(x, edge_index_t)
-    
+            self.lin_self(x) + (1 - self.alpha) * self.conv_src_to_dst(x, edge_index) +
+            self.alpha * self.conv_dst_to_src(x, edge_index)
+                )
 
 # Forecast GNN Layers
 
-class HeteroForecastSageConv(torch.nn.Module):
-    
-    def __init__(self, 
-                 hidden_channels,  
-                 edge_types, 
-                 node_types, 
-                 target_node_type,
-                 context_node_type,
-                 num_layers=1,
-                 alpha=0.5,
-                 use_linear_pretransform=True,
-                 aggr='mean',
-                 skip_connection=True,
-                 use_dirgnn=True):
-        
+
+class HeteroSAGEConv(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, dropout, node_types, edge_types, is_output_layer=False):
         super().__init__()
-        
-        self.target_node_type = target_node_type
-        self.context_node_type = context_node_type
-        self.use_linear_pretransform = use_linear_pretransform
-        self.skip_connection = skip_connection
-        
-        if self.use_linear_pretransform:
-            self.transform_layers = torch.nn.ModuleList()
-            for _ in range(1):
-                transformed_feat_dict = torch.nn.ModuleDict()
-                for node_type in node_types:
-                    #if node_type == self.target_node_type:
-                    transformed_feat_dict[node_type] = torch.nn.LSTM(input_size = 1, 
-                                                                     hidden_size = hidden_channels, 
-                                                                     num_layers = num_layers, 
-                                                                     batch_first = True)
-                    #else:
-                    #    transformed_feat_dict[node_type] = Linear(in_channels=-1, out_channels=hidden_channels)
-                        
-                self.transform_layers.append(transformed_feat_dict)
+        self.conv = HeteroConv({
+            edge_type: SAGEConv(in_channels, out_channels) for edge_type in edge_types
+        })
 
-        self.convs = torch.nn.ModuleList()
+        if not is_output_layer:
+            self.dropout = torch.nn.Dropout(dropout)
+            self.norm_dict = torch.nn.ModuleDict({
+                node_type:
+                BatchNorm(out_channels)
+                for node_type in node_types
+            })
+
+        self.is_output_layer = is_output_layer
+
+    def forward(self, x_dict, edge_index_dict):
+        x_dict = self.conv(x_dict, edge_index_dict)
+        if not self.is_output_layer:
+            for node_type, norm in self.norm_dict.items():
+                x = norm(self.dropout(x_dict[node_type]).relu())
+                x_dict[node_type] = x
+        return x_dict
+
+
+class HeteroGraphSAGE(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
+                 target_node_type):
+        super().__init__()
+
+        # Transform/Feature Extraction Layers
+        self.transformed_feat_dict = torch.nn.ModuleDict()
+        for node_type in node_types:
+            if node_type == target_node_type:
+                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                      hidden_size=hidden_channels,
+                                                                      num_layers=1,
+                                                                      batch_first=True)
+
+        # Conv Layers
+        self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
-            conv_dict = {}
-            for e in edge_types:
-                if (e[0] == e[2]):
-                    if use_dirgnn:
-                        #mpnn = SAGEConv(in_channels=-1, out_channels=hidden_channels)
-                        #conv_dict[e] = DirGNNConv(conv = mpnn, alpha = alpha, root_weight = True)
-                        conv_dict[e] = DirSageConv(input_dim=-1, output_dim=hidden_channels, alpha=alpha)
-                    else:
-                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
-                elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
-                    # global context nodes
-                    conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
-                else:
-                    if i == 0:
-                        conv_dict[e] = SAGEConv(in_channels=(-1, -1), out_channels=hidden_channels)
-                    else:
-                        # layers after first layer operate only on demand nodes & not covariates
-                        pass
-                    
-            conv = HeteroConv(conv_dict, aggr=aggr)
-            self.convs.append(conv)
+            conv = HeteroSAGEConv(
+                in_channels if i == 0 else hidden_channels,
+                out_channels if i == num_layers - 1 else hidden_channels,
+                dropout=dropout,
+                node_types=node_types,
+                edge_types=edge_types,
+                is_output_layer=i == num_layers - 1,
+            )
+            self.conv_layers.append(conv)
 
-        self.lin = Linear(hidden_channels, hidden_channels)
-        
-    def apply_linear_layer(self, x_dict, tfr_dict):
-        transformed_x_dict = {}
+    def forward(self, x_dict, edge_index_dict):
+
+        # transform target node
         for node_type, x in x_dict.items():
-            #if node_type == self.target_node_type:
-            o, _ = tfr_dict[node_type](torch.unsqueeze(x, dim=2)) # lstm input is 3 -d (N,L,1)
-            transformed_x_dict[node_type] = o[:,-1,:] # take last o/p (N,H)
-            #else:
-            #    transformed_x_dict[node_type] = tfr_dict[node_type](x)
-                
-        return transformed_x_dict
+            if node_type == self.target_node_type:
+                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
-    def forward(self, x_dict, edge_index_dict):
-        
-        if self.use_linear_pretransform:
-            # lstm transform node features
-            for tfr_dict in self.transform_layers:
-                x_dict = self.apply_linear_layer(x_dict, tfr_dict)
-        
-        if self.skip_connection:        
-            res_x_dict = x_dict
-           
-        # apply dir sage layer to transformed dict
-        for conv in self.convs:
+        # run convolutions
+        for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
-            if self.skip_connection:
-                #print("x_dict: ",x_dict.keys())
-                res_x_dict = {key: res_x_dict[key] for key in x_dict.keys()}
-                #print("res_x_dict: ",res_x_dict.keys())
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
-            x_dict = {key: x.relu() for key, x in x_dict.items()}
-            #print("x_dict: ",x_dict.keys())
 
-        out = self.lin(x_dict[self.target_node_type])
-
-        return out 
-    
-
-class HeteroForecastGCNConv(torch.nn.Module):
-    
-    def __init__(self, 
-                 hidden_channels,  
-                 edge_types, 
-                 node_types, 
-                 target_node_type,
-                 context_node_type,
-                 num_layers=1,
-                 alpha=0.5,
-                 use_linear_pretransform=True,
-                 aggr='mean',
-                 skip_connection=True,
-                 use_dirgnn=True):
-        
-        super().__init__()
-        
-        self.target_node_type = target_node_type
-        self.context_node_type = context_node_type
-        self.use_linear_pretransform = use_linear_pretransform
-        self.skip_connection = skip_connection
-        
-        if self.use_linear_pretransform:   
-            self.linear_layers = torch.nn.ModuleList()
-            lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
-            self.linear_layers.append(lin_dict)
-
-        self.convs = torch.nn.ModuleList()
-        for i in range(num_layers):
-            conv_dict = {}
-            for e in edge_types:
-                if e[0] == e[2]:
-                    if use_dirgnn:
-                        #mpnn = GCNConv(in_channels=-1, out_channels=hidden_channels)
-                        #conv_dict[e] = DirGNNConv(conv = mpnn, alpha = alpha, root_weight = True)
-                        conv_dict[e] = DirGCNConv(input_dim=-1, output_dim=hidden_channels, alpha=alpha)
-                    else:
-                        conv_dict[e] = GCNConv(in_channels=-1, out_channels=hidden_channels)
-                elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
-                    # global context nodes
-                    conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels)
-                else:
-                    if i==0:
-                        conv_dict[e] = SAGEConv(in_channels=(-1,-1), out_channels=hidden_channels)
-                    else:
-                        pass
-                    
-            conv = HeteroConv(conv_dict, aggr=aggr)
-            self.convs.append(conv)
-
-        self.lin = Linear(hidden_channels, hidden_channels)
-
-    def forward(self, x_dict, edge_index_dict):
-        
-        if self.use_linear_pretransform: 
-            # linear transform node features
-            for lin_dict in self.linear_layers:
-                x_dict = lin_dict(x_dict)
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
-                
-        if self.skip_connection:        
-            res_x_dict = x_dict 
-        
-        # apply dir sage layer to transformed dict
-        for conv in self.convs:
-            x_dict = conv(x_dict, edge_index_dict)
-            if self.skip_connection:
-                res_x_dict = {key: res_x_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x)  in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
-            x_dict = {key: x.relu() for key, x in x_dict.items()}
-
-        out = self.lin(x_dict[self.target_node_type])
-
-        return out 
-    
-
-class HeteroForecastGATConv(torch.nn.Module):
-    
-    def __init__(self, 
-                 hidden_channels,  
-                 edge_types, 
-                 node_types, 
-                 target_node_type,
-                 context_node_type,
-                 heads=1,
-                 num_layers=1,
-                 alpha=0.5,
-                 use_linear_pretransform=True,
-                 aggr='mean',
-                 skip_connection=True,
-                 use_dirgnn=True):
-        
-        super().__init__()
-        
-        self.target_node_type = target_node_type
-        self.context_node_type = context_node_type
-        self.use_linear_pretransform = use_linear_pretransform
-        self.skip_connection = skip_connection
-        
-        if self.use_linear_pretransform:  
-            self.linear_layers = torch.nn.ModuleList()
-            lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
-            self.linear_layers.append(lin_dict)
-   
-        self.convs = torch.nn.ModuleList()
-        for i in range(num_layers):
-            conv_dict = {}
-            for e in edge_types:
-                if e[0] == e[2]:
-                    if use_dirgnn:
-                        conv_dict[e] = DirGATConv(input_dim=-1, output_dim=int(hidden_channels/heads), heads=heads, alpha=alpha)
-                    else:
-                        conv_dict[e] = GATConv(in_channels=-1, out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=True)
-                elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
-                    # global context nodes
-                    conv_dict[e] = GATConv(in_channels=(-1,-1), out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=False)
-                else:
-                    if i == 0:
-                        conv_dict[e] = GATConv(in_channels=(-1,-1), out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=False)
-                    else:
-                        pass
-                    
-            conv = HeteroConv(conv_dict, aggr=aggr)
-            self.convs.append(conv)
-
-        self.lin = Linear(hidden_channels, hidden_channels)
-
-    def forward(self, x_dict, edge_index_dict):
-        
-        if self.use_linear_pretransform:  
-            # linear transform node features
-            for lin_dict in self.linear_layers:
-                x_dict = lin_dict(x_dict)
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
-                
-        if self.skip_connection:        
-            res_x_dict = x_dict 
-
-        # apply dir sage layer to transformed dict
-        for conv in self.convs:
-            x_dict = conv(x_dict, edge_index_dict)
-            if self.skip_connection:
-                res_x_dict = {key: res_x_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x)  in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
-            x_dict = {key: x.relu() for key, x in x_dict.items()}
-
-        out = self.lin(x_dict[self.target_node_type])
-
-        return out 
-
-    
-class HeteroForecastGATv2Conv(torch.nn.Module):
-    
-    def __init__(self, 
-                 hidden_channels,  
-                 edge_types, 
-                 node_types, 
-                 target_node_type,
-                 context_node_type,
-                 heads=1,
-                 num_layers=1,
-                 alpha=0.5,
-                 use_linear_pretransform=True,
-                 aggr='mean',
-                 skip_connection=True,
-                 use_dirgnn=True):
-        
-        super().__init__()
-        
-        self.target_node_type = target_node_type
-        self.context_node_type = context_node_type
-        self.use_linear_pretransform = use_linear_pretransform
-        self.skip_connection = skip_connection
-        
-        if self.use_linear_pretransform:  
-            self.linear_layers = torch.nn.ModuleList()
-            lin_dict = HeteroDictLinear(in_channels=-1, out_channels=hidden_channels, types=node_types)
-            self.linear_layers.append(lin_dict)
-   
-        self.convs = torch.nn.ModuleList()
-        for i in range(num_layers):
-            conv_dict = {}
-            for e in edge_types:
-                if e[0] == e[2]:
-                    if use_dirgnn:
-                        conv_dict[e] = DirGATv2Conv(input_dim=-1, output_dim=int(hidden_channels/heads), heads=heads, alpha=alpha)
-                    else:
-                        conv_dict[e] = GATv2Conv(in_channels=-1, out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=True)
-                elif (e[0] in self.context_node_type) or (e[2] in self.context_node_type):
-                    # global context nodes
-                    conv_dict[e] = GATv2Conv(in_channels=(-1,-1), out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=False)
-                else:
-                    if i == 0:
-                        conv_dict[e] = GATv2Conv(in_channels=(-1,-1), out_channels=int(hidden_channels/heads), heads=heads, concat=True, add_self_loops=False)
-                    else:
-                        pass
-                    
-            conv = HeteroConv(conv_dict, aggr=aggr)
-            self.convs.append(conv)
-
-        self.lin = Linear(hidden_channels, hidden_channels)
-
-    def forward(self, x_dict, edge_index_dict):
-        
-        if self.use_linear_pretransform:  
-            # linear transform node features
-            for lin_dict in self.linear_layers:
-                x_dict = lin_dict(x_dict)
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
-        
-        if self.skip_connection:        
-            res_x_dict = x_dict 
-
-        # apply dir sage layer to transformed dict
-        for conv in self.convs:
-            x_dict = conv(x_dict, edge_index_dict)
-            if self.skip_connection:
-                res_x_dict = {key: res_x_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x)  in zip(x_dict.items(), res_x_dict.items()) if key == res_key}
-            x_dict = {key: x.relu() for key, x in x_dict.items()}
-
-        out = self.lin(x_dict[self.target_node_type])
-
-        return out 
+        return x_dict[self.target_node_type]
 
 
 # Models
-
 class STGNN(torch.nn.Module):
-    
     def __init__(self,
-                 model_type,
-                 model_option,
-                 hidden_channels, 
-                 out_channels,
-                 heads,
+                 hidden_channels,
+                 num_layers,
                  metadata, 
                  target_node,
-                 context_nodes,
                  device,
-                 n_quantiles=1, 
-                 num_layers=1,
-                 alpha=0.5, 
-                 dropout=0.0,
-                 residual_conn_type='concat',
-                 loss_type='Quantile', 
-                 positive_output=False,
-                 aggr='mean',
-                 use_linear_pretransform=True,
-                 apply_norm_layers=True,
-                 skip_connection=True,
-                 use_dirgnn=True):
-        
-        """
-        model options:
-        
-        model_type: ['SAGE','GCN','GAT','GATV2']
-        model_options: ['BASIC']
-        loss_type: ['Point','Quantile']
-        positive_output: True/False
-        residual_conn_type; ['add','concat']
-        
-        """
-        
+                 time_steps=1,
+                 n_quantiles=1,
+                 dropout=0.0):
+
         super(STGNN, self).__init__()
-        
-        self.model_type = str.upper(model_type)
-        self.model_option = str.upper(model_option)
-        
-        self.hidden_channels = hidden_channels
-        self.heads = heads
-        self.n_pred = out_channels
-        self.dropout = dropout
-        self.target_node = target_node
-        self.context_nodes = context_nodes
-        self.device = device
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
-        self.alpha = alpha
-        self.dropout = dropout
-        self.pos_out = positive_output
+        self.time_steps = time_steps
         self.n_quantiles = n_quantiles
-        self.num_layers = num_layers
-        self.loss_type = loss_type
-        self.apply_norm_layers = apply_norm_layers
-        self.use_dirgnn = use_dirgnn
-        self.skip_connection = skip_connection
-        
 
-        # for Attention Layers
-        
-        self.aggr = aggr
-        self.use_linear_pretransform = use_linear_pretransform
-        
-        if self.model_type == "SAGE":
-            self.gnn_layer = HeteroForecastSageConv(hidden_channels = self.hidden_channels,  
-                                                    edge_types = self.edge_types, 
-                                                    node_types = self.node_types, 
-                                                    target_node_type = self.target_node,
-                                                    context_node_type = self.context_nodes,
-                                                    num_layers = self.num_layers,
-                                                    alpha = self.alpha,
-                                                    use_linear_pretransform = self.use_linear_pretransform,
-                                                    aggr = self.aggr,
-                                                    skip_connection = self.skip_connection,
-                                                    use_dirgnn = self.use_dirgnn)
-        elif self.model_type == "GCN":
-            self.gnn_layer = HeteroForecastGCNConv(hidden_channels = self.hidden_channels,  
-                                                    edge_types = self.edge_types, 
-                                                    node_types = self.node_types, 
-                                                    target_node_type = self.target_node,
-                                                    context_node_type = self.context_nodes,
-                                                    num_layers = self.num_layers,
-                                                    alpha = self.alpha,
-                                                    use_linear_pretransform = self.use_linear_pretransform,
-                                                    aggr = self.aggr,
-                                                    skip_connection = self.skip_connection,
-                                                    use_dirgnn = self.use_dirgnn)
-        elif self.model_type == "GAT":
-            self.gnn_layer = HeteroForecastGATConv(hidden_channels = self.hidden_channels,  
-                                                    edge_types = self.edge_types, 
-                                                    node_types = self.node_types, 
-                                                    target_node_type = self.target_node,
-                                                    context_node_type = self.context_nodes,
-                                                    heads = self.heads,
-                                                    num_layers = self.num_layers,
-                                                    alpha = self.alpha,
-                                                    use_linear_pretransform = self.use_linear_pretransform,
-                                                    aggr = self.aggr,
-                                                    skip_connection = self.skip_connection,
-                                                    use_dirgnn = self.use_dirgnn)
-            
-        elif self.model_type == "GATV2":
-            self.gnn_layer = HeteroForecastGATv2Conv(hidden_channels = self.hidden_channels,  
-                                                    edge_types = self.edge_types, 
-                                                    node_types = self.node_types, 
-                                                    target_node_type = self.target_node,
-                                                    context_node_type = self.context_nodes,
-                                                    heads = self.heads,
-                                                    num_layers = self.num_layers,
-                                                    alpha = self.alpha,
-                                                    use_linear_pretransform = self.use_linear_pretransform,
-                                                    aggr = self.aggr,
-                                                    skip_connection = self.skip_connection,
-                                                    use_dirgnn = self.use_dirgnn)
-            
-        else:
-            raise "Invalid GNN Layer Specified. Valid Layers: [GAT, GATV2, GCN, SAGE] "
-            
-        if self.model_option == "BASIC":
-            # direct projection from node embeddings
-            self.layer_norm1 = torch.nn.LayerNorm(self.hidden_channels)
-            self.project_lin = Linear(self.hidden_channels, self.n_pred*self.n_quantiles)
-        
-        else:
-            raise "Invalid model_option. model_option: [BASIC]"
-            
+        self.gnn_model = HeteroGraphSAGE(in_channels=-1,
+                                         hidden_channels=hidden_channels,
+                                         num_layers=num_layers,
+                                         out_channels=int(n_quantiles * time_steps),
+                                         dropout=dropout,
+                                         node_types=self.node_types,
+                                         edge_types=self.edge_types,
+                                         target_node_type=target_node)
+
     def forward(self, x_dict, edge_index_dict):
-    
-        # gnn layer
-        x = self.gnn_layer(x_dict, edge_index_dict)
-        x = x.relu()
-        
-        if self.apply_norm_layers:
-            x = self.layer_norm1(x)
-        x = F.dropout(x, self.dropout, training=self.training)
-        
-        # output preds now without temporal attention
-        
-        if self.model_option == "BASIC":
-            
-            # final projection layer
-            out = self.project_lin(x)
-            
-            if self.pos_out:
-                out = F.softplus(out)
+        # gnn model
+        out = self.gnn_model(x_dict, edge_index_dict)
 
-            if self.n_quantiles > 1:
-                out = torch.reshape(out, (-1, self.n_pred, self.n_quantiles))
-            else:
-                out = torch.reshape(out, (-1, self.n_pred))
+        if self.n_quantiles > 1:
+            out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+        else:
+            out = torch.reshape(out, (-1, self.time_steps))
                 
         return out
     
 
-
-# #### Graph Data Generator
+# Graph Data Generator
 
 class graphmodel():
     def __init__(self, 
                  col_dict, 
-                 max_lags,
+                 max_target_lags,
+                 max_covar_lags,
                  max_leads,
                  train_till,
                  test_till,
-                 fh = 1,
-                 batch = 1,
-                 grad_accum = False,
-                 accum_iter = 1,
-                 scaling_method = 'mean_scaling',
-                 iqr_high = 0.75,
-                 iqr_low = 0.25,
-                 categorical_onehot_encoding = True,
-                 directed_graph = True,
-                 shuffle = True,
-                 interleave = 1,
+                 fh=1,
+                 batch=1,
+                 grad_accum=False,
+                 accum_iter=1,
+                 scaling_method='mean_scaling',
+                 iqr_high=0.75,
+                 iqr_low=0.25,
+                 categorical_onehot_encoding=True,
+                 directed_graph=True,
+                 shuffle=True,
+                 interleave=1,
                  recency_weights=False,
                  recency_alpha=0,
-                 PARALLEL_DATA_JOBS = 4, 
-                 PARALLEL_DATA_JOBS_BATCHSIZE = 128):
+                 PARALLEL_DATA_JOBS=4,
+                 PARALLEL_DATA_JOBS_BATCHSIZE=128):
         """
         col_dict: dictionary of various column groups {id_col:'',
                                                        target_col:'',
@@ -875,7 +265,8 @@ class graphmodel():
         self.col_dict = copy.deepcopy(col_dict)
         self.fh = int(fh)
         self.max_history = int(1)
-        self.max_lags = int(max_lags) if (max_lags is not None) and (max_lags>0) else 1
+        self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags>0) else 1
+        self.max_covar_lags = int(max_covar_lags) if (max_covar_lags is not None) and (max_covar_lags>0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads>0) else 1
 
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
@@ -898,10 +289,9 @@ class graphmodel():
         self.recency_alpha = recency_alpha
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
-        
-        self.pad_constant = 0 #if self.scaling_method == 'mean_scaling' else -1
-       
-        # extract columnsets from col_dict
+        self.pad_constant = 0
+
+        # extract column sets from col_dict
         self.id_col = self.col_dict.get('id_col', None)
         self.target_col = self.col_dict.get('target_col', None)
         self.time_index_col = self.col_dict.get('time_index_col', None)
@@ -919,24 +309,27 @@ class graphmodel():
         if (self.id_col is None) or (self.target_col is None) or (self.time_index_col is None):
             raise ValueError("Id Column, Target Column or Index Column not specified!")
 
-        # full columnset for train/test/infer
+        # full column set for train/test/infer
         self.col_list = [self.id_col] + [self.target_col] + \
                          self.static_cat_col_list + self.global_context_col_list + \
                          self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
         self.cat_col_list = self.global_context_col_list + self.static_cat_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
-        
+        self.node_features_label = {}
+        self.lead_lag_features_dict = {}
+        self.all_lead_lag_cols = []
     
     def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
         # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min()<self.train_till)
+        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() <= self.train_till)
 
         groups = df.groupby([self.id_col])
-        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
+        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
+                               backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
@@ -949,7 +342,7 @@ class graphmodel():
         """
         # obtain scalers
         
-        scale_gdf = gdf[gdf[self.time_index_col]<=self.train_till].reset_index(drop=True)
+        scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
         
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -1060,17 +453,12 @@ class graphmodel():
         obtain weights for each id for weighted training option
         """
         if self.wt_col is None:
-            data['Key_Sum'] = data[data[self.time_index_col]<=self.test_till].groupby(self.id_col)[self.target_col].transform(lambda x: x.sum()) 
+            data['Key_Sum'] = data[data[self.time_index_col] <= self.test_till].groupby(self.id_col)[self.target_col].transform(lambda x: x.sum())
             data['Key_Sum'] = data.groupby(self.id_col)['Key_Sum'].ffill()
-            data['Key_Weight'] = data['Key_Sum']/data[data[self.time_index_col]<=self.test_till][self.target_col].sum()
+            data['Key_Weight'] = data['Key_Sum']/data[data[self.time_index_col] <= self.test_till][self.target_col].sum()
         else:
             data['Key_Weight'] = data[self.wt_col]
             data['Key_Weight'] = data.groupby(self.id_col)['Key_Weight'].ffill()
-
-        # 07/01/24
-        #data['Key_Weight'] = data['Key_Weight']/data['Key_Weight'].max()
-        #wt_median = data['Key_Weight'].median()
-        #data['Key_Weight'] = data['Key_Weight'].clip(lower=wt_median)
 
         return data
 
@@ -1085,23 +473,24 @@ class graphmodel():
                 null_cols.append(col)
         
         if len(null_cols)>0:
-            null_status == True
+            null_status = True
         else:
-            null_status == False
+            null_status = False
         
         return null_status, null_cols
 
     def onehot_encode(self, df):
-        
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
-        df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
-        
+        """
+        Onehot encode categorical columns
+        """
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
+                          self.global_context_col_list
+
+        df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')],
+                       axis=1, join='inner')
         return df
 
     def create_lead_lag_features(self, df):
-
-        self.node_features_label = {}
-        self.lead_lag_features_dict = {}
 
         for col in [self.target_col] + \
                    self.temporal_known_num_col_list + \
@@ -1112,12 +501,16 @@ class graphmodel():
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
 
-            for lag in range(self.max_lags, 0, -1):
-                df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
-                self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
+            if col == self.target_col:
+                for lag in range(self.max_target_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
+                    self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
+            else:
+                for lag in range(self.max_covar_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
+                    self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
-
                 for lead in range(0, self.max_leads):
                     df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
@@ -1151,11 +544,7 @@ class graphmodel():
 
                 for col in self.unknown_onehot_cols:
                     x[col] = x[col].fillna(0)
-            else:
-                # use -1 to signal padding since label encoding will be from 0,...,n
-                for col in self.label_encoded_col_list:
-                    x[col] = x[col].fillna(-1)
-                
+
             # add mask
             x['y_mask'] = np.where(x[self.target_col].isnull(), 0, 1)
             
@@ -1271,15 +660,8 @@ class graphmodel():
                 self.node_features[node] = onehot_col_features
                 self.unknown_onehot_cols += onehot_col_features
             
-        self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+        self.temporal_nodes = self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
-        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
-        print("\n")
-        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
-        print("\n")
-        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
-        print("\n")
-        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
         return df
     
     def node_indexing(self, df, node_cols):
