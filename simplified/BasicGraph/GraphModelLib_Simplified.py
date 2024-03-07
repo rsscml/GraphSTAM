@@ -171,8 +171,6 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
-        print(x_dict)
-
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
@@ -197,7 +195,7 @@ class STGNN(torch.nn.Module):
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
 
-        self.gnn_model = HeteroGraphSAGE(in_channels=-1,
+        self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
                                          num_layers=num_layers,
                                          out_channels=int(n_quantiles * time_steps),
