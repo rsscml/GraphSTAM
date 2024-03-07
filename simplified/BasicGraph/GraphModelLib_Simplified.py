@@ -138,6 +138,8 @@ class HeteroGraphSAGE(torch.nn.Module):
                  target_node_type):
         super().__init__()
 
+        self.target_node_type = target_node_type
+
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
@@ -182,7 +184,6 @@ class STGNN(torch.nn.Module):
                  num_layers,
                  metadata, 
                  target_node,
-                 device,
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0):
@@ -1006,7 +1007,6 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
-                           device=self.device,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
