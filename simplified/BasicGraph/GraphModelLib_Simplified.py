@@ -128,7 +128,8 @@ class HeteroSAGEConv(torch.nn.Module):
         x_dict = self.conv(x_dict, edge_index_dict)
         if not self.is_output_layer:
             for node_type, norm in self.norm_dict.items():
-                x = norm(self.dropout(x_dict[node_type].x).relu())
+                print(x_dict[node_type])
+                x = norm(self.dropout(x_dict[node_type]).relu())
                 x_dict[node_type] = x
         return x_dict
 
