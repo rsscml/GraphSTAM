@@ -154,8 +154,8 @@ class HeteroGraphSAGE(torch.nn.Module):
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
             conv = HeteroSAGEConv(
-                in_channels if i == 0 else hidden_channels,
-                out_channels if i == num_layers - 1 else hidden_channels,
+                in_channels=in_channels,  # if i == 0 else hidden_channels,
+                out_channels=out_channels if i == num_layers - 1 else hidden_channels,
                 dropout=dropout,
                 node_types=node_types,
                 edge_types=edge_types,
