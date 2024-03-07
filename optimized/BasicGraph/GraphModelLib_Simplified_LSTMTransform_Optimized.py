@@ -1273,13 +1273,6 @@ class graphmodel():
             
         self.temporal_nodes =  self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
-        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
-        print("\n")
-        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
-        print("\n")
-        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
-        print("\n")
-        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
         return df
     
     def node_indexing(self, df, node_cols):

@@ -45,24 +45,16 @@ class gml(object):
 
         # default common configs
         self.common_data_config = {'fh': self.fh,
-                                       'batch': self.train_batch_size,
-                                       'grad_accum': self.grad_accum,
-                                       'accum_iter': self.accum_iter,
-                                       'scaling_method': self.scaling_method,
-                                       'categorical_onehot_encoding': True,
-                                       'directed_graph': True,
-                                       'shuffle': True,
-                                       'interleave': 1}
+                                    'batch': self.train_batch_size,
+                                    'grad_accum': self.grad_accum,
+                                    'accum_iter': self.accum_iter,
+                                    'scaling_method': self.scaling_method,
+                                    'categorical_onehot_encoding': True,
+                                    'directed_graph': True,
+                                    'shuffle': True,
+                                    'interleave': 1}
             
-        self.common_model_config = {'model_type': "SAGE",
-                                        'model_option': "BASIC", 
-                                        'attention_heads': 1,
-                                        'forecast_quantiles': self.forecast_quantiles,
-                                        'residual_conn_type': 'concat',
-                                        'aggr': 'mean',
-                                        'use_linear_pretransform': True,
-                                        'apply_norm_layers': True,
-                                        'use_dirgnn': True}
+        self.common_model_config = {'forecast_quantiles': self.forecast_quantiles}
 
         self.data_config.update({k: v for k, v in self.common_data_config.items() if k not in self.data_config})
         self.model_config.update({k: v for k, v in self.common_model_config.items() if k not in self.model_config})
@@ -77,25 +69,6 @@ class gml(object):
         self.infer_quantiles = None
 
     def build(self, data):
-
-        # handle categorical columns
-        if len(self.col_dict['temporal_known_cat_col_list']) > 0:
-            data = pd.concat([data[self.col_dict['temporal_known_cat_col_list']],
-                              pd.get_dummies(data=data,
-                                             columns=self.col_dict['temporal_known_cat_col_list'],
-                                             prefix_sep='_')], axis=1, join='inner')
-            # set all onehot cols created above to zero
-            for f in self.col_dict['temporal_known_cat_col_list']:
-                onehot_col_prefix = str(f) + '_'
-                self.cat_onehot_cols += [c for c in data.columns.tolist() if c.startswith(onehot_col_prefix)]
-
-            # add onehot columns instead of cat cols
-            self.col_dict['temporal_known_cat_col_list'] = []
-            self.col_dict['temporal_known_num_col_list'] += self.cat_onehot_cols
-
-            # replace the col dict in data_config
-            self.data_config.pop('col_dict')
-            self.data_config.update({'col_dict': self.col_dict})
 
         self.graphobj = graphmodel.graphmodel(**self.data_config)
         self.graphobj.build_dataset(data)
