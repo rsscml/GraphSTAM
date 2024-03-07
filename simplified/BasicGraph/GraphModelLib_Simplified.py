@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import gc
@@ -128,7 +128,6 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
             else:
                 if first_layer:
-                    print("first layer edges")
                     conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
         self.conv = HeteroConv(conv_dict)
 
@@ -136,19 +135,17 @@ class HeteroForecastSageConv(torch.nn.Module):
             self.dropout = torch.nn.Dropout(dropout)
             self.norm_dict = torch.nn.ModuleDict({
                 node_type:
-                    BatchNorm(out_channels)
-                for node_type in node_types
+                    LayerNorm(out_channels, mode='node')
+                for node_type in node_types if node_type == target_node_type
             })
 
         self.is_output_layer = is_output_layer
 
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
-        print("after conv")
-        print(x_dict)
+
         if not self.is_output_layer:
             for node_type, norm in self.norm_dict.items():
-                print(node_type, x_dict[node_type])
                 x = norm(self.dropout(x_dict[node_type]).relu())
                 x_dict[node_type] = x
         return x_dict
@@ -230,8 +227,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-        print("after transformation")
-        print(x_dict)
+
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
