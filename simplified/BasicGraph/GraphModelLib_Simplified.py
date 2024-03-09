@@ -125,10 +125,10 @@ class HeteroForecastSageConv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
+                conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, project=True)
             else:
                 if first_layer:
-                    conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=False)
+                    conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=False, project=True)
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
