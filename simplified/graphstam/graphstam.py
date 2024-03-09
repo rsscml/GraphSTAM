@@ -9,7 +9,6 @@ import copy
 import sklearn
 import simplified.BasicGraph as graphmodel
 
-
 class gml(object):
     def __init__(self, model_type, config):
         self.model_type = model_type
@@ -109,79 +108,14 @@ class gml(object):
 
         return self.forecast
 
-    def infer_multihorizon(self, infer_start=None):
-        try:
-            del self.graphobj.train_dataset, self.graphobj.test_dataset
-            gc.collect()
-        except:
-            pass
-
-        f_df_list = []
-        for quantile in self.infer_quantiles:
-            self.infer_config.pop('select_quantile')
-            self.infer_config.update({'select_quantile': quantile})
-            if (infer_start is None):
-                f_df = self.graphobj.infer(df=self.infer_config['df'], infer_start=self.infer_config['infer_start'], select_quantile=self.infer_config['select_quantile'])
-                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
-            else:
-                self.infer_config['infer_start'] = infer_start
-                f_df = self.graphobj.infer(df=self.infer_config['df'], infer_start=self.infer_config['infer_start'], select_quantile=self.infer_config['select_quantile'])
-                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
-
-            if len(self.infer_quantiles) == 1:
-                pass
-            else:
-                for i in range(self.fh):
-                    f_df = f_df.rename(columns={f'forecast_{i}': f'forecast_{i}' + str(quantile)})
-            f_df_list.append(f_df)
-
-        self.forecast = pd.concat(f_df_list, axis=1)
-
-        print("DEBUG: columns in forecast file before drop_duplicate: ", self.forecast.columns.tolist())
-
-        self.forecast = self.forecast.T.drop_duplicates().T
-
-        return self.forecast
-
-    def infer_backtest(self, infer_start=None, infer_end=None):
-        try:
-            del self.graphobj.train_dataset, self.graphobj.test_dataset
-            gc.collect()
-        except:
-            pass
-
-        f_df_list = []
-        for quantile in self.infer_quantiles:
-            self.infer_config.pop('select_quantile')
-            self.infer_config.update({'select_quantile': quantile})
-            if (infer_start is None) or (infer_end is None):
-                f_df = self.graphobj.backtest(df=self.infer_config['df'], infer_start=self.infer_config['infer_start'], infer_end=self.infer_config['infer_end'], select_quantile=self.infer_config['select_quantile'])
-                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
-            else:
-                self.infer_config['infer_start'] = infer_start
-                self.infer_config['infer_end'] = infer_end
-                f_df = self.graphobj.backtest(df=self.infer_config['df'], infer_start=self.infer_config['infer_start'], infer_end=self.infer_config['infer_end'], select_quantile=self.infer_config['select_quantile'])
-                f_df[[f'forecast_{i}' for i in range(self.fh)]] = np.clip(f_df[[f'forecast_{i}' for i in range(self.fh)]], a_min=0, a_max=None)
-
-            if len(self.infer_quantiles) == 1:
-                pass
-            else:
-                for i in range(self.fh):
-                    f_df = f_df.rename(columns={f'forecast_{i}': f'forecast_{i}' + str(quantile)})
-            f_df_list.append(f_df)
-
-        self.forecast = pd.concat(f_df_list, axis=1)
-        self.forecast = self.forecast.T.drop_duplicates().T
-
-        return self.forecast
-
     def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):
-        # zero-out covariates
-        data = self.infer_config['df']
-        baseline_data = data.copy()
-        # set all onehot cols created above to zero
+        # get the onetime prepped df
+        baseline_data = self.graphobj.onetime_prep_df.copy()
+
+        # columns to set to zero
         baseline_cat_onehot_cols = []
         baseline_num_cols = []
+
         for col in remove_effects_col_list:
             if col in self.baseline_col_dict['temporal_known_cat_col_list']:
                 onehot_col_prefix = str(col) + '_'
@@ -189,16 +123,22 @@ class gml(object):
             else:
                 baseline_num_cols += [col]
 
-        baseline_data[baseline_num_cols+baseline_cat_onehot_cols] = 0
+        # check all "remove_effects_col_list" have been assigned 0
+        for col in baseline_num_cols+baseline_cat_onehot_cols:
+            baseline_data[col] = np.where(baseline_data[self.graphobj.time_index_col] >= infer_start, 0,
+                                          baseline_data[col])
+            num_unique = baseline_data[baseline_data[self.graphobj.time_index_col] >= infer_start][col].unique()
+            print("Unique values in the baseline period >= {} for feature {}: {}".format(infer_start, col, num_unique))
 
+        # copy infer config
         baseline_infer_config = copy.deepcopy(self.infer_config)
-        baseline_infer_config.pop('df')
-        baseline_infer_config.update({'df': baseline_data})
+        baseline_infer_config.update({'sim_df': baseline_data})
 
         try:
             del self.graphobj.train_dataset, self.graphobj.test_dataset
             gc.collect()
         except:
+            print("train & test datasets already cleared from memory")
             pass
 
         f_df_list = []
@@ -206,12 +146,12 @@ class gml(object):
             baseline_infer_config.pop('select_quantile')
             baseline_infer_config.update({'select_quantile': quantile})
             if (infer_start is None) or (infer_end is None):
-                f_df = self.graphobj.infer(**baseline_infer_config)
+                f_df = self.graphobj.infer_sim(**baseline_infer_config)
                 f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
             else:
                 baseline_infer_config['infer_start'] = infer_start
                 baseline_infer_config['infer_end'] = infer_end
-                f_df = self.graphobj.infer(**baseline_infer_config)
+                f_df = self.graphobj.infer_sim(**baseline_infer_config)
                 f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
 
             if len(self.infer_quantiles) == 1:
@@ -226,7 +166,6 @@ class gml(object):
         return self.baseline_forecast
         
     def get_datasets(self,):
- 
         train_dataset, test_dataset = self.graphobj.train_dataset, self.graphobj.test_dataset
         
         return train_dataset, test_dataset
@@ -248,64 +187,7 @@ class gml(object):
         from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
         import pickle
 
-        #data = self.infer_config['df']
-
-        if self.model_type == 'SimpleGraphSage':
-
-            try:
-                del model_config, explainer
-                gc.collect()
-            except:
-                pass
-
-            # Explainer Config
-            model_config = ModelConfig(mode="regression", task_level="node", return_type="raw")
-
-            explainer = Explainer(self.graphobj.model,
-                                  algorithm=CaptumExplainer('IntegratedGradients'),
-                                  explanation_type='model',
-                                  node_mask_type='attributes',
-                                  edge_mask_type='object',
-                                  model_config=model_config)
-
-            # run explanation for period range
-            self.explanations_dict = {}
-
-            for period in explain_periods:
-                self.graphobj.build_infer_dataset(infer_till=period)
-                infer_dataset = self.graphobj.infer_dataset
-                infer_batch = next(iter(infer_dataset))
-                infer_batch = infer_batch.to(self.graphobj.device)
-
-                if period >= self.infer_config['infer_start']:
-                    # use forecasts as target
-                    target = torch.tensor(
-                        self.forecast[self.forecast[self.col_dict['time_index_col']] == period]['forecast'].to_numpy().astype(np.float64))
-                else:
-                    target = infer_batch[self.col_dict['target_col']].y
-
-                # get node-index map
-                node_index_map = self.graphobj.node_index_map
-
-                for node_name, node_index in node_index_map[self.col_dict['id_col']]['index'].items():
-                    # run explanation for each node
-                    explanation = explainer(x=infer_batch.x_dict,
-                                            edge_index=infer_batch.edge_index_dict,
-                                            target=target,
-                                            index=torch.tensor([node_index]))
-
-                    # save explanation object
-                    keyname = str(node_name) + '_' + str(period)
-                    filename = save_dir + '/explanation_' + keyname + '.pkl'
-
-                    with open(filename, 'wb') as f:
-                        pickle.dump(explanation, f)
-
-                    # save fileloc for the explanation object
-                    self.explanations_dict[keyname] = filename
-                    print("{} explanation saved.".format(keyname))
-
-        elif self.model_type == 'SimpleGraphSageAuto':
+        if self.model_type == 'SimpleGraphSageAuto':
 
             try:
                 del model_config, explainer
@@ -365,9 +247,8 @@ class gml(object):
                     self.explanations_dict[keyname] = filename
                     print("{} explanation saved.".format(keyname))
 
-        elif self.model_type in ['TransformerGraphSage','TransformerGraphSageLarge']:
+        else:
             raise NotImplementedError
-
 
     def show_feature_importance(self, node_id=None, period=None, topk=20, save_dir=None):
         import torch

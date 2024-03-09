@@ -1226,7 +1226,7 @@ class graphmodel():
                 time_since_improvement += 1
 
             # remove older models
-            if len(model_list)>patience:
+            if len(model_list) > patience:
                 for m in model_list[:-patience]:
                     if m != self.best_model:
                         try:
@@ -1246,7 +1246,7 @@ class graphmodel():
         self.change_device(device="cuda")
         torch.backends.cudnn.enabled = False
 
-    def infer(self, infer_start, infer_end, select_quantile, compute_mape=False):
+    def infer(self, infer_start, infer_end, select_quantile):
         
         base_df = self.onetime_prep_df.copy()
 
@@ -1271,7 +1271,7 @@ class graphmodel():
                     output.append(out)
             return output
 
-        for i,t in enumerate(infer_periods):
+        for i, t in enumerate(infer_periods):
             
             print("forecasting period {} at lag {}".format(t, i))
 
@@ -1315,5 +1315,80 @@ class graphmodel():
         else:
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+
+        return forecast_df
+
+    def infer_sim(self, infer_start, infer_end, select_quantile, sim_df):
+
+        # get list of infer periods
+        infer_periods = sorted(
+            sim_df[(sim_df[self.time_index_col] >= infer_start) & (sim_df[self.time_index_col] <= infer_end)][
+                self.time_index_col].unique().tolist())
+
+        # print model used for inference
+        print("running simulated inference using best saved model: ", self.best_model)
+
+        forecast_df = pd.DataFrame()
+
+        # infer fn
+        def infer_fn(model, model_path, infer_dataset):
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+            model.train(False)
+            output = []
+            with torch.no_grad():
+                for _, batch in enumerate(infer_dataset):
+                    batch = batch.to(self.device)
+                    out = model(batch.x_dict, batch.edge_index_dict)
+                    output.append(out)
+            return output
+
+        for i, t in enumerate(infer_periods):
+
+            print("forecasting period {} at lag {}".format(t, i))
+
+            # infer dataset creation
+            infer_df, infer_dataset = self.create_infer_dataset(sim_df, infer_till=t)
+            output = infer_fn(self.model, self.best_model, infer_dataset)
+
+            # select output quantile
+            output_arr = output[0]
+            output_arr = output_arr.cpu().numpy()
+
+            # quantile selection
+            min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+
+            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+
+            try:
+                q_index = self.forecast_quantiles(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+
+            # show current o/p
+            output = self.process_output(infer_df, output_arr)
+            # append forecast
+            forecast_df = forecast_df.append(output)
+            # update df
+            sim_df = self.update_dataframe(sim_df, output)
+
+        # re-scale output
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
+            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_iqr'] + forecast_df[
+                'scaler_median']
+        else:
+            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
+                'scaler_mu']
 
         return forecast_df
