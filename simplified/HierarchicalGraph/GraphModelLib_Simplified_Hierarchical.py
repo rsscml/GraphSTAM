@@ -1040,6 +1040,7 @@ class graphmodel():
 
                 # append
                 datasets[df_type] = dataset
+
             else:
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
@@ -1055,7 +1056,7 @@ class graphmodel():
                 # sample snapshot graphs
                 snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
-                dataset = DataLoader(list(itertools.chain.from_iterable(snapshot_list)), batch_size=self.batch, shuffle=self.shuffle)
+                dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle)
 
                 # append
                 datasets[df_type] = dataset
