@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text()
 # This call to setup() does all the work
 setup(
     name="GraphSTAM",
-    version="1.2.7",
+    version="1.2.8",
     description="Graph Based Spatio-Temporal Attention Models For Demand Forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -19,7 +19,7 @@ setup(
               "optimized.BasicGraph", "optimized.SpatialTemporalGraph", "optimized.TemporalSpatialGraph",
               "probabilistic.graphstam", "probabilistic.BasicGraph", "subgraphsampling.graphstam", "subgraphsampling.BasicGraph",
               "smallgraph.graphstam", "smallgraph.BasicGraph", "hierarchical.graphstam", "hierarchical.BasicGraph",
-              "simplified.graphstam", "simplified.BasicGraph"],
+              "simplified.graphstam", "simplified.BasicGraph", "simplified.HierarchicalGraph"],
     include_package_data=True,
     install_requires=[]
 )

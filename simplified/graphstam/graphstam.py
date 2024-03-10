@@ -8,6 +8,8 @@ import gc
 import copy
 import sklearn
 import simplified.BasicGraph as graphmodel
+import simplified.HierarchicalGraph as hierarchical_graphmodel
+
 
 class gml(object):
     def __init__(self, model_type, config):
@@ -41,14 +43,14 @@ class gml(object):
 
         # default common configs
         self.common_data_config = {'fh': self.fh,
-                                    'batch': self.train_batch_size,
-                                    'grad_accum': self.grad_accum,
-                                    'accum_iter': self.accum_iter,
-                                    'scaling_method': self.scaling_method,
-                                    'categorical_onehot_encoding': True,
-                                    'directed_graph': True,
-                                    'shuffle': True,
-                                    'interleave': 1}
+                                   'batch': self.train_batch_size,
+                                   'grad_accum': self.grad_accum,
+                                   'accum_iter': self.accum_iter,
+                                   'scaling_method': self.scaling_method,
+                                   'categorical_onehot_encoding': True,
+                                   'directed_graph': True,
+                                   'shuffle': True,
+                                   'interleave': 1}
             
         self.common_model_config = {'forecast_quantiles': self.forecast_quantiles}
 
@@ -65,14 +67,22 @@ class gml(object):
         self.infer_quantiles = None
 
     def build(self, data):
+        if self.model_type == 'SimpleGraphSage':
+            self.graphobj = graphmodel.graphmodel(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if len(self.infer_quantiles) == 0:
+                self.infer_quantiles = [0.5]
 
-        self.graphobj = graphmodel.graphmodel(**self.data_config)
-        self.graphobj.build_dataset(data)
-        self.graphobj.build(**self.model_config)
-        self.infer_quantiles = self.infer_config['select_quantile']
-        if len(self.infer_quantiles) == 0:
-            self.infer_quantiles = [0.5]
-        
+        elif self.model_type == 'HierarchicalGraphSage':
+            self.graphobj = hierarchical_graphmodel.graphmodel(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if len(self.infer_quantiles) == 0:
+                self.infer_quantiles = [0.5]
+
     def train(self):
         self.graphobj.train(**self.train_config)
     
