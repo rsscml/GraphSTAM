@@ -427,6 +427,8 @@ class graphmodel():
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
                          self.global_context_col_list
+        self.temporal_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
+                                 self.temporal_known_num_col_list + self.temporal_unknown_num_col_list
 
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
