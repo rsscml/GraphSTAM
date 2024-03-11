@@ -264,6 +264,9 @@ class STGNN(torch.nn.Module):
                                          edge_types=self.edge_types,
                                          target_node_type=target_node)
 
+    def sum_over_index(self, x, x_index):
+        return torch.index_select(x, 0, x_index).sum(dim=0)
+
     def forward(self, x_dict, edge_index_dict):
         # get keybom
         keybom = x_dict['keybom']
@@ -280,9 +283,27 @@ class STGNN(torch.nn.Module):
         out = self.gnn_model(x_dict, edge_index_dict)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
 
+        # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
+        """
         for i in agg_indices:
             out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
+        """
+
+        # vectorized approach follows:
+        dummy_out = torch.zeros(1, out.shape[1], out.shape[2])
+        # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
+        # nested/dynamic shape tensors
+        out = torch.cat([out, dummy_out], dim=0)
+
+        # replace -1 from key bom with last dim in out
+        keybom[keybom == -1] = int(out.shape[0] - 1)
+
+        # call vmap on sum_over_index function
+        batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
+        out = batched_sum_over_index(out, keybom)
+
+        # returned shape of out should be same as that before cat with dummy_out
 
         return out
 
