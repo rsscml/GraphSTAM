@@ -291,7 +291,14 @@ class STGNN(torch.nn.Module):
         """
 
         # vectorized approach follows:
-        dummy_out = torch.zeros(1, out.shape[1], out.shape[2])
+        device_int = out.get_device()
+
+        if device_int == -1:
+            device = torch.device('cpu')
+        else:
+            device = torch.device('cuda')
+
+        dummy_out = torch.zeros(1, out.shape[1], out.shape[2]).to(device)
         # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
         # nested/dynamic shape tensors
         out = torch.cat([out, dummy_out], dim=0)
