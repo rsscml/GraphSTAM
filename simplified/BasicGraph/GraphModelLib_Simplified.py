@@ -125,7 +125,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
+                conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=False)
             else:
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=False)
@@ -782,8 +782,7 @@ class graphmodel():
         for col in self.global_context_col_list:
             onehot_cols_prefix = str(col) + '_'
             onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
-            feats_df = df_snap[onehot_col_features].drop_duplicates()
-            data[col].x = torch.tensor(feats_df[onehot_col_features].to_numpy(), dtype=torch.float)
+            data[col].x = torch.tensor(df_snap[onehot_col_features].to_numpy(), dtype=torch.float)
                 
         # directed edges from global context node to target_col nodes
         for col in self.global_context_col_list:
