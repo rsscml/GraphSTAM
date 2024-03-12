@@ -1157,10 +1157,14 @@ class graphmodel():
         return infer_df, infer_dataset
 
     def split_train_test(self, data):
-        
-        train_data = data[data[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col] > self.train_till) & (data[self.time_index_col] <= self.test_till)].reset_index(drop=True)
-        
+        # multistep adjusted train/test cutoff
+        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
+
+        train_data = data[data[self.time_index_col] <= train_cut_off].reset_index(drop=True)
+        test_data = data[(data[self.time_index_col] > self.train_till) & (data[self.time_index_col] <= test_cut_off)].reset_index(drop=True)
+
+        print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_data, test_data
     
     def split_infer(self, data, infer_start):
@@ -1203,7 +1207,7 @@ class graphmodel():
         else:
             scaler_cols = ['scaler_mu', 'scaler_std']
         
-        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
+        infer_df = infer_df[[self.id_col, 'key_level', self.time_index_col] + self.multistep_targets + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
         
         model_output = model_output.reshape(-1, self.fh)
         forecast_cols = [f'forecast_{h}' for h in range(self.fh)]
