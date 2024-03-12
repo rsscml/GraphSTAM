@@ -1497,16 +1497,25 @@ class graphmodel():
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
+        print("forecast columns are: ", forecast_cols)
+        print("forecast_df has columns: ", forecast_df.columns.tolist())
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         return forecast_df, forecast_cols
 
@@ -1559,13 +1568,19 @@ class graphmodel():
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
-            forecast_df[forecast_cols] = forecast_df[forecast_cols] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            forecast_df[self.multistep_targets] = forecast_df[self.multistep_targets] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         return forecast_df, forecast_cols
