@@ -9,7 +9,7 @@ import copy
 import sklearn
 import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
-
+import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
 
 class gml(object):
     def __init__(self, model_type, config):
@@ -83,6 +83,14 @@ class gml(object):
             if len(self.infer_quantiles) == 0:
                 self.infer_quantiles = [0.5]
 
+        elif self.model_type == 'MultistepHierarchicalGraphSage':
+            self.graphobj = multistep_hierarchical_graphmodel.graphmodel(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if len(self.infer_quantiles) == 0:
+                self.infer_quantiles = [0.5]
+
     def train(self):
         self.graphobj.train(**self.train_config)
     
@@ -111,6 +119,30 @@ class gml(object):
                 pass
             else:
                 f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df_list.append(f_df)
+
+        self.forecast = pd.concat(f_df_list, axis=1)
+        self.forecast = self.forecast.T.drop_duplicates().T
+
+        return self.forecast
+
+    def infer_multistep(self, infer_start=None):
+        try:
+            del self.graphobj.train_dataset, self.graphobj.test_dataset
+            gc.collect()
+        except:
+            print("cleared train & test datasets to save memory")
+            pass
+
+        f_df_list = []
+        for quantile in self.infer_quantiles:
+            self.infer_config.pop('select_quantile')
+            self.infer_config.update({'select_quantile': quantile})
+            self.infer_config['infer_start'] = infer_start
+            f_df, forecast_cols = self.graphobj.infer(**self.infer_config)
+            f_df[forecast_cols] = np.clip(f_df[forecast_cols], a_min=0, a_max=None)
+
+            f_df = f_df.rename(columns={col: col + '_' + str(quantile) for col in forecast_cols})
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)

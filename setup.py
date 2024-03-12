@@ -19,7 +19,8 @@ setup(
               "optimized.BasicGraph", "optimized.SpatialTemporalGraph", "optimized.TemporalSpatialGraph",
               "probabilistic.graphstam", "probabilistic.BasicGraph", "subgraphsampling.graphstam", "subgraphsampling.BasicGraph",
               "smallgraph.graphstam", "smallgraph.BasicGraph", "hierarchical.graphstam", "hierarchical.BasicGraph",
-              "simplified.graphstam", "simplified.BasicGraph", "simplified.HierarchicalGraph"],
+              "simplified.graphstam", "simplified.BasicGraph", "simplified.HierarchicalGraph",
+              "simplified.MultistepHierarchicalGraph"],
     include_package_data=True,
     install_requires=[]
 )
