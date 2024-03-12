@@ -1116,7 +1116,7 @@ class graphmodel():
 
         # drop lead/lag features if present
         try:
-            df.drop(columns=self.all_lead_lag_cols, inplace=True)
+            df.drop(columns=self.all_lead_lag_cols+self.multistep_targets, inplace=True)
         except:
             pass
 
@@ -1501,6 +1501,8 @@ class graphmodel():
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
+        #print("multistep target cols: ", self.multistep_targets)
+        #print("infer_df columns: ", infer_df.columns.tolist())
         print("forecast columns are: ", forecast_cols)
         print("forecast_df has columns: ", forecast_df.columns.tolist())
 
