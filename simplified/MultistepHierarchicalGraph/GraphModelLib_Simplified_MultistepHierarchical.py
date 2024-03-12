@@ -650,9 +650,10 @@ class graphmodel():
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
         self.multistep_targets = []
+        self.forecast_periods = []
         self.multistep_mask = []
 
-        for col in [self.target_col] + \
+        for col in [self.target_col, self.time_index_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -673,6 +674,10 @@ class graphmodel():
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_mask.append(f'{col}_fh_{h}')
+            elif col == self.time_index_col:
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
+                    self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
@@ -1117,7 +1122,7 @@ class graphmodel():
 
         # drop lead/lag features if present
         try:
-            df.drop(columns=self.all_lead_lag_cols+self.multistep_targets, inplace=True)
+            df.drop(columns=self.all_lead_lag_cols+self.multistep_targets+self.forecast_periods, inplace=True)
         except:
             pass
 
@@ -1208,7 +1213,9 @@ class graphmodel():
         else:
             scaler_cols = ['scaler_mu', 'scaler_std']
         
-        infer_df = infer_df[[self.id_col, 'key_level', self.time_index_col] + self.multistep_targets + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
+        infer_df = infer_df[[self.id_col, 'key_level', self.time_index_col] + self.multistep_targets +
+                            self.forecast_periods + self.static_cat_col_list +
+                            self.global_context_col_list + scaler_cols]
         
         model_output = model_output.reshape(-1, self.fh)
         forecast_cols = [f'forecast_{h}' for h in range(self.fh)]
@@ -1502,10 +1509,10 @@ class graphmodel():
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
-        print("multistep target cols: ", self.multistep_targets)
-        print("infer_df columns: ", infer_df.columns.tolist())
-        print("forecast columns are: ", forecast_cols)
-        print("forecast_df has columns: ", forecast_df.columns.tolist())
+        #print("multistep target cols: ", self.multistep_targets)
+        #print("infer_df columns: ", infer_df.columns.tolist())
+        #print("forecast columns are: ", forecast_cols)
+        #print("forecast_df has columns: ", forecast_df.columns.tolist())
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
