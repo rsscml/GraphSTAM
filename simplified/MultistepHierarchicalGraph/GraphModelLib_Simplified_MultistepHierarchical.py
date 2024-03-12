@@ -1321,18 +1321,25 @@ class graphmodel():
                 loss = loss_fn.loss(out, batch[self.target_col].y)
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
+                print(out.shape)
+                print(loss.shape)
+                print(mask.shape)
+
                 # key weight
                 if sample_weights:
                     wt = batch[self.target_col].y_weight
+                    print(wt.shape)
                 else:
                     wt = 1
 
                 # key level weight
-                key_level_wt = batch[self.target_col].y_level_weight
+                key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
+                print(key_level_wt.shape)
 
                 # recency wt
                 if self.recency_weights:
-                    recency_wt = batch[self.target_col].recency_weight
+                    recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
+                    print(recency_wt.shape)
                 else:
                     recency_wt = 1
 
