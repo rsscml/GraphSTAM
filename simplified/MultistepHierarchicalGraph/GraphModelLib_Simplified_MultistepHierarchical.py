@@ -450,10 +450,6 @@ class graphmodel():
                             self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
         self.node_features_label = {}
-        self.lead_lag_features_dict = {}
-        self.all_lead_lag_cols = []
-        self.multistep_targets = []
-        self.multistep_mask = []
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
                          self.global_context_col_list
@@ -650,6 +646,11 @@ class graphmodel():
         return df
 
     def create_lead_lag_features(self, df):
+        # critical to initialize these to empty
+        self.lead_lag_features_dict = {}
+        self.all_lead_lag_cols = []
+        self.multistep_targets = []
+        self.multistep_mask = []
 
         for col in [self.target_col] + \
                    self.temporal_known_num_col_list + \
