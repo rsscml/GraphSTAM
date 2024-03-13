@@ -534,9 +534,13 @@ class graphmodel():
         Scale using scalers for the highest key combination in the hierarchy
         """
         if self.scaling_method == 'mean_scaling':
+            # the global scaler is used for scaling keys which do not have an observation within the training period
+            # high quantiles 0.8, 0.9 etc. can also be a good substitute
+            npd_scale = np.maximum(df[df[self.time_index_col] <= self.train_till][self.target_col].quantile(0.9),
+                                   df[df[self.time_index_col] <= self.train_till][self.target_col].mean())
             highest_key_cols = list(self.highest_key_combination)
             df['scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(highest_key_cols)[self.target_col].transform(lambda x: np.maximum(x.mean(), 1.0))
-            df['scaler'] = df.groupby(highest_key_cols)['scaler'].transform(lambda x: x.ffill().bfill())
+            df['scaler'] = df.groupby(highest_key_cols)['scaler'].transform(lambda x: x.ffill().bfill().fillna(npd_scale))
             df[self.target_col] = df[self.target_col]/df['scaler']
 
         elif self.scaling_method == 'no_scaling':
