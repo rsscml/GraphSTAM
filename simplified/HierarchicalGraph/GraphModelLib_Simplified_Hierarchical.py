@@ -325,6 +325,7 @@ class graphmodel():
                  max_leads,
                  train_till,
                  test_till,
+                 min_history=1,
                  fh=1,
                  batch=1,
                  grad_accum=False,
@@ -370,6 +371,7 @@ class graphmodel():
         super().__init__()
         
         self.col_dict = copy.deepcopy(col_dict)
+        self.min_history = int(min_history)
         self.fh = int(fh)
         self.max_history = int(1)
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
@@ -538,6 +540,14 @@ class graphmodel():
             df['Key_Weight'] = np.where(df[self.wt_col].isnull(), 1, df[self.wt_col])
         # new col list
         self.col_list = df.columns.tolist()
+        return df
+
+    def check_data_sufficiency(self, df):
+        """
+        Exclude keys which do not have at least one data point within the training cutoff period
+        """
+        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
+
         return df
 
     def scale_target(self, df):
@@ -778,9 +788,12 @@ class graphmodel():
             print("NaN column(s): ", null_cols)
             raise ValueError("Column(s) with NaN detected!")
 
+        # check data sufficiency
+        df = self.check_data_sufficiency(data)
+
         # create new keys
         print("   preprocessing dataframe - creating aggregate keys...")
-        df = self.create_new_keys(data)
+        df = self.create_new_keys(df)
 
         # create new targets
         print("   preprocessing dataframe - creating new targets for aggregate keys...")

@@ -279,6 +279,7 @@ class graphmodel():
                  max_leads,
                  train_till,
                  test_till,
+                 min_history=1,
                  fh=1,
                  batch=1,
                  grad_accum=False,
@@ -320,6 +321,7 @@ class graphmodel():
         super().__init__()
         
         self.col_dict = copy.deepcopy(col_dict)
+        self.min_history = int(min_history)
         self.fh = int(fh)
         self.max_history = int(1)
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
@@ -387,12 +389,19 @@ class graphmodel():
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
 
+    def check_data_sufficiency(self, df):
+        """
+        Exclude keys which do not have at least one data point within the training cutoff period
+        """
+        df = df.groupby(self.id_col).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
+
+        return df
     def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
         # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
+        #df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
 
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
@@ -679,10 +688,13 @@ class graphmodel():
         if null_status:
             print("NaN column(s): ", null_cols)
             raise ValueError("Column(s) with NaN detected!")
+
+        # check data sufficiency
+        df = self.check_data_sufficiency(data)
             
         # get weights
         print("   preprocessing dataframe - get id weights...")
-        df = self.get_key_weights(data)
+        df = self.get_key_weights(df)
         
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
