@@ -1075,8 +1075,7 @@ class graphmodel():
         except:
             pytorch_total_params = sum([0 if isinstance(p, torch.nn.parameter.UninitializedParameter) else p.numel() for p in self.model.parameters()])
             print("total model params: ", pytorch_total_params)
-            
-            
+
     def train(self, 
               lr, 
               min_epochs, 
@@ -1084,6 +1083,7 @@ class graphmodel():
               patience, 
               min_delta, 
               model_prefix,
+              use_amp=False,
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
@@ -1108,6 +1108,9 @@ class graphmodel():
         time_since_improvement = 0
         train_loss_hist = []
         val_loss_hist = []
+
+        # torch.amp -- for mixed precision training
+        scaler = torch.cuda.amp.GradScaler()
 
         def train_fn():
             self.model.train(True)
@@ -1185,11 +1188,100 @@ class graphmodel():
                     total_loss += float(weighted_loss)
                     
             return total_loss / total_examples
+
+        def train_amp_fn():
+            self.model.train(True)
+            total_examples = 0
+            total_loss = 0
+            for i, batch in enumerate(self.train_dataset):
+
+                if not self.grad_accum:
+                    optimizer.zero_grad()
+
+                batch = batch.to(self.device)
+                batch_size = batch.num_graphs
+
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                    out = self.model(batch.x_dict, batch.edge_index_dict)
+
+                    # compute loss masking out N/A targets -- last snapshot
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
+
+                    # key weight
+                    if sample_weights:
+                        wt = batch[self.target_col].y_weight
+                    else:
+                        wt = 1
+                    # recency wt
+                    if self.recency_weights:
+                        recency_wt = batch[self.target_col].recency_weight
+                    else:
+                        recency_wt = 1
+
+                    weighted_loss = torch.mean(loss * mask * wt * recency_wt)
+
+                # normalize loss to account for batch accumulation
+                if self.grad_accum:
+                    weighted_loss = weighted_loss / self.accum_iter
+                    scaler.scale(weighted_loss).backward()
+                    # weights update
+                    if ((i + 1) % self.accum_iter == 0) or (i + 1 == len(self.train_dataset)):
+                        scaler.step(optimizer)
+                        scaler.update()
+                        optimizer.zero_grad()
+                else:
+                    scaler.scale(weighted_loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+
+                total_examples += batch_size
+                total_loss += float(weighted_loss)
+
+            return total_loss / total_examples
+
+        def test_amp_fn():
+            self.model.train(False)
+            total_examples = 0
+            total_loss = 0
+            with torch.no_grad():
+                for i, batch in enumerate(self.test_dataset):
+                    batch_size = batch.num_graphs
+                    batch = batch.to(self.device)
+
+                    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                        out = self.model(batch.x_dict, batch.edge_index_dict)
+
+                        # compute loss masking out N/A targets -- last snapshot
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
+
+                        # key weight
+                        if sample_weights:
+                            wt = batch[self.target_col].y_weight
+                        else:
+                            wt = 1
+                        # recency wt
+                        if self.recency_weights:
+                            recency_wt = batch[self.target_col].recency_weight
+                        else:
+                            recency_wt = 1
+
+                        weighted_loss = torch.mean(loss * mask * wt * recency_wt)
+
+                    total_examples += batch_size
+                    total_loss += float(weighted_loss)
+
+            return total_loss / total_examples
         
         for epoch in range(max_epochs):
-            
-            loss = train_fn()
-            val_loss = test_fn()
+
+            if use_amp:
+                loss = train_amp_fn()
+                val_loss = test_amp_fn()
+            else:
+                loss = train_fn()
+                val_loss = test_fn()
             
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
             

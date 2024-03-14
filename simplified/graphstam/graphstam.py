@@ -10,6 +10,7 @@ import sklearn
 import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
 import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
+import simplified.SmallGraph as small_graphmodel
 
 class gml(object):
     def __init__(self, model_type, config):
@@ -85,6 +86,14 @@ class gml(object):
 
         elif self.model_type == 'MultistepHierarchicalGraphSage':
             self.graphobj = multistep_hierarchical_graphmodel.graphmodel(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if len(self.infer_quantiles) == 0:
+                self.infer_quantiles = [0.5]
+
+        elif self.model_type == 'SmallGraphSage':
+            self.graphobj = small_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
@@ -200,6 +209,55 @@ class gml(object):
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
             else:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast_' + str(quantile)})
+            f_df_list.append(f_df)
+
+        self.baseline_forecast = pd.concat(f_df_list, axis=1)
+        self.baseline_forecast = self.baseline_forecast.T.drop_duplicates().T
+
+        return self.baseline_forecast
+
+    def infer_multistep_baseline(self, remove_effects_col_list, infer_start=None):
+        # get the onetime prepped df
+        baseline_data = self.graphobj.onetime_prep_df.copy()
+
+        # columns to set to zero
+        baseline_cat_onehot_cols = []
+        baseline_num_cols = []
+
+        for col in remove_effects_col_list:
+            if col in self.baseline_col_dict['temporal_known_cat_col_list']:
+                onehot_col_prefix = str(col) + '_'
+                baseline_cat_onehot_cols += [c for c in baseline_data.columns.tolist() if c.startswith(onehot_col_prefix)]
+            else:
+                baseline_num_cols += [col]
+
+        # check all "remove_effects_col_list" have been assigned 0
+        for col in baseline_num_cols+baseline_cat_onehot_cols:
+            baseline_data[col] = np.where(baseline_data[self.graphobj.time_index_col] >= infer_start, 0,
+                                          baseline_data[col])
+            num_unique = baseline_data[baseline_data[self.graphobj.time_index_col] >= infer_start][col].unique()
+            print("Unique values in the baseline period >= {} for feature {}: {}".format(infer_start, col, num_unique))
+
+        # copy infer config
+        baseline_infer_config = copy.deepcopy(self.infer_config)
+        baseline_infer_config.update({'sim_df': baseline_data})
+
+        try:
+            del self.graphobj.train_dataset, self.graphobj.test_dataset
+            gc.collect()
+        except:
+            print("train & test datasets already cleared from memory")
+            pass
+
+        f_df_list = []
+        for quantile in self.infer_quantiles:
+            baseline_infer_config.pop('select_quantile')
+            baseline_infer_config.update({'select_quantile': quantile})
+            baseline_infer_config['infer_start'] = infer_start
+            f_df, forecast_cols = self.graphobj.infer_sim(**baseline_infer_config)
+            f_df[forecast_cols] = np.clip(f_df[forecast_cols], a_min=0, a_max=None)
+
+            f_df = f_df.rename(columns={col: 'baseline_' + col + '_' + str(quantile) for col in forecast_cols})
             f_df_list.append(f_df)
 
         self.baseline_forecast = pd.concat(f_df_list, axis=1)
