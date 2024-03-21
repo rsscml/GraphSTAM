@@ -1193,7 +1193,8 @@ class graphmodel():
     def split_infer(self, data, infer_start):
 
         infer_data = data[data[self.time_index_col] == infer_start].reset_index(drop=True)
-        
+        print("infer multistep cutoff: ", infer_data[self.time_index_col].max())
+
         return infer_data
 
     def get_metadata(self, dataset):
