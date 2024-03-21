@@ -1055,6 +1055,10 @@ class graphmodel():
 
     def create_train_test_dataset(self, df):
 
+        # recast all numeric cols as float32
+        df[self.temporal_known_num_col_list] = df[self.temporal_known_num_col_list].astype(np.float32)
+        df[self.target_col] = df[self.target_col].astype(np.float32)
+
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1142,6 +1146,10 @@ class graphmodel():
             df.drop(columns=self.all_lead_lag_cols+self.multistep_targets+self.forecast_periods, inplace=True)
         except:
             pass
+
+        # cast num as float32
+        df[self.temporal_known_num_col_list] = df[self.temporal_known_num_col_list].astype(np.float32)
+        df[self.target_col] = df[self.target_col].astype(np.float32)
 
         # create lagged features
         print("create lead & lag features...")
