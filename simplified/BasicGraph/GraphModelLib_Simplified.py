@@ -98,11 +98,16 @@ class TweedieLoss:
         1. rescale y_pred & y_true to get log transformed values
         2. reverse log transform through torch.expm1
         """
+        print("y_pred raw: ", y_pred)
+        print("y_true raw: ", y_true)
         y_pred = y_pred * scaler
         y_true = y_true * scaler
-
+        print("y_pred scaled: ", y_pred)
+        print("y_true scaled: ", y_true)
         y_pred = torch.expm1(y_pred)
         y_true = torch.expm1(y_true)
+        print("y_pred exp: ", y_pred)
+        print("y_true exp: ", y_true)
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
@@ -801,7 +806,7 @@ class graphmodel():
 
         # estimate tweedie p
         if self.estimate_tweedie_p:
-            print("  estimating tweedie p using GLM ...")
+            print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
 
         # scale dataset
@@ -1256,7 +1261,7 @@ class graphmodel():
 
                 if not self.estimate_tweedie_p:
                     tvp = torch.tensor(tweedie_variance_power)
-                    tvp = torch.reshape(tvp, (-1,1))
+                    tvp = torch.reshape(tvp, (-1, 1))
                 else:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
