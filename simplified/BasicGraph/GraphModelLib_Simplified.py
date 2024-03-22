@@ -438,10 +438,10 @@ class graphmodel():
         for each time-series.
         This can be run in parallel using joblib
         """
-        glm_model = sm.GLM(endog=df[self.target_col].astype(np.float32).to_numpy().reshape(-1,),
-                           exog=df[self.temporal_known_num_col_list].astype(np.float32).to_numpy(),
-                           family=sm.families.Tweedie())
         try:
+            glm_model = sm.GLM(endog=df[df[self.time_index_col] <= self.train_till][self.target_col].astype(np.float32).to_numpy(),
+                               exog=df[df[self.time_index_col] <= self.train_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy(),
+                               family=sm.families.Tweedie())
             glm_res = glm_model.fit()
             p = glm_model.estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10)
         except:
@@ -456,7 +456,7 @@ class graphmodel():
         Individually obtain 'p' parameter for tweedie loss
         """
         groups = df.groupby([self.id_col])
-        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.tweedie_variance_power_estimation)(gdf) for gdf in groups)
+        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.tweedie_variance_power_estimation)(gdf) for _, gdf in groups)
         gdf = pd.concat(p_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
