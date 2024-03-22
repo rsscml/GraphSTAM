@@ -94,7 +94,7 @@ class TweedieLoss:
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
-        """
+
         # 1. rescale y_pred & y_true to get log transformed values
         # 2. reverse log transform through torch.expm1
 
@@ -103,9 +103,6 @@ class TweedieLoss:
 
         y_pred = torch.expm1(y_pred)
         y_true = torch.expm1(y_true)
-
-        eps = torch.tensor(1e-8)
-        y_pred = torch.maximum(y_pred, eps)
 
         loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
@@ -118,6 +115,7 @@ class TweedieLoss:
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
+        """
 
         return loss
 
@@ -280,13 +278,15 @@ class STGNN(torch.nn.Module):
                  target_node,
                  time_steps=1,
                  n_quantiles=1,
-                 dropout=0.0):
+                 dropout=0.0,
+                 positive_output=True):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
+        self.positive_output = positive_output
 
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
@@ -300,6 +300,8 @@ class STGNN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
+        if self.positive_output:
+            out = F.softplus(out)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
         return out
 
@@ -1195,6 +1197,11 @@ class graphmodel():
 
         # target device to train on ['cuda','cpu']
         self.device = torch.device(device)
+
+        if self.scaling_method == 'mean_scaling':
+            positive_output = True
+        else:
+            positive_output = False
         
         # build model
         self.model = STGNN(hidden_channels=model_dim,
@@ -1203,7 +1210,8 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
-                           dropout=dropout)
+                           dropout=dropout,
+                           positive_output=positive_output)
         
         # init model
         self.model = self.model.to(self.device)
