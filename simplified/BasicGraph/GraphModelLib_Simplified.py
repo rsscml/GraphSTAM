@@ -495,6 +495,7 @@ class graphmodel():
             """
             For Tweedie loss, first log transform the actuals & then apply scaling 
             """
+            print("   log scaling target ...")
             scale_gdf[self.target_col] = np.log1p(scale_gdf[self.target_col])
         else:
             pass
@@ -588,6 +589,15 @@ class graphmodel():
         
         # reset index
         gdf = gdf.reset_index(drop=True)
+
+        if self.log1p_transform:
+            """
+            For Tweedie loss, first log transform the actuals & then apply scaling 
+            """
+            print("   log scaling target ...")
+            gdf[self.target_col] = np.log1p(gdf[self.target_col])
+        else:
+            pass
         
         # scale each feature independently
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
