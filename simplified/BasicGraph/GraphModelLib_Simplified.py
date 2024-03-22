@@ -104,7 +104,7 @@ class TweedieLoss:
         y_pred = torch.expm1(y_pred)
         y_true = torch.expm1(y_true)
 
-        eps = 1e-8
+        eps = torch.tensor(1e-8)
         y_pred = torch.maximum(y_pred, eps)
 
         loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
