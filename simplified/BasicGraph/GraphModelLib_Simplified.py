@@ -1193,8 +1193,6 @@ class graphmodel():
         self.forecast_quantiles = forecast_quantiles
         sample_batch = next(iter(self.train_dataset))
 
-        print(self.forecast_quantiles)
-
         # target device to train on ['cuda','cpu']
         self.device = torch.device(device)
         
@@ -1574,8 +1572,6 @@ class graphmodel():
 
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-            print(self.forecast_quantiles)
-
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
             else:
@@ -1659,16 +1655,19 @@ class graphmodel():
 
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-            try:
-                q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[:, :, q_index]
-            except:
-                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
-                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+            if self.tweedie_loss:
+                output_arr = output_arr[:, :, 0]
+            else:
+                try:
+                    q_index = self.forecast_quantiles(select_quantile)
+                    output_arr = output_arr[:, :, q_index]
+                except:
+                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                    q_lower = int(q_upper - 1)
+                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                                self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                    q_lower_weight = 1 - q_upper_weight
+                    output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
             # show current o/p
             output = self.process_output(infer_df, output_arr)

@@ -75,12 +75,10 @@ class gml(object):
                 #  remove all forecast quantiles and replace with 1
                 self.model_config['forecast_quantiles'] = [0.5]
                 print("modifying model_config for tweedie_loss")
-                print(self.model_config)
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
             if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
                 self.infer_quantiles = [0.5]
-                print(self.infer_quantiles)
 
         elif self.model_type == 'HierarchicalGraphSage':
             self.graphobj = hierarchical_graphmodel.graphmodel(**self.data_config)
