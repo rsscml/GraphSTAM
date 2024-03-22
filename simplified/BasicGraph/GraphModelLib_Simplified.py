@@ -93,7 +93,7 @@ class TweedieLoss:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor, log1p_transform):
 
         # 1. rescale y_pred & y_true to get log transformed values
         # 2. reverse log transform through torch.expm1
@@ -101,8 +101,11 @@ class TweedieLoss:
         y_pred = y_pred * scaler
         y_true = y_true * scaler
 
-        y_pred = torch.expm1(y_pred)
-        y_true = torch.expm1(y_true)
+        if log1p_transform:
+            y_pred = torch.expm1(y_pred)
+            y_true = torch.expm1(y_true)
+        else:
+            pass
 
         loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
@@ -1294,7 +1297,8 @@ class graphmodel():
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.tweedie_loss:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                        log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1348,7 +1352,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1393,7 +1398,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1451,7 +1457,8 @@ class graphmodel():
 
                         # compute loss masking out N/A targets -- last snapshot
                         if self.tweedie_loss:
-                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                                log1p_transform=self.log1p_transform)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
