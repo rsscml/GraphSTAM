@@ -438,8 +438,8 @@ class graphmodel():
         for each time-series.
         This can be run in parallel using joblib
         """
-        glm_model = sm.GLM(endog=df[self.target_col].values,
-                           exog=df[self.temporal_known_num_col_list].values,
+        glm_model = sm.GLM(endog=df[self.target_col].astype(np.float32).to_numpy().reshape(-1,),
+                           exog=df[self.temporal_known_num_col_list].astype(np.float32).to_numpy(),
                            family=sm.families.Tweedie())
         try:
             glm_res = glm_model.fit()
