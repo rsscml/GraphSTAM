@@ -827,14 +827,14 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
-        # scale dataset
-        print("   preprocessing dataframe - scale numeric cols...")
-        df = self.scale_dataset(df)
-
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
+
+        # scale dataset
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
