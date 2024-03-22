@@ -1574,7 +1574,7 @@ class graphmodel():
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
             try:
                 q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[:,:,q_index]
+                output_arr = output_arr[:, :, q_index]
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
                 q_lower = int(q_upper - 1)
