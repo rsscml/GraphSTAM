@@ -446,7 +446,7 @@ class graphmodel():
             p = glm_model.estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10)
         except:
             print("assigning default min. p ...")
-            p = 1.01
+            p = 1.5
 
         df['tweedie_p'] = np.clip(p, a_min=1.01, a_max=1.99)
         return df
