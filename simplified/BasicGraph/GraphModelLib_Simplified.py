@@ -1279,7 +1279,7 @@ class graphmodel():
 
                 if not self.estimate_tweedie_p:
                     tvp = torch.tensor(tweedie_variance_power)
-                    tvp = torch.reshape(tvp, (-1, 1))
+                    tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
                 else:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
@@ -1333,7 +1333,7 @@ class graphmodel():
 
                     if not self.estimate_tweedie_p:
                         tvp = torch.tensor(tweedie_variance_power)
-                        tvp = torch.reshape(tvp, (-1, 1))
+                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
                     else:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
@@ -1375,7 +1375,7 @@ class graphmodel():
 
                 if not self.estimate_tweedie_p:
                     tvp = torch.tensor(tweedie_variance_power)
-                    tvp = torch.reshape(tvp, (-1,1))
+                    tvp = torch.reshape(tvp, (-1,1)).to(self.device)
                 else:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
@@ -1433,7 +1433,7 @@ class graphmodel():
 
                     if not self.estimate_tweedie_p:
                         tvp = torch.tensor(tweedie_variance_power)
-                        tvp = torch.reshape(tvp, (-1, 1))
+                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
                     else:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
