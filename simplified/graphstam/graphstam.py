@@ -74,6 +74,8 @@ class gml(object):
             if self.train_config['tweedie_loss']:
                 #  remove all forecast quantiles and replace with 1
                 self.model_config['forecast_quantiles'] = [0.5]
+                print("modifying model_config for tweedie_loss")
+                print(self.model_config)
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
             if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:

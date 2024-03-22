@@ -1192,7 +1192,9 @@ class graphmodel():
         self.metadata = self.get_metadata(self.train_dataset)
         self.forecast_quantiles = forecast_quantiles
         sample_batch = next(iter(self.train_dataset))
-        
+
+        print(self.forecast_quantiles)
+
         # target device to train on ['cuda','cpu']
         self.device = torch.device(device)
         
