@@ -95,9 +95,9 @@ class TweedieLoss:
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
         """
-        1. rescale y_pred & y_true to get log transformed values
-        2. reverse log transform through torch.expm1
-        """
+        # 1. rescale y_pred & y_true to get log transformed values
+        # 2. reverse log transform through torch.expm1
+
         y_pred = y_pred * scaler
         y_true = y_true * scaler
 
@@ -109,7 +109,8 @@ class TweedieLoss:
 
         loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
-        """"
+        """
+
         # pytorch_forecasting version -- unstable with large values
         # 1. rescale y_pred & y_true to get log transformed values -- DON'T DO. CAUSES Overflow
         # 2. reverse log transform through torch.expm1 -- DON'T DO. CAUSES Overflow
@@ -117,8 +118,6 @@ class TweedieLoss:
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
-        
-        """
 
         return loss
 
@@ -823,14 +822,14 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # scale dataset
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
+
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
-
-        # scale dataset
-        print("   preprocessing dataframe - scale numeric cols...")
-        df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1601,7 +1600,7 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
-        if self.tweedie_loss:
+        if self.log1p_transform:
             """
             reverse log1p transform
             """
@@ -1683,7 +1682,7 @@ class graphmodel():
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
 
-        if self.tweedie_loss:
+        if self.log1p_transform:
             """
             reverse log1p transform
             """
