@@ -95,13 +95,13 @@ class TweedieLoss:
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
         """
-        1. rescale y_pred & y_true to get log transformed values
+        1. rescale y_pred & y_true to get log transformed values -- DON'T DO. CAUSES Overflow
         2. reverse log transform through torch.expm1 -- DON'T DO. CAUSES Overflow
         """
         #print("y_pred raw: ", y_pred)
         #print("y_true raw: ", y_true)
-        y_pred = y_pred * scaler
-        y_true = y_true * scaler
+        #y_pred = y_pred * scaler
+        #y_true = y_true * scaler
         #print("y_pred scaled: ", y_pred)
         #print("y_true scaled: ", y_true)
 
