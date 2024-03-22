@@ -104,10 +104,12 @@ class TweedieLoss:
         y_true = y_true * scaler
         print("y_pred scaled: ", y_pred)
         print("y_true scaled: ", y_true)
-        y_pred = torch.expm1(y_pred)
-        y_true = torch.expm1(y_true)
-        print("y_pred exp: ", y_pred)
-        print("y_true exp: ", y_true)
+
+        #y_pred = torch.expm1(y_pred)
+        #y_true = torch.expm1(y_true)
+        #print("y_pred exp: ", y_pred)
+        #print("y_true exp: ", y_true)
+
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
@@ -814,14 +816,14 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # scale dataset
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
+
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
-
-        # scale dataset
-        print("   preprocessing dataframe - scale numeric cols...")
-        df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
