@@ -1573,6 +1573,9 @@ class graphmodel():
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+
+            print(self.forecast_quantiles)
+
             try:
                 q_index = self.forecast_quantiles(select_quantile)
                 output_arr = output_arr[:, :, q_index]
