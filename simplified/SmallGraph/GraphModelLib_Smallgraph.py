@@ -87,6 +87,26 @@ class RMSE:
         return loss
 
 
+class TweedieLoss:
+    def __init__(self):
+        super().__init__()
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
+        """
+        1. rescale y_pred & y_true to get log transformed values
+        2. reverse log transform through torch.expm1
+        """
+        y_pred = y_pred * scaler
+        y_true = y_true * scaler
+
+        y_pred = torch.expm1(y_pred)
+        y_true = torch.expm1(y_true)
+        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        loss = -a + b
+        return loss
+
+
 class DirSageConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, alpha):
         super(DirSageConv, self).__init__()
@@ -418,6 +438,7 @@ class graphmodel():
         # obtain scalers
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
+        covar_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
         
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -425,16 +446,24 @@ class graphmodel():
             scale = np.divide(target_sum, target_nz_count) + 1.0
             
             if len(self.temporal_known_num_col_list) > 0:
+                """
                 known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
                 unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
                 unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
                 unknown_scale = 1
 
@@ -444,18 +473,26 @@ class graphmodel():
             scale = [scale_mu, scale_std]
 
             if len(self.temporal_known_num_col_list) > 0:
+                """"
                 known_mean = np.mean(scale_gdf[self.temporal_known_num_col_list].values, axis=0)
                 known_stddev = np.maximum(np.std(scale_gdf[self.temporal_known_num_col_list].values, axis=0), 0.0001)
                 known_scale = [known_mean, known_stddev]
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0),1.0)
             else:
-                known_scale = [0, 1]
+                known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_mean = np.mean(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0)
                 unknown_stddev = np.maximum(np.std(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0), 0.0001)
                 unknown_scale = [unknown_mean, unknown_stddev]
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
-                unknown_scale = [0, 1]
+                unknown_scale = 1
 
         # new in 1.2
         elif self.scaling_method == 'quantile_scaling':
@@ -464,16 +501,24 @@ class graphmodel():
             scale = [med, np.maximum(iqr, 1.0)]
 
             if len(self.temporal_known_num_col_list) > 0:
+                """
                 known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
                 unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
                 unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
                 unknown_scale = 1
 
@@ -498,8 +543,8 @@ class graphmodel():
         
         elif self.scaling_method == 'standard_scaling':
             gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
-            gdf[self.temporal_known_num_col_list] = (gdf[self.temporal_known_num_col_list] - known_scale[0])/known_scale[1]
-            gdf[self.temporal_unknown_num_col_list] = (gdf[self.temporal_unknown_num_col_list] - unknown_scale[0])/unknown_scale[1]
+            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
+            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
         
         # Store scaler as a column
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':

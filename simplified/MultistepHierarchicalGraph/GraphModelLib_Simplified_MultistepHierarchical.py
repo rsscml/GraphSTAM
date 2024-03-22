@@ -88,6 +88,26 @@ class RMSE:
         return loss
 
 
+class TweedieLoss:
+    def __init__(self):
+        super().__init__()
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
+        """
+        1. rescale y_pred & y_true to get log transformed values
+        2. reverse log transform through torch.expm1
+        """
+        y_pred = y_pred * scaler
+        y_true = y_true * scaler
+
+        y_pred = torch.expm1(y_pred)
+        y_true = torch.expm1(y_true)
+        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        loss = -a + b
+        return loss
+
+
 class DirSageConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, alpha):
         super(DirSageConv, self).__init__()
@@ -591,9 +611,13 @@ class graphmodel():
             if self.scaling_method == 'mean_scaling':
 
                 if len(self.temporal_known_num_col_list) > 0:
+                    """
                     known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                     known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                    """
+                    # use max scale for known co-variates
+                    known_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1.0
 

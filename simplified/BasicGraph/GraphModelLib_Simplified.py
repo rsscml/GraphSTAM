@@ -19,6 +19,9 @@ from torch_geometric.loader import NeighborLoader
 import torch_geometric.transforms as T
 from torch_geometric.utils import to_networkx
 
+# Tweedie Specific
+import statsmodels.api as sm
+
 # core data imports
 import pandas as pd
 import numpy as np
@@ -83,6 +86,26 @@ class RMSE:
 
     def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
         loss = torch.pow(y_pred - target, 2)
+        return loss
+
+
+class TweedieLoss:
+    def __init__(self):
+        super().__init__()
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
+        """
+        1. rescale y_pred & y_true to get log transformed values
+        2. reverse log transform through torch.expm1
+        """
+        y_pred = y_pred * scaler
+        y_true = y_true * scaler
+
+        y_pred = torch.expm1(y_pred)
+        y_true = torch.expm1(y_true)
+        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        loss = -a + b
         return loss
 
 
@@ -284,6 +307,8 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
+                 log1p_transform=False,
+                 estimate_tweedie_p=False,
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -335,6 +360,8 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
+        self.log1p_transform = log1p_transform
+        self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -383,6 +410,19 @@ class graphmodel():
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
+        # scaler cols
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            self.scaler_cols = ['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            self.scaler_cols = ['scaler_iqr', 'scaler_median']
+        else:
+            self.scaler_cols = ['scaler_mu', 'scaler_std']
+
+        # auto tweedie est
+        if self.estimate_tweedie_p:
+            self.tweedie_p_col = ['tweedie_p']
+        else:
+            self.tweedie_p_col = []
 
     def check_data_sufficiency(self, df):
         """
@@ -391,6 +431,36 @@ class graphmodel():
         df = df.groupby(self.id_col).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
 
         return df
+
+    def tweedie_variance_power_estimation(self, df):
+        """
+        Uses statsmodels GLM's estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10) to estimate 'p'
+        for each time-series.
+        This can be run in parallel using joblib
+        """
+        glm_model = sm.GLM(endog=df[self.target_col].values,
+                           exog=df[self.temporal_known_num_col_list].values,
+                           family=sm.families.Tweedie())
+        try:
+            glm_res = glm_model.fit()
+            p = glm_model.estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10)
+        except:
+            print("assigning default min. p ...")
+            p = 1.01
+
+        df['tweedie_p'] = np.clip(p, a_min=1.01, a_max=1.99)
+        return df
+
+    def parallel_tweedie_p_estimate(self, df):
+        """
+        Individually obtain 'p' parameter for tweedie loss
+        """
+        groups = df.groupby([self.id_col])
+        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.tweedie_variance_power_estimation)(gdf) for gdf in groups)
+        gdf = pd.concat(p_gdfs, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
+        return gdf
 
     def scale_dataset(self, df):
         """
@@ -406,7 +476,6 @@ class graphmodel():
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
         return gdf
-    
 
     def df_scaler(self, gdf):
         """
@@ -415,6 +484,15 @@ class graphmodel():
         # obtain scalers
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
+        covar_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
+
+        if self.log1p_transform:
+            """
+            For Tweedie loss, first log transform the actuals & then apply scaling 
+            """
+            scale_gdf[self.target_col] = np.log1p(scale_gdf[self.target_col])
+        else:
+            pass
         
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -422,16 +500,24 @@ class graphmodel():
             scale = np.divide(target_sum, target_nz_count) + 1.0
             
             if len(self.temporal_known_num_col_list) > 0:
+                """
                 known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
                 unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
                 unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
                 unknown_scale = 1
 
@@ -441,18 +527,26 @@ class graphmodel():
             scale = [scale_mu, scale_std]
 
             if len(self.temporal_known_num_col_list) > 0:
+                """"
                 known_mean = np.mean(scale_gdf[self.temporal_known_num_col_list].values, axis=0)
                 known_stddev = np.maximum(np.std(scale_gdf[self.temporal_known_num_col_list].values, axis=0), 0.0001)
                 known_scale = [known_mean, known_stddev]
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
-                known_scale = [0, 1]
+                known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_mean = np.mean(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0)
                 unknown_stddev = np.maximum(np.std(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0), 0.0001)
                 unknown_scale = [unknown_mean, unknown_stddev]
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
-                unknown_scale = [0, 1]
+                unknown_scale = 1
 
         # new in 1.2
         elif self.scaling_method == 'quantile_scaling':
@@ -461,16 +555,24 @@ class graphmodel():
             scale = [med, np.maximum(iqr, 1.0)]
 
             if len(self.temporal_known_num_col_list) > 0:
+                """
                 known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
+                """
                 unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
                 unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
                 unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                """
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
                 unknown_scale = 1
 
@@ -495,8 +597,8 @@ class graphmodel():
         
         elif self.scaling_method == 'standard_scaling':
             gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
-            gdf[self.temporal_known_num_col_list] = (gdf[self.temporal_known_num_col_list] - known_scale[0])/known_scale[1]
-            gdf[self.temporal_unknown_num_col_list] = (gdf[self.temporal_unknown_num_col_list] - unknown_scale[0])/unknown_scale[1]
+            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
+            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
         
         # Store scaler as a column
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
@@ -603,7 +705,7 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols:
+            for col in self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + self.tweedie_p_col:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -697,6 +799,11 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # estimate tweedie p
+        if self.estimate_tweedie_p:
+            print("  estimating tweedie p using GLM ...")
+            df = self.parallel_tweedie_p_estimate(df)
+
         # scale dataset
         print("   preprocessing dataframe - scale numeric cols...")
         df = self.scale_dataset(df)
@@ -772,6 +879,15 @@ class graphmodel():
         data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
+
+        if len(self.scaler_cols) == 1:
+            data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        else:
+            data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
+
+        # applies only to tweedie
+        if self.estimate_tweedie_p:
+            data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -999,15 +1115,8 @@ class graphmodel():
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
         print(infer_df[self.time_index_col].unique().tolist())
 
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            scaler_cols = ['scaler']
-        elif self.scaling_method == 'quantile_scaling':
-            scaler_cols = ['scaler_iqr', 'scaler_median']
-        else:
-            scaler_cols = ['scaler_mu', 'scaler_std']
-        
         infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list +
-                            self.global_context_col_list + scaler_cols]
+                            self.global_context_col_list + self.scaler_cols + self.tweedie_p_col]
         
         model_output = model_output.reshape(-1, 1)
         output = pd.DataFrame(data=model_output, columns=['forecast'])
@@ -1096,12 +1205,19 @@ class graphmodel():
               patience, 
               min_delta, 
               model_prefix,
+              tweedie_loss=False,
+              tweedie_variance_power=1.5,
               use_amp=False,
               use_lr_scheduler=True, 
               scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
               sample_weights=False):
 
-        loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
+        self.tweedie_loss = tweedie_loss
+
+        if self.tweedie_loss:
+            loss_fn = TweedieLoss()
+        else:
+            loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         if use_lr_scheduler:
@@ -1137,9 +1253,19 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
-                
+
+                if not self.estimate_tweedie_p:
+                    tvp = torch.tensor(tweedie_variance_power)
+                    tvp = torch.reshape(tvp, (-1,1))
+                else:
+                    tvp = batch[self.target_col].tvp
+                    tvp = torch.reshape(tvp, (-1, 1))
+
                 # compute loss masking out N/A targets -- last snapshot
-                loss = loss_fn.loss(out, batch[self.target_col].y)
+                if self.tweedie_loss:
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                else:
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                 # key weight
@@ -1181,9 +1307,19 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
-                    
+
+                    if not self.estimate_tweedie_p:
+                        tvp = torch.tensor(tweedie_variance_power)
+                        tvp = torch.reshape(tvp, (-1, 1))
+                    else:
+                        tvp = batch[self.target_col].tvp
+                        tvp = torch.reshape(tvp, (-1, 1))
+
                     # compute loss masking out N/A targets -- last snapshot
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    if self.tweedie_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                    else:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     if sample_weights:
@@ -1214,11 +1350,21 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
+                if not self.estimate_tweedie_p:
+                    tvp = torch.tensor(tweedie_variance_power)
+                    tvp = torch.reshape(tvp, (-1,1))
+                else:
+                    tvp = batch[self.target_col].tvp
+                    tvp = torch.reshape(tvp, (-1, 1))
+
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
                     # compute loss masking out N/A targets -- last snapshot
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    if self.tweedie_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                    else:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     # key weight
@@ -1262,11 +1408,21 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
+                    if not self.estimate_tweedie_p:
+                        tvp = torch.tensor(tweedie_variance_power)
+                        tvp = torch.reshape(tvp, (-1, 1))
+                    else:
+                        tvp = batch[self.target_col].tvp
+                        tvp = torch.reshape(tvp, (-1, 1))
+
                     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                         out = self.model(batch.x_dict, batch.edge_index_dict)
 
                         # compute loss masking out N/A targets -- last snapshot
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        if self.tweedie_loss:
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                        else:
+                            loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                         # key weight
@@ -1421,6 +1577,13 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
+        if self.tweedie_loss:
+            """
+            reverse log1p transform
+            """
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         return forecast_df
 
     def infer_sim(self, infer_start, infer_end, select_quantile, sim_df):
@@ -1495,5 +1658,12 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
+
+        if self.tweedie_loss:
+            """
+            reverse log1p transform
+            """
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
