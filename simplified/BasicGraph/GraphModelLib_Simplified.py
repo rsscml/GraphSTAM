@@ -109,10 +109,11 @@ class TweedieLoss:
             loss = -a + b
         else:
             """
-            This is the case where scaling was NOT followed by log1p transform.
+            This is the case where scaling was done without log1p transform.
+            The prediction here is log<pred> instead of pred for numerical stability.
             """
             y_true = y_true*scaler
-            y_pred = F.hardtanh(y_pred, min_val=1e-7, max_val=1e5)
+            y_pred = torch.exp(y_pred)
             y_pred = y_pred*scaler
 
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
