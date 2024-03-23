@@ -1253,6 +1253,7 @@ class graphmodel():
             loss_fn = TweedieLoss()
         else:
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
+
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         if use_lr_scheduler:

@@ -740,6 +740,20 @@ class graphmodel():
 
         return gdf
 
+    def log1p_transform_target(self, df):
+
+        if self.log1p_transform:
+            """
+            For Tweedie loss, log1p transform is taken after scaling.
+            Log1p transformation itself is optional.
+            """
+            print("   log1p transforming target ...")
+            df[self.target_col] = np.log1p(df[self.target_col])
+        else:
+            pass
+
+        return df
+
     def sort_dataset(self, data):
         """
         sort pandas dataframe by provided col list & order
@@ -831,7 +845,8 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols + ['key_level', 'key_list', 'Key_Level_Weight', 'Key_Weight']:
+            for col in self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + \
+                       self.tweedie_p_col + ['key_level', 'key_list', 'Key_Level_Weight', 'Key_Weight']:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -937,6 +952,14 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # estimate tweedie p
+        if self.estimate_tweedie_p:
+            print("   estimating tweedie p using GLM ...")
+            df = self.parallel_tweedie_p_estimate(df)
+
+        # log1p transform if applicable
+        df = self.log1p_transform_target(df)
+
         # scale dataset
         print("   preprocessing dataframe - scale target...")
         df = self.scale_target(df)
@@ -1018,6 +1041,16 @@ class graphmodel():
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_level_weight = torch.tensor(df_snap['Key_Level_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1, 1), dtype=torch.float)
+
+        if len(self.scaler_cols) == 1:
+            data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        else:
+            data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
+
+        # applies only to tweedie
+        if self.estimate_tweedie_p:
+            data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
+
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
@@ -1331,24 +1364,15 @@ class graphmodel():
         return statistics
       
     def process_output(self, infer_df, model_output):
-       
-        if not self.categorical_onehot_encoding:
-            self.temporal_known_num_col_list = list(set(self.temporal_known_num_col_list) - set(self.label_encoded_col_list))
-            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.label_encoded_col_list))
 
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
         print(infer_df[self.time_index_col].unique().tolist())
 
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            scaler_cols = ['scaler']
-        elif self.scaling_method == 'quantile_scaling':
-            scaler_cols = ['scaler_iqr', 'scaler_median']
-        else:
-            scaler_cols = ['scaler_mu', 'scaler_std']
+        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] +
+                            self.static_cat_col_list + self.global_context_col_list +
+                            self.scaler_cols + self.tweedie_p_col]
         
-        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] + self.static_cat_col_list + self.global_context_col_list + scaler_cols]
-        
-        model_output = model_output.reshape(-1,1)
+        model_output = model_output.reshape(-1, 1)
         output = pd.DataFrame(data=model_output, columns=['forecast'])
         
         # merge forecasts with infer df
@@ -1363,7 +1387,9 @@ class graphmodel():
         df_updated = df.merge(reduced_output_df, on=[self.id_col, 'key_level', self.time_index_col], how='left')
         
         # update target for current ts with forecasts
-        df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(), df_updated[self.target_col], df_updated['forecast'])
+        df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(),
+                                               df_updated[self.target_col],
+                                               df_updated['forecast'])
         
         # drop forecast column
         df_updated = df_updated.drop(columns=['forecast'])
@@ -1435,12 +1461,19 @@ class graphmodel():
               patience,
               min_delta,
               model_prefix,
+              tweedie_loss=False,
+              tweedie_variance_power=1.5,
               use_amp=True,
               use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
               sample_weights=False):
 
-        loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
+        self.tweedie_loss = tweedie_loss
+
+        if self.tweedie_loss:
+            loss_fn = TweedieLoss()
+        else:
+            loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         if use_lr_scheduler:
@@ -1477,8 +1510,19 @@ class graphmodel():
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
+                if not self.estimate_tweedie_p:
+                    tvp = torch.tensor(tweedie_variance_power)
+                    tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
+                else:
+                    tvp = batch[self.target_col].tvp
+                    tvp = torch.reshape(tvp, (-1, 1))
+
                 # compute loss masking out N/A targets -- last snapshot
-                loss = loss_fn.loss(out, batch[self.target_col].y)
+                if self.tweedie_loss:
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
+                                        scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
+                else:
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                 # key weight
@@ -1525,8 +1569,20 @@ class graphmodel():
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
+                    if not self.estimate_tweedie_p:
+                        tvp = torch.tensor(tweedie_variance_power)
+                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
+                    else:
+                        tvp = batch[self.target_col].tvp
+                        tvp = torch.reshape(tvp, (-1, 1))
+
                     # compute loss masking out N/A targets -- last snapshot
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    if self.tweedie_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
+                                            scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
+                    else:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
+
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     if sample_weights:
@@ -1560,11 +1616,22 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
+                if not self.estimate_tweedie_p:
+                    tvp = torch.tensor(tweedie_variance_power)
+                    tvp = torch.reshape(tvp, (-1,1)).to(self.device)
+                else:
+                    tvp = batch[self.target_col].tvp
+                    tvp = torch.reshape(tvp, (-1, 1))
+
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
                     # compute loss masking out N/A targets -- last snapshot
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    if self.tweedie_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
+                    else:
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     # key weight
@@ -1612,11 +1679,22 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
+                    if not self.estimate_tweedie_p:
+                        tvp = torch.tensor(tweedie_variance_power)
+                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
+                    else:
+                        tvp = batch[self.target_col].tvp
+                        tvp = torch.reshape(tvp, (-1, 1))
+
                     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                         out = self.model(batch.x_dict, batch.edge_index_dict)
 
                         # compute loss masking out N/A targets -- last snapshot
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        if self.tweedie_loss:
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                                log1p_transform=self.log1p_transform)
+                        else:
+                            loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                         if sample_weights:
@@ -1746,16 +1824,22 @@ class graphmodel():
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
-            try:
-                q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[:, :, q_index]
-            except:
-                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
-                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+
+            if self.tweedie_loss:
+                output_arr = output_arr[:, :, 0]
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
+            else:
+                try:
+                    q_index = self.forecast_quantiles(select_quantile)
+                    output_arr = output_arr[:, :, q_index]
+                except:
+                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                    q_lower = int(q_upper - 1)
+                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                                self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                    q_lower_weight = 1 - q_upper_weight
+                    output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
             # show current o/p
             output = self.process_output(infer_df, output_arr)
@@ -1765,7 +1849,6 @@ class graphmodel():
             base_df = self.update_dataframe(base_df, output)
 
         # re-scale output
-
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler']
@@ -1777,6 +1860,11 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
+
+        # reverse log1p transform after re-scaling
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
 
@@ -1822,16 +1910,21 @@ class graphmodel():
 
             assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-            try:
-                q_index = self.forecast_quantiles(select_quantile)
-                output_arr = output_arr[:, :, q_index]
-            except:
-                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                q_lower = int(q_upper - 1)
-                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
-                        self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                q_lower_weight = 1 - q_upper_weight
-                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+            if self.tweedie_loss:
+                output_arr = output_arr[:, :, 0]
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
+            else:
+                try:
+                    q_index = self.forecast_quantiles(select_quantile)
+                    output_arr = output_arr[:, :, q_index]
+                except:
+                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                    q_lower = int(q_upper - 1)
+                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                            self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                    q_lower_weight = 1 - q_upper_weight
+                    output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
             # show current o/p
             output = self.process_output(infer_df, output_arr)
@@ -1852,5 +1945,10 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
+
+        # reverse log1p transform before re-scaling
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
