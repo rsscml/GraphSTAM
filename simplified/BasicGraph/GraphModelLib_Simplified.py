@@ -1590,6 +1590,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1674,6 +1676,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
