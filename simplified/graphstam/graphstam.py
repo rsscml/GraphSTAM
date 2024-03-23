@@ -126,7 +126,9 @@ class gml(object):
                 self.infer_config['infer_start'] = infer_start
                 self.infer_config['infer_end'] = infer_end
                 f_df = self.graphobj.infer(**self.infer_config)
+                print("f_df pre clip: ", f_df.columns.tolist())
                 f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
+                print("f_df post clip: ", f_df.columns.tolist())
 
             if len(self.infer_quantiles) == 1:
                 pass
@@ -135,6 +137,8 @@ class gml(object):
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
+        print("forecast pre transpose: ", self.forecast.columns.tolist())
+        print("forecast head: ", self.forecast.head())
         self.forecast = self.forecast.T.drop_duplicates().T
 
         return self.forecast
