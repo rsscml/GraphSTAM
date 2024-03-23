@@ -114,6 +114,9 @@ class TweedieLoss:
         # pytorch_forecasting version -- unstable with large values
         # 1. rescale y_pred & y_true to get log transformed values -- DON'T DO. CAUSES Overflow
         # 2. reverse log transform through torch.expm1 -- DON'T DO. CAUSES Overflow
+
+        y_pred = y_pred * scaler
+        y_true = y_true * scaler
         
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
