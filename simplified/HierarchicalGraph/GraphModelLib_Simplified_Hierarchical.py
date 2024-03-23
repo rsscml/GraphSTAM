@@ -19,6 +19,11 @@ from torch_geometric.loader import NeighborLoader
 import torch_geometric.transforms as T
 from torch_geometric.utils import to_networkx
 
+# Tweedie Specific
+import statsmodels.api as sm
+import scipy as sp
+from tweedie import tweedie
+
 # core data imports
 import pandas as pd
 import numpy as np
@@ -92,19 +97,29 @@ class TweedieLoss:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor):
-        """
-        1. rescale y_pred & y_true to get log transformed values
-        2. reverse log transform through torch.expm1
-        """
-        y_pred = y_pred * scaler
-        y_true = y_true * scaler
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
 
-        y_pred = torch.expm1(y_pred)
-        y_true = torch.expm1(y_true)
-        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-        b = torch.exp(y_pred * (2 - p)) / (2 - p)
-        loss = -a + b
+        if log1p_transform:
+            """
+            In this case, scaling the target should have been done after log1p transform.
+            The prediction here is log<pred> instead of pred for numerical stability.
+            """
+            y_true = torch.expm1(y_true * scaler)
+            y_pred = y_pred * scaler
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            loss = -a + b
+        else:
+            """
+            This is the case where scaling was done without log1p transform.
+            The prediction here is log<pred> instead of pred for numerical stability.
+            """
+            y_true = y_true*scaler
+            y_pred = torch.exp(y_pred)
+            y_pred = y_pred*scaler
+
+            loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
+
         return loss
 
 
@@ -351,6 +366,8 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
+                 log1p_transform=False,
+                 estimate_tweedie_p=False,
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -408,6 +425,8 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
+        self.log1p_transform = log1p_transform
+        self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -483,6 +502,19 @@ class graphmodel():
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
+        # scaler cols
+        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            self.scaler_cols = ['scaler']
+        elif self.scaling_method == 'quantile_scaling':
+            self.scaler_cols = ['scaler_iqr', 'scaler_median']
+        else:
+            self.scaler_cols = ['scaler_mu', 'scaler_std']
+
+        # auto tweedie est
+        if self.estimate_tweedie_p:
+            self.tweedie_p_col = ['tweedie_p']
+        else:
+            self.tweedie_p_col = []
 
     def create_new_keys(self, df):
         for i, k in enumerate(self.key_combinations):
@@ -570,6 +602,72 @@ class graphmodel():
 
         return df
 
+    def power_optimization_loop(self, df):
+        # initialization constants
+        init_power = 1.01
+        max_iterations = 100
+
+        try:
+            endog = df[self.target_col].to_numpy()
+            exog = df[self.temporal_known_num_col_list].to_numpy()
+
+            # fit glm model
+            def glm_fit(endog, exog, power):
+                res = sm.GLM(endog, exog,
+                             family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
+                return res.mu, res.scale, res._endog
+
+            # optimize 1 iter
+            def optimize_power(res_mu, res_scale, power, res_endog):
+                """
+                returns optimized power as opt.x
+                """
+
+                def loglike_p(power):
+                    return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
+
+                try:
+                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
+                except RuntimeWarning as e:
+                    print(f'There was a RuntimeWarning: {e}')
+
+                return opt.x
+
+            # optimization loop
+            power = init_power
+            print("initializing with power: ", power)
+            for i in range(max_iterations):
+
+                res_mu, res_scale, res_endog = glm_fit(endog, exog, power)
+                new_power = optimize_power(res_mu, res_scale, power, res_endog)
+
+                # check if new power has converged
+                if abs(new_power - power) >= 0.001:
+                    power = new_power
+                    print("iteration {}, updated power to: {}".format(i, power))
+                else:
+                    print("iteration {}, new_power unaccepted: {}".format(i, new_power))
+                    break
+            df['tweedie_p'] = round(power, 2)
+
+        except:
+            print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
+            df['tweedie_p'] = 1.50
+
+        return df
+
+    def parallel_tweedie_p_estimate(self, df):
+        """
+        Individually obtain 'p' parameter for tweedie loss
+        """
+        groups = df.groupby([self.id_col])
+        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend,
+                          timeout=timeout)(delayed(self.power_optimization_loop)(gdf) for _, gdf in groups)
+        gdf = pd.concat(p_gdfs, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
+        return gdf
+
     def scale_target(self, df):
         """
         Scale using scalers for the highest key combination in the hierarchy
@@ -627,7 +725,11 @@ class graphmodel():
                     known_scale = 1.0
 
             elif self.scaling_method == 'no_scaling':
-                known_scale = 1.0
+                if len(self.temporal_known_num_col_list) > 0:
+                    # use max scale for known co-variates
+                    known_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                else:
+                    known_scale = 1
 
             # reset index
             gdf = gdf.reset_index(drop=True)

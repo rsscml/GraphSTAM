@@ -529,7 +529,7 @@ class graphmodel():
         # obtain scalers
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        covar_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
+        covar_gdf = gdf.reset_index(drop=True)
 
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
@@ -1602,9 +1602,12 @@ class graphmodel():
                     output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
 
             # show current o/p
+            print("output_arr first row: ", output_arr[0])
             output = self.process_output(infer_df, output_arr)
+            print("output: ", output.columns.tolist())
             # append forecast
-            forecast_df = forecast_df.append(output)
+            forecast_df = pd.concat([forecast_df, output], axis=0)
+            print("forecast: ", forecast_df.columns.tolist())
             # update df
             base_df = self.update_dataframe(base_df, output)
 
@@ -1619,6 +1622,7 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
+        print("forecast: ", forecast_df.columns.tolist())
         # reverse log1p transform after re-scaling
         if self.log1p_transform:
             forecast_df['forecast'] = np.exp(forecast_df['forecast'])
