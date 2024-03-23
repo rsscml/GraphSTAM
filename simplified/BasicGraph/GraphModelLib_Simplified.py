@@ -94,7 +94,7 @@ class TweedieLoss:
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler: torch.Tensor, log1p_transform):
-
+        """
         # 1. rescale y_pred & y_true to get log transformed values
         # 2. reverse log transform through torch.expm1
 
@@ -118,7 +118,6 @@ class TweedieLoss:
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
-        """
 
         return loss
 
