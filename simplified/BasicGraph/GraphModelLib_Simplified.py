@@ -21,6 +21,8 @@ from torch_geometric.utils import to_networkx
 
 # Tweedie Specific
 import statsmodels.api as sm
+import scipy as sp
+from tweedie import tweedie
 
 # core data imports
 import pandas as pd
@@ -112,7 +114,7 @@ class TweedieLoss:
             This is the case where scaling was NOT followed by log1p transform.
             We assume the network produces log of the intended output, hence, torch.exp(y_pred) preprocessing
             """
-            y_pred = torch.exp(y_pred)
+            y_pred = F.hardtanh(y_pred, min_val=1e-7, max_val=1e5)
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
         return loss
@@ -441,23 +443,51 @@ class graphmodel():
 
         return df
 
-    def tweedie_variance_power_estimation(self, df):
-        """
-        Uses statsmodels GLM's estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10) to estimate 'p'
-        for each time-series.
-        This can be run in parallel using joblib
-        """
-        try:
-            glm_model = sm.GLM(endog=df[df[self.time_index_col] <= self.train_till][self.target_col].astype(np.float32).to_numpy(),
-                               exog=df[df[self.time_index_col] <= self.train_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy(),
-                               family=sm.families.Tweedie())
-            glm_res = glm_model.fit()
-            p = glm_model.estimate_tweedie_power(mu=glm_res.mu, method='brentq', low=0, high=1e10)
-        except:
-            print("assigning default min. p ...")
-            p = 1.5
+    def power_optimization_loop(self, df):
+        # initialization constants
+        init_power = 1.01
+        max_iterations = 100
 
-        df['tweedie_p'] = np.clip(p, a_min=1.01, a_max=1.99)
+        endog = df[self.target_col].to_numpy()
+        exog = df[self.temporal_known_num_col_list].to_numpy()
+
+        # fit glm model
+        def glm_fit(endog, exog, power):
+            res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
+            return res.mu, res.scale, res._endog
+
+        # optimize 1 iter
+        def optimize_power(res_mu, res_scale, power, res_endog):
+            """
+            returns optimized power as opt.x
+            """
+            def loglike_p(power):
+                return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
+
+            try:
+                opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
+            except RuntimeWarning as e:
+                print(f'There was a RuntimeWarning: {e}')
+
+            return opt.x
+
+        # optimization loop
+        power = init_power
+        print("initializing with power: ", power)
+        for i in range(max_iterations):
+
+            res_mu, res_scale, res_endog = glm_fit(endog, exog, power)
+            new_power = optimize_power(res_mu, res_scale, power, res_endog)
+
+            # check if new power has converged
+            if abs(new_power - power) >= 0.001:
+                power = new_power
+                print("iteration {}, updated power to: {}".format(i, power))
+            else:
+                print("iteration {}, new_power unaccepted: {}".format(i, new_power))
+                break
+        df['tweedie_p'] = round(power, 2)
+
         return df
 
     def parallel_tweedie_p_estimate(self, df):
@@ -465,7 +495,7 @@ class graphmodel():
         Individually obtain 'p' parameter for tweedie loss
         """
         groups = df.groupby([self.id_col])
-        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.tweedie_variance_power_estimation)(gdf) for _, gdf in groups)
+        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.power_optimization_loop)(gdf) for _, gdf in groups)
         gdf = pd.concat(p_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
@@ -814,14 +844,14 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # scale dataset
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
+
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
-
-        # scale dataset
-        print("   preprocessing dataframe - scale numeric cols...")
-        df = self.scale_dataset(df)
 
         # log1p transform if applicable
         df = self.log1p_transform_target(df)
