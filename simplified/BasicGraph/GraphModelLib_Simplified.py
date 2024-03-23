@@ -117,6 +117,9 @@ class TweedieLoss:
 
         y_pred = y_pred * scaler
         y_true = y_true * scaler
+
+        if log1p_transform:
+            y_true = torch.expm1(y_true)
         
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
@@ -291,7 +294,7 @@ class STGNN(torch.nn.Module):
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
-        self.positive_output = positive_output
+        #self.positive_output = positive_output
 
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
@@ -305,8 +308,8 @@ class STGNN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
-        if self.positive_output:
-            out = F.softplus(out)
+        #if self.positive_output:
+        #    out = F.softplus(out)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
         return out
 
