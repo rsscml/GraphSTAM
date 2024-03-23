@@ -95,26 +95,26 @@ class TweedieLoss:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, log1p_transform):
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
 
         if log1p_transform:
             """
-            In this case, scaling the target should have been followed with log1p transform.
+            In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
-            We don't rescale the pred or target as the tweedie distribution is scale invariant, so, optimizing on scaled
-            values should work just as well. 
             """
-            y_true = torch.expm1(y_true)
-
+            y_true = torch.expm1(y_true * scaler)
+            y_pred = y_pred * scaler
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
         else:
             """
             This is the case where scaling was NOT followed by log1p transform.
-            We assume the network produces log of the intended output, hence, torch.exp(y_pred) preprocessing
             """
+            y_true = y_true*scaler
             y_pred = F.hardtanh(y_pred, min_val=1e-7, max_val=1e5)
+            y_pred = y_pred*scaler
+
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
         return loss
@@ -531,22 +531,12 @@ class graphmodel():
             scale = np.divide(target_sum, target_nz_count) + 1.0
             
             if len(self.temporal_known_num_col_list) > 0:
-                """
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
-                known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                """
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
-                """
-                unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
-                unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
-                unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
-                """
                 # use max scale for known co-variates
                 unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
@@ -558,22 +548,12 @@ class graphmodel():
             scale = [scale_mu, scale_std]
 
             if len(self.temporal_known_num_col_list) > 0:
-                """"
-                known_mean = np.mean(scale_gdf[self.temporal_known_num_col_list].values, axis=0)
-                known_stddev = np.maximum(np.std(scale_gdf[self.temporal_known_num_col_list].values, axis=0), 0.0001)
-                known_scale = [known_mean, known_stddev]
-                """
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
-                """
-                unknown_mean = np.mean(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0)
-                unknown_stddev = np.maximum(np.std(scale_gdf[self.temporal_unknown_num_col_list].values, axis=0), 0.0001)
-                unknown_scale = [unknown_mean, unknown_stddev]
-                """
                 # use max scale for known co-variates
                 unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
@@ -586,22 +566,12 @@ class graphmodel():
             scale = [med, np.maximum(iqr, 1.0)]
 
             if len(self.temporal_known_num_col_list) > 0:
-                """
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
-                known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                """
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
-                """
-                unknown_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
-                unknown_sum = np.sum(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0)
-                unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
-                """
                 # use max scale for known co-variates
                 unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
@@ -609,8 +579,19 @@ class graphmodel():
 
         elif self.scaling_method == 'no_scaling':
             scale = 1.0
-            known_scale = 1.0
-            unknown_scale = 1.0
+            if len(self.temporal_known_num_col_list) > 0:
+                # use max scale for known co-variates
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0),
+                                         1.0)
+            else:
+                known_scale = 1
+
+            if len(self.temporal_unknown_num_col_list) > 0:
+                # use max scale for known co-variates
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
+            else:
+                unknown_scale = 1
         
         # reset index
         gdf = gdf.reset_index(drop=True)
@@ -844,10 +825,6 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
-        # scale dataset
-        print("   preprocessing dataframe - scale numeric cols...")
-        df = self.scale_dataset(df)
-
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
@@ -855,6 +832,10 @@ class graphmodel():
 
         # log1p transform if applicable
         df = self.log1p_transform_target(df)
+
+        # scale dataset
+        print("   preprocessing dataframe - scale numeric cols...")
+        df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1311,7 +1292,8 @@ class graphmodel():
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.tweedie_loss:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, log1p_transform=self.log1p_transform)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                        log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1365,7 +1347,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1410,7 +1393,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
@@ -1468,7 +1452,8 @@ class graphmodel():
 
                         # compute loss masking out N/A targets -- last snapshot
                         if self.tweedie_loss:
-                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, log1p_transform=self.log1p_transform)
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                                log1p_transform=self.log1p_transform)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
