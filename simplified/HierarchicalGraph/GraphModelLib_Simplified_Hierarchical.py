@@ -104,14 +104,19 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
+            print("scaler: ", scaler)
+            print("y_true shape: ", y_true.shape)
+            print("y_true scaled: ", y_true)
             y_true = torch.expm1(y_true * scaler)
-            print("y_true: ", y_true)
+            print("y_true rescaled: ", y_true)
+            print("y_pred shape: ", y_pred.shape)
+            print("y_pred scaled: ", y_pred)
             y_pred = y_pred * scaler
-            print("y_pred: ", y_pred)
+            print("y_pred rescaled: ", y_pred)
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
-            print("loss: ", loss)
+            print("loss: ", loss, loss.shape)
         else:
             """
             This is the case where scaling was done without log1p transform.
