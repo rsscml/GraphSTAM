@@ -106,7 +106,7 @@ class TweedieLoss:
             """
             y_true = torch.expm1(y_true * scaler)
             y_pred = y_pred * torch.reshape(scaler, (-1, 1, 1))
-            p = torch.reshape(p, (-1, 1, 1))
+            #p = torch.reshape(p, (-1, 1, 1))
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
@@ -118,9 +118,10 @@ class TweedieLoss:
             y_true = y_true*scaler
             y_pred = torch.exp(y_pred)
             y_pred = y_pred * torch.reshape(scaler, (-1, 1, 1))
-            p = torch.reshape(p, (-1, 1, 1))
+            #p = torch.reshape(p, (-1, 1, 1))
 
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
+            print("shapes, y_true.shape, y_pred.shape, p.shape, loss.shape: ", y_true.shape, y_pred.shape, p.shape, loss.shape)
 
         return loss
 
