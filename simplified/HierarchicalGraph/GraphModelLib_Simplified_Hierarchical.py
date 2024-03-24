@@ -104,6 +104,7 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
+            scaler = torch.reshape(scaler, (-1, 1, 1))
             print("scaler: ", scaler)
             print("y_true shape: ", y_true.shape)
             print("y_true scaled: ", y_true)
@@ -122,6 +123,7 @@ class TweedieLoss:
             This is the case where scaling was done without log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
+            scaler = torch.reshape(scaler, (-1, 1, 1))
             y_true = y_true*scaler
             y_pred = torch.exp(y_pred)
             y_pred = y_pred*scaler
@@ -688,7 +690,7 @@ class graphmodel():
             npd_scale = np.maximum(df[df[self.time_index_col] <= self.train_till][self.target_col].quantile(0.9),
                                    df[df[self.time_index_col] <= self.train_till][self.target_col].mean())
             highest_key_cols = list(self.highest_key_combination)
-            df['scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(highest_key_cols)[self.target_col].transform(lambda x: np.maximum(x.mean(), 1.0))
+            df['scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(highest_key_cols)[self.target_col].transform(lambda x: np.maximum(x.mean() + 1.0, 1.0))
             df['scaler'] = df.groupby(highest_key_cols)['scaler'].transform(lambda x: x.ffill().bfill().fillna(npd_scale))
             df[self.target_col] = df[self.target_col]/df['scaler']
 
