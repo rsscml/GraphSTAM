@@ -105,10 +105,13 @@ class TweedieLoss:
             The prediction here is log<pred> instead of pred for numerical stability.
             """
             y_true = torch.expm1(y_true * scaler)
+            print("y_true: ", y_true)
             y_pred = y_pred * scaler
+            print("y_pred: ", y_pred)
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
+            print("loss: ", loss)
         else:
             """
             This is the case where scaling was done without log1p transform.
@@ -117,6 +120,8 @@ class TweedieLoss:
             y_true = y_true*scaler
             y_pred = torch.exp(y_pred)
             y_pred = y_pred*scaler
+            print("y_true: ", y_true)
+            print("y_pred: ", y_pred)
 
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
