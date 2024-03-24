@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text()
 # This call to setup() does all the work
 setup(
     name="GraphSTAM",
-    version="1.2.9",
+    version="1.2.10",
     description="Graph Based Spatio-Temporal Attention Models For Demand Forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -22,5 +22,5 @@ setup(
               "simplified.graphstam", "simplified.BasicGraph", "simplified.HierarchicalGraph",
               "simplified.MultistepHierarchicalGraph", "simplified.SmallGraph"],
     include_package_data=True,
-    install_requires=[]
+    install_requires=['statsmodels', 'scipy', 'tweedie']
 )

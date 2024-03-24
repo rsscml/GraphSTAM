@@ -9,3 +9,6 @@ pandas
 joblib
 pathlib
 sklearn
+tweedie
+statsmodels
+scipy
