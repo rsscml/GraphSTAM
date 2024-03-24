@@ -720,14 +720,14 @@ class graphmodel():
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
                     """
                     # use max scale for known co-variates
-                    known_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1.0
 
             elif self.scaling_method == 'no_scaling':
                 if len(self.temporal_known_num_col_list) > 0:
                     # use max scale for known co-variates
-                    known_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1
 
