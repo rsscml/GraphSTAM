@@ -104,9 +104,9 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            y_true = torch.expm1(y_true * scaler)
-            y_pred = y_pred * torch.reshape(scaler, (-1, 1, 1))
-            #p = torch.reshape(p, (-1, 1, 1))
+            y_true = torch.expm1(torch.unsqueeze(y_true, dim=2) * torch.unsqueeze(scaler, dim=2))
+            y_pred = y_pred * torch.unsqueeze(scaler, dim=2)
+            p = torch.unsqueeze(p, dim=2)
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
@@ -115,13 +115,13 @@ class TweedieLoss:
             This is the case where scaling was done without log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            y_true = y_true*scaler
+            y_true = torch.unsqueeze(y_true, dim=2)*torch.reshape(scaler, (-1, 1, 1))
             y_pred = torch.exp(y_pred)
-            y_pred = y_pred * torch.reshape(scaler, (-1, 1, 1))
-            #p = torch.reshape(p, (-1, 1, 1))
+            y_pred = y_pred * torch.unsqueeze(scaler, dim=2)
+            p = torch.unsqueeze(p, dim=2)
             print("shapes, y_true.shape, y_pred.shape, p.shape: ", y_true.shape, y_pred.shape, p.shape)
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
-
+            print("loss shape: ", loss.shape)
 
         return loss
 
