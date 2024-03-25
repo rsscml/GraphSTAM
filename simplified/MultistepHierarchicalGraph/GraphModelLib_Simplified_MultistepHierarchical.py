@@ -115,7 +115,7 @@ class TweedieLoss:
             This is the case where scaling was done without log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            y_true = torch.unsqueeze(y_true, dim=2)*torch.reshape(scaler, (-1, 1, 1))
+            y_true = torch.unsqueeze(y_true, dim=2)*torch.unsqueeze(scaler, dim=2)
             y_pred = torch.exp(y_pred)
             y_pred = y_pred * torch.unsqueeze(scaler, dim=2)
             p = torch.unsqueeze(p, dim=2)
