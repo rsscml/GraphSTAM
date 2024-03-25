@@ -752,6 +752,14 @@ class graphmodel():
 
         return df
 
+    def apply_agg_power_correction(self, df):
+        """
+        Applies power correction of p=0 for aggregate time-series in hierarchy as they are typically log-normally distributed
+        """
+        df['tweedie_p'] = np.where(df['key_level'] == self.covar_key_level, df['tweedie_p'], 0)
+
+        return df
+
     def sort_dataset(self, data):
         """
         sort pandas dataframe by provided col list & order
@@ -954,6 +962,10 @@ class graphmodel():
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
             df = self.parallel_tweedie_p_estimate(df)
+
+        # apply power correction if required
+        print("   applying tweedie p correction for continuous ts, if applicable ...")
+        df = self.apply_agg_power_correction(df)
 
         # log1p transform if applicable
         df = self.log1p_transform_target(df)
