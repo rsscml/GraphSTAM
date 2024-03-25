@@ -750,6 +750,7 @@ class graphmodel():
     def apply_agg_power_correction(self, df):
         """
         Applies power correction of p=0 for aggregate time-series in hierarchy as they are typically log-normally distributed
+
         """
         df['tweedie_p'] = np.where(df['key_level'] == self.covar_key_level, df['tweedie_p'], 0)
 
