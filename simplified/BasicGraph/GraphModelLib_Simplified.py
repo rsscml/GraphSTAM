@@ -102,8 +102,9 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            y_true = torch.expm1(y_true * scaler)
-            y_pred = y_pred * scaler
+            y_true = torch.expm1(torch.unsqueeze(y_true, dim=2) * torch.unsqueeze(scaler, dim=2))
+            y_pred = y_pred * torch.unsqueeze(scaler, dim=2)
+            p = torch.unsqueeze(p, dim=2)
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
@@ -112,10 +113,10 @@ class TweedieLoss:
             This is the case where scaling was done without log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            y_true = y_true*scaler
+            y_true = torch.unsqueeze(y_true, dim=2)*torch.reshape(scaler, (-1, 1, 1))
             y_pred = torch.exp(y_pred)
-            y_pred = y_pred*scaler
-
+            y_pred = y_pred * torch.unsqueeze(scaler, dim=2)
+            p = torch.unsqueeze(p, dim=2)
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
         return loss
@@ -1303,16 +1304,17 @@ class graphmodel():
                                         log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
+
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                 # key weight
                 if sample_weights:
-                    wt = batch[self.target_col].y_weight
+                    wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                 else:
                     wt = 1
                 # recency wt
                 if self.recency_weights:
-                    recency_wt = batch[self.target_col].recency_weight
+                    recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                 else:
                     recency_wt = 1
                 
@@ -1358,15 +1360,16 @@ class graphmodel():
                                             log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
+
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     if sample_weights:
-                        wt = batch[self.target_col].y_weight
+                        wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                     else:
                         wt = 1
 
                     if self.recency_weights:
-                        recency_wt = batch[self.target_col].recency_weight
+                        recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
                     
@@ -1404,16 +1407,17 @@ class graphmodel():
                                             log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
+
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     # key weight
                     if sample_weights:
-                        wt = batch[self.target_col].y_weight
+                        wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                     else:
                         wt = 1
                     # recency wt
                     if self.recency_weights:
-                        recency_wt = batch[self.target_col].recency_weight
+                        recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
 
@@ -1463,16 +1467,17 @@ class graphmodel():
                                                 log1p_transform=self.log1p_transform)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
+
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                         # key weight
                         if sample_weights:
-                            wt = batch[self.target_col].y_weight
+                            wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                         else:
                             wt = 1
                         # recency wt
                         if self.recency_weights:
-                            recency_wt = batch[self.target_col].recency_weight
+                            recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                         else:
                             recency_wt = 1
 
