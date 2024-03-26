@@ -11,6 +11,7 @@ from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNor
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import gc
+import math
 
 # Data specific imports
 from torch_geometric.data import HeteroData, Data
@@ -283,13 +284,15 @@ class STGNN(torch.nn.Module):
                  target_node,
                  time_steps=1,
                  n_quantiles=1,
-                 dropout=0.0):
+                 dropout=0.0,
+                 log_transform=False):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
+        self.log_transform = log_transform
 
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
@@ -302,6 +305,12 @@ class STGNN(torch.nn.Module):
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
+
+    def log_transformed_sum_over_index(self, x, x_index):
+        """
+        the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
+        """
+        return torch.exp(torch.index_select(x, 0, x_index)).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
         # get keybom
@@ -343,8 +352,14 @@ class STGNN(torch.nn.Module):
         keybom[keybom == -1] = int(out.shape[0] - 1)
 
         # call vmap on sum_over_index function
-        batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
-        out = batched_sum_over_index(out, keybom)
+        if self.log_transform:
+            batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
+            out = batched_sum_over_index(out, keybom)
+            # again do the log_transform on the aggregates
+            out = torch.log(out)
+        else:
+            batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
+            out = batched_sum_over_index(out, keybom)
 
         # returned shape of out should be same as that before cat with dummy_out
 
@@ -1454,7 +1469,8 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
-                           dropout=dropout)
+                           dropout=dropout,
+                           log_transform=self.log1p_transform)
 
         # init model
         self.model = self.model.to(self.device)
@@ -1514,6 +1530,9 @@ class graphmodel():
         time_since_improvement = 0
         train_loss_hist = []
         val_loss_hist = []
+        # metrics
+        train_rmse_hist = []
+        val_rmse_hist = []
 
         # torch.amp -- for mixed precision training
         scaler = torch.cuda.amp.GradScaler()
@@ -1522,6 +1541,7 @@ class graphmodel():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -1565,6 +1585,8 @@ class graphmodel():
                         recency_wt = 1
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                    # metric
+                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1582,13 +1604,15 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
 
-            return total_loss / total_examples
+            return total_loss / total_examples,  math.sqrt(total_mse / total_examples)
 
         def train_fn():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -1631,6 +1655,8 @@ class graphmodel():
                     recency_wt = 1
 
                 weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                # metric
+                mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1646,13 +1672,15 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
 
-            return total_loss / total_examples
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
         def test_amp_fn():
             self.model.train(False)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
             with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -1692,16 +1720,20 @@ class graphmodel():
                             recency_wt = 1
 
                         weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                        # metric
+                        mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
+                    total_mse += mse_err
 
-            return total_loss / total_examples
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
         def test_fn():
             self.model.train(False)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
             with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -1740,27 +1772,35 @@ class graphmodel():
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
+                    # metric
+                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
+                    total_mse += mse_err
 
-            return total_loss / total_examples
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
         for epoch in range(max_epochs):
 
             if use_amp:
-                loss = train_amp_fn()
-                val_loss = test_amp_fn()
+                loss, rmse = train_amp_fn()
+                val_loss, val_rmse = test_amp_fn()
             else:
-                loss = train_fn()
-                val_loss = test_fn()
+                loss, rmse = train_fn()
+                val_loss, val_rmse = test_fn()
 
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+            print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
 
             if use_lr_scheduler:
                 scheduler.step(val_loss)
 
             train_loss_hist.append(loss)
             val_loss_hist.append(val_loss)
+
+            train_rmse_hist.append(rmse)
+            val_rmse_hist.append(val_rmse)
 
             model_path = model_prefix + '_' + str(epoch)
             model_list.append(model_path)

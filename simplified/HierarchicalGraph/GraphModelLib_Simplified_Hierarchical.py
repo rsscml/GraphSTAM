@@ -105,16 +105,11 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            print(" raw y_true: ", y_true)
-            print(" raw y_pred: ", y_pred)
             y_true = torch.expm1(y_true * scaler)
             y_pred = y_pred * scaler
-            print(" scaled y_true: ", y_true)
-            print(" scaled y_pred: ", y_pred)
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
-            print("loss: ", loss)
         else:
             """
             This is the case where scaling was done without log1p transform.
@@ -1560,9 +1555,6 @@ class graphmodel():
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
-                # metric
-                mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                 # key weight
@@ -1581,6 +1573,9 @@ class graphmodel():
                     recency_wt = 1
 
                 weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
+                # metric
+                mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1625,9 +1620,6 @@ class graphmodel():
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
-                    # metric
-                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     if sample_weights:
@@ -1644,6 +1636,10 @@ class graphmodel():
                         recency_wt = 1
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
+                    # metric
+                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
                     total_mse += mse_err
@@ -1680,9 +1676,6 @@ class graphmodel():
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
-                    # metric
-                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                     # key weight
@@ -1701,6 +1694,8 @@ class graphmodel():
                         recency_wt = 1
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                    # metric
+                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1749,9 +1744,6 @@ class graphmodel():
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
 
-                        # metric
-                        mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
                         if sample_weights:
@@ -1768,6 +1760,8 @@ class graphmodel():
                             recency_wt = 1
 
                         weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                        # metric
+                        mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
 
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
