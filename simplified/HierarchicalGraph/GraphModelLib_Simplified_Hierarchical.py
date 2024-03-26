@@ -111,7 +111,7 @@ class TweedieLoss:
             #print("raw y_pred: ", y_pred)
             y_true = torch.expm1(y_true) * scaler
             y_pred = torch.expm1(torch.squeeze(y_pred, dim=2))
-            y_pred = torch.log(y_pred)
+            y_pred = torch.log(y_pred + 1e-7)
             #print("scaled y_true: ", y_true)
             #print("scaled y_pred: ", y_pred)
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
