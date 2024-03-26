@@ -314,7 +314,7 @@ class STGNN(torch.nn.Module):
         """
         the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
         """
-        return torch.exp(torch.index_select(x, 0, x_index)).sum(dim=0)
+        return torch.expm1(torch.index_select(x, 0, x_index)).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
         # get keybom
@@ -330,6 +330,10 @@ class STGNN(torch.nn.Module):
 
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
+
+        if self.log_transform:
+            out = F.softplus(out)
+
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
 
         # fallback to this approach (slower) in case vmap doesn't work
@@ -360,7 +364,7 @@ class STGNN(torch.nn.Module):
             batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
-            out = torch.log(out)
+            out = torch.log1p(out)
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
