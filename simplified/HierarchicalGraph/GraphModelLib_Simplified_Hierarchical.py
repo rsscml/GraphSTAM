@@ -105,27 +105,22 @@ class TweedieLoss:
             In this case, scaling the target should have been done after log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
-            #print("raw scaler: ", scaler)
-            #print("p: ", p)
-            #print("raw y_true: ", y_true)
-            #print("raw y_pred: ", y_pred)
+
             y_true = torch.expm1(y_true) * scaler
             y_pred = torch.expm1(torch.squeeze(y_pred, dim=2))
+            # convert log1p prediction to log prediction; add eps=1e-7 to avoid discontinuity at 0
             y_pred = torch.log(y_pred + 1e-7)
-            #print("scaled y_true: ", y_true)
-            #print("scaled y_pred: ", y_pred)
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
-            #print("loss: ", loss)
         else:
             """
             This is the case where scaling was done without log1p transform.
             The prediction here is log<pred> instead of pred for numerical stability.
             """
             y_true = y_true * scaler
-            y_pred = torch.exp(y_pred)
-            y_pred = y_pred * scaler
+            # avoid discontinuity at 0
+            y_pred = (y_pred + 1e-5) * scaler
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
         return loss
@@ -1895,8 +1890,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                if not self.log1p_transform:
-                    output_arr = np.exp(output_arr)
+                #if not self.log1p_transform:
+                #    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1931,7 +1926,7 @@ class graphmodel():
 
         # reverse log1p transform after re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
             forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
@@ -1980,8 +1975,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                if not self.log1p_transform:
-                    output_arr = np.exp(output_arr)
+                #if not self.log1p_transform:
+                #    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -2016,7 +2011,7 @@ class graphmodel():
 
         # reverse log1p transform before re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
             forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
