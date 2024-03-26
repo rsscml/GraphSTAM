@@ -107,9 +107,8 @@ class TweedieLoss:
             """
 
             y_true = torch.expm1(y_true) * scaler
-            y_pred = torch.expm1(torch.squeeze(y_pred, dim=2))
-            # convert log1p prediction to log prediction; add eps=1e-7 to avoid discontinuity at 0
-            y_pred = torch.log(y_pred + 1e-7)
+            y_pred = torch.squeeze(y_pred, dim=2)
+            # convert log1p prediction to log prediction
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
@@ -120,7 +119,7 @@ class TweedieLoss:
             """
             y_true = y_true * scaler
             # avoid discontinuity at 0
-            y_pred = (y_pred + 1e-5) * scaler
+            y_pred = torch.exp(y_pred) * scaler
             loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
 
         return loss
@@ -310,7 +309,7 @@ class STGNN(torch.nn.Module):
         """
         the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
         """
-        return torch.expm1(torch.index_select(x, 0, x_index)).sum(dim=0)
+        return torch.exp(torch.index_select(x, 0, x_index)).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
         # get keybom
@@ -326,9 +325,6 @@ class STGNN(torch.nn.Module):
 
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
-
-        if self.log_transform:
-            out = F.softplus(out)
 
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
 
@@ -360,7 +356,7 @@ class STGNN(torch.nn.Module):
             batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
-            out = torch.log1p(out)
+            out = torch.log(out)
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
@@ -1890,8 +1886,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                #if not self.log1p_transform:
-                #    output_arr = np.exp(output_arr)
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1926,7 +1922,7 @@ class graphmodel():
 
         # reverse log1p transform after re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
             forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
@@ -1975,8 +1971,8 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                #if not self.log1p_transform:
-                #    output_arr = np.exp(output_arr)
+                if not self.log1p_transform:
+                    output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -2011,7 +2007,7 @@ class graphmodel():
 
         # reverse log1p transform before re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
             forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
