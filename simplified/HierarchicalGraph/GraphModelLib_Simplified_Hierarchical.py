@@ -109,12 +109,12 @@ class TweedieLoss:
             print("p: ", p)
             print("raw y_true: ", y_true)
             print("raw y_pred: ", y_pred)
-            y_true = torch.expm1(y_true * scaler)
+            y_true = torch.expm1(y_true) * scaler
             y_pred = torch.squeeze(y_pred, dim=2) * scaler
             print("scaled y_true: ", y_true)
             print("scaled y_pred: ", y_pred)
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
             print("loss: ", loss)
         else:
@@ -314,7 +314,7 @@ class STGNN(torch.nn.Module):
         """
         the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
         """
-        return torch.exp(torch.index_select(x, 0, x_index)).sum(dim=0)
+        return torch.expm1(torch.index_select(x, 0, x_index)).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
         # get keybom
@@ -331,6 +331,9 @@ class STGNN(torch.nn.Module):
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+
+        if self.log_transform:
+            out = F.softplus(out)
 
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
@@ -360,7 +363,7 @@ class STGNN(torch.nn.Module):
             batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
-            out = torch.log(out)
+            out = torch.log1p(out)
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
@@ -990,14 +993,14 @@ class graphmodel():
         print("   applying tweedie p correction for continuous ts, if applicable ...")
         df = self.apply_agg_power_correction(df)
 
-        # log1p transform if applicable
-        df = self.log1p_transform_target(df)
-
         # scale dataset
         print("   preprocessing dataframe - scale target...")
         df = self.scale_target(df)
         print("   preprocessing dataframe - scale numeric known cols...")
         df = self.scale_covariates(df)
+
+        # log1p transform if applicable
+        df = self.log1p_transform_target(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
