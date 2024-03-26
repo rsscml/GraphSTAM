@@ -356,7 +356,7 @@ class STGNN(torch.nn.Module):
             batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
-            out = torch.log(out)
+            out = torch.log(out + 1e-7)
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
