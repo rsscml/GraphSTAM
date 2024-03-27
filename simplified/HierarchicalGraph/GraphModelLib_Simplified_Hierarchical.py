@@ -98,31 +98,20 @@ class TweedieLoss:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler):
 
-        if log1p_transform:
-            """
-            In this case, scaling the target should have been done after log1p transform.
-            The prediction here is log<pred> instead of pred for numerical stability.
-            """
+        """
+            The output here is log<pred> instead of pred for numerical stability.
+        """
 
-            y_true = torch.expm1(y_true) * scaler
-            y_pred = torch.squeeze(y_pred, dim=2)
-            # convert log1p prediction to log prediction
-            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
-            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
-            loss = -a + b
-        else:
-            """
-            This is the case where scaling was done without log1p transform.
-            The prediction here is log<pred> instead of pred for numerical stability.
-            """
-            y_true = y_true * scaler
-            # avoid discontinuity at 0
-            y_pred = torch.exp(y_pred) * scaler
-            loss = (-y_true * torch.pow(y_pred, (1 - p)) / (1 - p) + torch.pow(y_pred, (2 - p)) / (2 - p))
+        y_true = torch.expm1(y_true) * scaler
+        y_pred = torch.squeeze(y_pred, dim=2)
+        a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+        b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
+        loss = -a + b
 
         return loss
+
 
 class DirSageConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, alpha):
@@ -284,14 +273,14 @@ class STGNN(torch.nn.Module):
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0,
-                 log_transform=False):
+                 tweedie_out=False):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
-        self.log_transform = log_transform
+        self.tweedie_out = tweedie_out
 
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
@@ -352,11 +341,11 @@ class STGNN(torch.nn.Module):
         keybom[keybom == -1] = int(out.shape[0] - 1)
 
         # call vmap on sum_over_index function
-        if self.log_transform:
+        if self.tweedie_out:
             batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
-            out = torch.log(out + 1e-7)
+            out = torch.log(out)
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
@@ -382,7 +371,7 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
-                 log1p_transform=False,
+                 tweedie_out=False,
                  estimate_tweedie_p=False,
                  iqr_high=0.75,
                  iqr_low=0.25,
@@ -441,7 +430,7 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
-        self.log1p_transform = log1p_transform
+        self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
@@ -992,9 +981,6 @@ class graphmodel():
         print("   preprocessing dataframe - scale numeric known cols...")
         df = self.scale_covariates(df)
 
-        # log1p transform if applicable
-        df = self.log1p_transform_target(df)
-
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
         df = self.onehot_encode(df)
@@ -1464,7 +1450,7 @@ class graphmodel():
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
                            dropout=dropout,
-                           log_transform=self.log1p_transform)
+                           tweedie_out=self.tweedie_out)
 
         # init model
         self.model = self.model.to(self.device)
@@ -1553,8 +1539,7 @@ class graphmodel():
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.tweedie_loss:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                        scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1578,7 +1563,13 @@ class graphmodel():
                 weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
                 # metric
-                mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                if self.tweedie_loss:
+                    out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                else:
+                    out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1618,8 +1609,7 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                            scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1641,7 +1631,13 @@ class graphmodel():
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
                     # metric
-                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                    if self.tweedie_loss:
+                        out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    else:
+                        out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                    actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
@@ -1674,8 +1670,7 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
-                                            log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1697,8 +1692,15 @@ class graphmodel():
                         recency_wt = 1
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
                     # metric
-                    mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                    if self.tweedie_loss:
+                        out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    else:
+                        out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                    actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -1742,8 +1744,7 @@ class graphmodel():
 
                         # compute loss masking out N/A targets -- last snapshot
                         if self.tweedie_loss:
-                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
-                                                log1p_transform=self.log1p_transform)
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1764,7 +1765,13 @@ class graphmodel():
 
                         weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
                         # metric
-                        mse_err = (recency_wt * mask * wt * (out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                        if self.tweedie_loss:
+                            out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                        else:
+                            out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                        actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                        mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
@@ -1886,8 +1893,7 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                if not self.log1p_transform:
-                    output_arr = np.exp(output_arr)
+                output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1919,11 +1925,6 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
-
-        # reverse log1p transform after re-scaling
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
 
@@ -1971,8 +1972,7 @@ class graphmodel():
 
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
-                if not self.log1p_transform:
-                    output_arr = np.exp(output_arr)
+                output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -2004,10 +2004,5 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
-
-        # reverse log1p transform before re-scaling
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.exp(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
