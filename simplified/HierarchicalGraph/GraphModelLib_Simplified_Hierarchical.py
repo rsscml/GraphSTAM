@@ -104,6 +104,7 @@ class TweedieLoss:
             The output here is log<pred> instead of pred for numerical stability.
         """
         """
+        # log1p first, scale next
         y_true = torch.expm1(y_true * scaler)
         y_pred = torch.squeeze(y_pred, dim=2)
         # reverse log of prediction y_pred
@@ -121,7 +122,8 @@ class TweedieLoss:
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
         """
-
+        """
+        # scale first, log1p after
         y_true = torch.expm1(y_true) * scaler
         y_pred = torch.squeeze(y_pred, dim=2)
         # reverse log of prediction y_pred
@@ -137,6 +139,14 @@ class TweedieLoss:
         #print("y_pred rescaled: ", y_pred)
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        loss = -a + b
+        """
+        # no log1p, only scaling
+        y_true = y_true
+        y_pred = torch.squeeze(y_pred, dim=2)
+
+        a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+        b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
         loss = -a + b
 
         return loss
