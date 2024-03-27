@@ -141,12 +141,12 @@ class TweedieLoss:
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
         """
-        # no log1p, only scaling
+        # no log1p
         y_true = y_true
         y_pred = torch.squeeze(y_pred, dim=2)
 
-        a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
-        b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
+        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+        b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
 
         return loss
@@ -410,7 +410,6 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
-                 log1p_transform=False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
                  iqr_high=0.75,
@@ -470,7 +469,6 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
-        self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
@@ -1021,10 +1019,6 @@ class graphmodel():
         # apply power correction if required
         print("   applying tweedie p correction for continuous ts, if applicable ...")
         df = self.apply_agg_power_correction(df)
-
-        # log1p transform
-        if self.log1p_transform:
-            df = self.log1p_transform_target(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1958,10 +1952,6 @@ class graphmodel():
             # update df
             base_df = self.update_dataframe(base_df, output)
 
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
-
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -2040,10 +2030,6 @@ class graphmodel():
             forecast_df = forecast_df.append(output)
             # update df
             sim_df = self.update_dataframe(sim_df, output)
-
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
