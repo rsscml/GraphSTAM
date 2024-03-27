@@ -104,10 +104,10 @@ class TweedieLoss:
             The output here is log<pred> instead of pred for numerical stability.
         """
 
-        y_true = y_true
+        y_true = y_true * scaler
         y_pred = torch.squeeze(y_pred, dim=2)
-        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+        b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
         loss = -a + b
 
         return loss
@@ -371,6 +371,7 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
+                 log1p_transform=False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
                  iqr_high=0.75,
@@ -430,6 +431,7 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
+        self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
@@ -966,12 +968,6 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
-        # scale dataset
-        print("   preprocessing dataframe - scale target...")
-        df = self.scale_target(df)
-        print("   preprocessing dataframe - scale numeric known cols...")
-        df = self.scale_covariates(df)
-
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
@@ -980,6 +976,16 @@ class graphmodel():
         # apply power correction if required
         print("   applying tweedie p correction for continuous ts, if applicable ...")
         df = self.apply_agg_power_correction(df)
+
+        # log1p transform
+        if self.log1p_transform:
+            df = self.log1p_transform_target(df)
+
+        # scale dataset
+        print("   preprocessing dataframe - scale target...")
+        df = self.scale_target(df)
+        print("   preprocessing dataframe - scale numeric known cols...")
+        df = self.scale_covariates(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1926,6 +1932,10 @@ class graphmodel():
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
 
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         return forecast_df
 
     def infer_sim(self, infer_start, infer_end, select_quantile, sim_df):
@@ -2004,5 +2014,9 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
+
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
