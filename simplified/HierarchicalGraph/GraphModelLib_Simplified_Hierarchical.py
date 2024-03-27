@@ -113,8 +113,9 @@ class TweedieLoss:
         # get pred
         y_pred = torch.expm1(y_pred)
         # take log of y_pred again
-        y_pred = torch.log(y_pred)
+        y_pred = torch.log(y_pred + 1e-8)
 
+        print("y_pred rescaled: ", y_pred)
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
