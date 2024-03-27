@@ -104,10 +104,10 @@ class TweedieLoss:
             The output here is log<pred> instead of pred for numerical stability.
         """
 
-        y_true = torch.expm1(y_true)
+        y_true = y_true * scaler
         y_pred = torch.squeeze(y_pred, dim=2)
-        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+        b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
         loss = -a + b
 
         return loss
@@ -966,6 +966,11 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # estimate tweedie p
+        if self.estimate_tweedie_p:
+            print("   estimating tweedie p using GLM ...")
+            df = self.parallel_tweedie_p_estimate(df)
+
         # apply power correction if required
         print("   applying tweedie p correction for continuous ts, if applicable ...")
         df = self.apply_agg_power_correction(df)
@@ -975,11 +980,6 @@ class graphmodel():
         df = self.scale_target(df)
         print("   preprocessing dataframe - scale numeric known cols...")
         df = self.scale_covariates(df)
-
-        # estimate tweedie p
-        if self.estimate_tweedie_p:
-            print("   estimating tweedie p using GLM ...")
-            df = self.parallel_tweedie_p_estimate(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
