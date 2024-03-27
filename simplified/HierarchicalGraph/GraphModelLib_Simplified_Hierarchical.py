@@ -103,7 +103,7 @@ class TweedieLoss:
         """
             The output here is log<pred> instead of pred for numerical stability.
         """
-
+        """
         y_true = torch.expm1(y_true * scaler)
         y_pred = torch.squeeze(y_pred, dim=2)
         # reverse log of prediction y_pred
@@ -112,10 +112,29 @@ class TweedieLoss:
         y_pred = y_pred * scaler
         # get pred
         y_pred = torch.expm1(y_pred)
+        print("y_pred expm1: ", y_pred)
         # take log of y_pred again
         y_pred = torch.log(y_pred + 1e-8)
 
         print("y_pred rescaled: ", y_pred)
+        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+        b = torch.exp(y_pred * (2 - p)) / (2 - p)
+        loss = -a + b
+        """
+
+        y_true = torch.expm1(y_true) * scaler
+        y_pred = torch.squeeze(y_pred, dim=2)
+        # reverse log of prediction y_pred
+        y_pred = torch.exp(y_pred)
+        # get pred
+        y_pred = torch.expm1(y_pred)
+        # rescale
+        y_pred = y_pred * scaler
+        #print("y_pred expm1: ", y_pred)
+        # take log of y_pred again
+        y_pred = torch.log(y_pred + 1e-8)
+
+        #print("y_pred rescaled: ", y_pred)
         a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
         b = torch.exp(y_pred * (2 - p)) / (2 - p)
         loss = -a + b
@@ -978,6 +997,12 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
+        # scale dataset
+        print("   preprocessing dataframe - scale target...")
+        df = self.scale_target(df)
+        print("   preprocessing dataframe - scale numeric known cols...")
+        df = self.scale_covariates(df)
+
         # estimate tweedie p
         if self.estimate_tweedie_p:
             print("   estimating tweedie p using GLM ...")
@@ -990,12 +1015,6 @@ class graphmodel():
         # log1p transform
         if self.log1p_transform:
             df = self.log1p_transform_target(df)
-
-        # scale dataset
-        print("   preprocessing dataframe - scale target...")
-        df = self.scale_target(df)
-        print("   preprocessing dataframe - scale numeric known cols...")
-        df = self.scale_covariates(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1929,6 +1948,10 @@ class graphmodel():
             # update df
             base_df = self.update_dataframe(base_df, output)
 
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -1941,10 +1964,6 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
-
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
 
@@ -2012,6 +2031,10 @@ class graphmodel():
             # update df
             sim_df = self.update_dataframe(sim_df, output)
 
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -2024,9 +2047,5 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
-
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
