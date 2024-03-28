@@ -1005,9 +1005,9 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            # apply power correction if required
-            print("   applying tweedie p correction for continuous ts, if applicable ...")
-            df = self.apply_agg_power_correction(df)
+                # apply power correction if required
+                print("   applying tweedie p correction for continuous ts, if applicable ...")
+                df = self.apply_agg_power_correction(df)
             # scale dataset
             print("   preprocessing dataframe - scale target...")
             df = self.scale_target(df)
@@ -1025,9 +1025,9 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            # apply power correction if required
-            print("   applying tweedie p correction for continuous ts, if applicable ...")
-            df = self.apply_agg_power_correction(df)
+                # apply power correction if required
+                print("   applying tweedie p correction for continuous ts, if applicable ...")
+                df = self.apply_agg_power_correction(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
