@@ -120,13 +120,14 @@ class TweedieLoss:
 
         if log1p_transform:
             # scale first, log1p after
-            y_true = torch.expm1(y_true)
+            y_true = torch.expm1(y_true) * scaler
             y_pred = torch.squeeze(y_pred, dim=2)
             # reverse log of prediction y_pred
             y_pred = torch.exp(y_pred)
             # get pred
             y_pred = torch.expm1(y_pred)
             # take log of y_pred again
+            y_pred = y_pred * scaler
             y_pred = torch.log(y_pred + 1e-8)
 
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
@@ -1000,11 +1001,6 @@ class graphmodel():
         df = self.sort_dataset(df)
 
         if self.log1p_transform:
-            # scale dataset
-            print("   preprocessing dataframe - scale target...")
-            df = self.scale_target(df)
-            print("   preprocessing dataframe - scale numeric known cols...")
-            df = self.scale_covariates(df)
             # estimate tweedie p
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
@@ -1012,6 +1008,11 @@ class graphmodel():
             # apply power correction if required
             print("   applying tweedie p correction for continuous ts, if applicable ...")
             df = self.apply_agg_power_correction(df)
+            # scale dataset
+            print("   preprocessing dataframe - scale target...")
+            df = self.scale_target(df)
+            print("   preprocessing dataframe - scale numeric known cols...")
+            df = self.scale_covariates(df)
             # apply log1p transform
             df = self.log1p_transform_target(df)
         else:

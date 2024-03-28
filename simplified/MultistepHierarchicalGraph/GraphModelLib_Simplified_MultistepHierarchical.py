@@ -98,14 +98,33 @@ class TweedieLoss:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler):
-        # no log1p
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
+
+        # convert all 2-d inputs to 3-d
         y_true = torch.unsqueeze(y_true, dim=2)
+        scaler = torch.unsqueeze(scaler, dim=2)
         p = torch.unsqueeze(p, dim=2)
 
-        a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-        b = torch.exp(y_pred * (2 - p)) / (2 - p)
-        loss = -a + b
+        if log1p_transform:
+            # scale first, log1p after
+            y_true = torch.expm1(y_true) * scaler
+            # reverse log of prediction y_pred
+            y_pred = torch.exp(y_pred)
+            # get pred
+            y_pred = torch.expm1(y_pred)
+            # take log of y_pred again
+            y_pred = y_pred * scaler
+            y_pred = torch.log(y_pred + 1e-8)
+
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            loss = -a + b
+        else:
+            # no log1p
+            y_true = y_true
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            loss = -a + b
 
         return loss
 
@@ -366,6 +385,7 @@ class graphmodel():
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
+                 log1p_transform = False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
                  iqr_high=0.75,
@@ -426,6 +446,7 @@ class graphmodel():
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
+        self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.iqr_high = iqr_high
@@ -973,20 +994,34 @@ class graphmodel():
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
 
-        # scale dataset
-        print("   preprocessing dataframe - scale target...")
-        df = self.scale_target(df)
-        print("   preprocessing dataframe - scale numeric known cols...")
-        df = self.scale_covariates(df)
-
-        # estimate tweedie p
-        if self.estimate_tweedie_p:
-            print("   estimating tweedie p using GLM ...")
-            df = self.parallel_tweedie_p_estimate(df)
-
-        # apply power correction if required
-        print("   applying tweedie p correction for continuous ts, if applicable ...")
-        df = self.apply_agg_power_correction(df)
+        if self.log1p_transform:
+            # estimate tweedie p
+            if self.estimate_tweedie_p:
+                print("   estimating tweedie p using GLM ...")
+                df = self.parallel_tweedie_p_estimate(df)
+            # apply power correction if required
+            print("   applying tweedie p correction for continuous ts, if applicable ...")
+            df = self.apply_agg_power_correction(df)
+            # scale dataset
+            print("   preprocessing dataframe - scale target...")
+            df = self.scale_target(df)
+            print("   preprocessing dataframe - scale numeric known cols...")
+            df = self.scale_covariates(df)
+            # apply log1p transform
+            df = self.log1p_transform_target(df)
+        else:
+            # scale dataset
+            print("   preprocessing dataframe - scale target...")
+            df = self.scale_target(df)
+            print("   preprocessing dataframe - scale numeric known cols...")
+            df = self.scale_covariates(df)
+            # estimate tweedie p
+            if self.estimate_tweedie_p:
+                print("   estimating tweedie p using GLM ...")
+                df = self.parallel_tweedie_p_estimate(df)
+            # apply power correction if required
+            print("   applying tweedie p correction for continuous ts, if applicable ...")
+            df = self.apply_agg_power_correction(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1544,7 +1579,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1618,7 +1654,8 @@ class graphmodel():
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.tweedie_loss:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                        log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1690,7 +1727,8 @@ class graphmodel():
 
                         # compute loss masking out N/A targets -- last snapshot
                         if self.tweedie_loss:
-                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                                log1p_transform=self.log1p_transform)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1746,7 +1784,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                                            log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1903,6 +1942,13 @@ class graphmodel():
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
+        # reverse log1p transform after re-scaling
+        if self.log1p_transform:
+            for col in forecast_cols:
+                forecast_df[col] = np.expm1(forecast_df[col])
+            for col in self.multistep_targets:
+                forecast_df[col] = np.expm1(forecast_df[col])
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
@@ -1972,6 +2018,13 @@ class graphmodel():
 
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
+
+        # reverse log1p transform after re-scaling
+        if self.log1p_transform:
+            for col in forecast_cols:
+                forecast_df[col] = np.expm1(forecast_df[col])
+            for col in self.multistep_targets:
+                forecast_df[col] = np.expm1(forecast_df[col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
