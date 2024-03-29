@@ -388,6 +388,7 @@ class graphmodel():
                  log1p_transform = False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
+                 tweedie_variance_power=1.1,
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -449,6 +450,7 @@ class graphmodel():
         self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
+        self.tweedie_variance_power = tweedie_variance_power
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -1002,6 +1004,9 @@ class graphmodel():
                 # apply power correction if required
                 print("   applying tweedie p correction for continuous ts, if applicable ...")
                 df = self.apply_agg_power_correction(df)
+            else:
+                print("   using user-specified tweedie power ...")
+                df['tweedie_p'] = self.tweedie_variance_power
             # scale dataset
             print("   preprocessing dataframe - scale target...")
             df = self.scale_target(df)
@@ -1105,7 +1110,7 @@ class graphmodel():
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
-        if self.estimate_tweedie_p:
+        if self.tweedie_out:
             data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         if self.recency_weights:
@@ -1515,7 +1520,6 @@ class graphmodel():
               min_delta,
               model_prefix,
               tweedie_loss=False,
-              tweedie_variance_power=1.5,
               use_amp=True,
               use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
@@ -1567,10 +1571,7 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
-                if not self.estimate_tweedie_p:
-                    tvp = torch.tensor(tweedie_variance_power)
-                    tvp = torch.reshape(tvp, (-1,1)).to(self.device)
-                else:
+                if self.tweedie_loss:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
 
@@ -1645,10 +1646,7 @@ class graphmodel():
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                if not self.estimate_tweedie_p:
-                    tvp = torch.tensor(tweedie_variance_power)
-                    tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
-                else:
+                if self.tweedie_loss:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
 
@@ -1715,10 +1713,7 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
-                    if not self.estimate_tweedie_p:
-                        tvp = torch.tensor(tweedie_variance_power)
-                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
-                    else:
+                    if self.tweedie_loss:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
 
@@ -1775,10 +1770,7 @@ class graphmodel():
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                    if not self.estimate_tweedie_p:
-                        tvp = torch.tensor(tweedie_variance_power)
-                        tvp = torch.reshape(tvp, (-1, 1)).to(self.device)
-                    else:
+                    if self.tweedie_loss:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
 

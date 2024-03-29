@@ -886,6 +886,7 @@ class graphmodel():
         df = self.sort_dataset(df)
 
         if self.log1p_transform:
+
             # estimate tweedie p
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
