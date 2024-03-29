@@ -1719,7 +1719,7 @@ class graphmodel():
             # show current o/p
             output = self.process_output(infer_df, output_arr)
             # append forecast
-            forecast_df = forecast_df.append(output)
+            forecast_df = pd.concat([forecast_df, output], axis=0)
             # update df
             sim_df = self.update_dataframe(sim_df, output)
 
