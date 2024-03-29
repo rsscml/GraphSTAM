@@ -342,6 +342,7 @@ class graphmodel():
                  scaling_method='mean_scaling',
                  log1p_transform=False,
                  estimate_tweedie_p=False,
+                 tweedie_p_range=[1.01, 1.95],
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -395,6 +396,7 @@ class graphmodel():
         self.scaling_method = scaling_method
         self.log1p_transform = log1p_transform
         self.estimate_tweedie_p = estimate_tweedie_p
+        self.tweedie_p_range = tweedie_p_range
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -514,6 +516,9 @@ class graphmodel():
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
             df['tweedie_p'] = 1.50
+
+        # clip tweedie to within range
+        df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
 
         return df
 

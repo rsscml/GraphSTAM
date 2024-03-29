@@ -388,6 +388,7 @@ class graphmodel():
                  log1p_transform = False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
+                 tweedie_p_range=[1.01, 1.95],
                  tweedie_variance_power=1.1,
                  iqr_high=0.75,
                  iqr_low=0.25,
@@ -450,6 +451,7 @@ class graphmodel():
         self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
+        self.tweedie_p_range = tweedie_p_range
         self.tweedie_variance_power = tweedie_variance_power
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
@@ -670,6 +672,9 @@ class graphmodel():
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
             df['tweedie_p'] = 1.50
+
+        # clip tweedie to within range
+        df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
 
         return df
 
