@@ -117,8 +117,11 @@ class TweedieLoss:
 
         if log1p_transform:
             # scale first, log1p after
+            y_true = torch.unsqueeze(y_true, dim=2)
+            scaler = torch.unsqueeze(scaler, dim=2)
+            p = torch.unsqueeze(p, dim=2)
+
             y_true = torch.expm1(y_true) * scaler
-            y_pred = torch.squeeze(y_pred, dim=2)
             # reverse log of prediction y_pred
             y_pred = torch.exp(y_pred)
             # get pred
@@ -132,8 +135,8 @@ class TweedieLoss:
             loss = -a + b
         else:
             # no log1p
-            y_true = y_true
-            y_pred = torch.squeeze(y_pred, dim=2)
+            y_true = torch.unsqueeze(y_true, dim=2)
+            p = torch.unsqueeze(p, dim=2)
 
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
