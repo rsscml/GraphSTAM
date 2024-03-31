@@ -45,7 +45,7 @@ if os == 'linux':
     backend = 'loky'
     timeout = 3600
 else:
-    backend = 'threading'
+    backend = 'loky'
     timeout = 3600
 
 # set default dtype to float32
@@ -488,6 +488,7 @@ class graphmodel():
 
         return df
 
+"""
     def power_optimization_loop(self, df):
         # initialization constants
         init_power = 1.01
@@ -504,9 +505,6 @@ class graphmodel():
 
             # optimize 1 iter
             def optimize_power(res_mu, res_scale, power, res_endog):
-                """
-                returns optimized power as opt.x
-                """
                 def loglike_p(power):
                     return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
 
@@ -537,6 +535,52 @@ class graphmodel():
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
             df['tweedie_p'] = 1.50
+
+        # clip tweedie to within range
+        df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
+
+        return df
+"""
+
+
+    def power_optimization_loop(self, df):
+        # initialization constants
+        init_power = 1.01
+        max_iterations = 100
+
+        endog = df[self.target_col].to_numpy()
+        exog = df[self.temporal_known_num_col_list].to_numpy()
+
+        # fit glm model
+        def glm_fit(endog, exog, power):
+            res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
+            return res.mu, res.scale, res._endog
+
+        # optimize 1 iter
+        def optimize_power(res_mu, res_scale, power, res_endog):
+            def loglike_p(power):
+                return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
+            opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
+
+            return opt.x
+
+        # optimization loop
+        power = init_power
+        print("initializing with power: ", power)
+        for i in range(max_iterations):
+
+            res_mu, res_scale, res_endog = glm_fit(endog, exog, power)
+            new_power = optimize_power(res_mu, res_scale, power, res_endog)
+
+            # check if new power has converged
+            if abs(new_power - power) >= 0.001:
+                power = new_power
+                print("iteration {}, updated power to: {}".format(i, power))
+            else:
+                print("iteration {}, new_power unaccepted: {}".format(i, new_power))
+                break
+
+        df['tweedie_p'] = round(power, 2)
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
