@@ -142,6 +142,25 @@ class TweedieLoss:
         return loss
 
 
+class Poisson:
+    """
+    Poisson NLL Loss
+
+    """
+    def __init__(self):
+        super().__init__()
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+        y_true = torch.unsqueeze(y_true, dim=2)
+        loss = torch.nn.functional.poisson_nll_loss(input=y_true,
+                                                    target=y_pred,
+                                                    log_input=False,
+                                                    full=False,
+                                                    eps=1e-08,
+                                                    reduction='none')
+        return loss
+
+
 class DirSageConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, alpha):
         super(DirSageConv, self).__init__()
@@ -1273,6 +1292,7 @@ class graphmodel():
               patience, 
               min_delta, 
               model_prefix,
+              poisson_loss=False,
               tweedie_loss=False,
               tweedie_variance_power=1.5,
               use_amp=False,
@@ -1281,9 +1301,12 @@ class graphmodel():
               sample_weights=False):
 
         self.tweedie_loss = tweedie_loss
+        self.poisson_loss = poisson_loss
 
         if self.tweedie_loss:
             loss_fn = TweedieLoss()
+        elif self.poisson_loss:
+            loss_fn = Poisson()
         else:
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
 
@@ -1334,6 +1357,8 @@ class graphmodel():
                 if self.tweedie_loss:
                     loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                         log1p_transform=self.log1p_transform)
+                elif self.poisson_loss:
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1390,6 +1415,8 @@ class graphmodel():
                     if self.tweedie_loss:
                         loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
+                    elif self.poisson_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1437,6 +1464,8 @@ class graphmodel():
                     if self.tweedie_loss:
                         loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
+                    elif self.poisson_loss:
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1497,6 +1526,8 @@ class graphmodel():
                         if self.tweedie_loss:
                             loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                                 log1p_transform=self.log1p_transform)
+                        elif self.poisson_loss:
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -1629,6 +1660,8 @@ class graphmodel():
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
                 output_arr = np.exp(output_arr)
+            elif self.poisson_loss:
+                output_arr = output_arr[:, :, 0]
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1709,6 +1742,8 @@ class graphmodel():
             if self.tweedie_loss:
                 output_arr = output_arr[:, :, 0]
                 output_arr = np.exp(output_arr)
+            elif self.poisson_loss:
+                output_arr = output_arr[:, :, 0]
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
