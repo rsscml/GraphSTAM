@@ -135,8 +135,9 @@ class TweedieLoss:
             loss = -a + b
         else:
             # no log1p
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            y_true = y_true * scaler
+            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
 
         return loss
@@ -152,6 +153,7 @@ class Poisson:
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
         y_true = torch.unsqueeze(y_true, dim=2)
+        y_pred = torch.exp(y_pred)
         loss = torch.nn.functional.poisson_nll_loss(input=y_true,
                                                     target=y_pred,
                                                     log_input=False,
@@ -1662,6 +1664,7 @@ class graphmodel():
                 output_arr = np.exp(output_arr)
             elif self.poisson_loss:
                 output_arr = output_arr[:, :, 0]
+                output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
@@ -1744,6 +1747,7 @@ class graphmodel():
                 output_arr = np.exp(output_arr)
             elif self.poisson_loss:
                 output_arr = output_arr[:, :, 0]
+                output_arr = np.exp(output_arr)
             else:
                 try:
                     q_index = self.forecast_quantiles(select_quantile)
