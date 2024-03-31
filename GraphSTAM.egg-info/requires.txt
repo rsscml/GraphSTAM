@@ -1,0 +1,3 @@
+statsmodels
+scipy
+tweedie
