@@ -121,7 +121,6 @@ class TweedieLoss:
             loss = -a + b
         else:
             # no log1p
-            y_true = y_true
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
