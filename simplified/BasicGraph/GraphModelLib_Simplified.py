@@ -500,6 +500,7 @@ class graphmodel():
             # fit glm model
             def glm_fit(endog, exog, power):
                 res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
+
                 return res.mu, res.scale, res._endog
 
             # optimize 1 iter
