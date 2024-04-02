@@ -2156,7 +2156,7 @@ class graphmodel():
             output = self.process_output(infer_df, output_arr)
 
             # append forecast
-            forecast_df = forecast_df.append(output)
+            forecast_df = pd.concat([forecast_df, output], axis=0)
 
             # update df
             base_df = self.update_dataframe(base_df, output)
