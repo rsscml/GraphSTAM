@@ -282,7 +282,7 @@ class gml(object):
         if self.fh is None:
             self.fh = 1
 
-        if self.train_config.get('loss_type') in ['Huber', 'RMSE']:
+        if self.train_config.get('loss_type') in ['Huber', 'RMSE', 'Tweedie']:
             self.forecast_quantiles = [0.5]  # placeholder to make the code work
         elif self.train_config.get('loss_type') == 'Quantile':
             self.forecast_quantiles = self.model_config.get('forecast_quantiles', None)

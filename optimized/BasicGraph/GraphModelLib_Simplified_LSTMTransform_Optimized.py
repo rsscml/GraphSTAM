@@ -2145,7 +2145,6 @@ class graphmodel():
                     q_lower_weight = 1 - q_upper_weight
                     output_arr = q_upper_weight*output_arr[:, :, q_upper] + q_lower_weight*output_arr[:, :, q_lower]
             elif self.loss_type == 'Tweedie':
-                output_arr = output_arr[:, :, 0]
                 output_arr = np.exp(output_arr)
             else:
                 try:
