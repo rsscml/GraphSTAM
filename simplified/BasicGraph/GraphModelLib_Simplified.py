@@ -325,7 +325,7 @@ class HeteroGraphSAGE(torch.nn.Module):
                 x_dict = {key: x.relu() for key, x in x_dict.items()}
 
         out = self.lin(x_dict[self.target_node_type])
-
+        print(out.shape)
         return out  #x_dict[self.target_node_type]
 
 
