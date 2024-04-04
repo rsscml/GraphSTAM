@@ -229,10 +229,16 @@ class HeteroSAGEConv(torch.nn.Module):
 
 class HeteroGraphSAGE(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
-                 target_node_type):
+                 target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
+        self.skip_connection = skip_connection
+
+        if num_layers == 1:
+            self.skip_connection = False
+
+        self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -257,7 +263,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             )
             """
             conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
-                                          out_channels=out_channels if i == num_layers - 1 else hidden_channels,
+                                          out_channels=hidden_channels, #out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
                                           edge_types=edge_types,
@@ -275,11 +281,22 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
+        if self.skip_connection:
+            res_dict = x_dict
+
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
 
-        return x_dict[self.target_node_type]
+            if self.skip_connection:
+                res_dict = {key: res_dict[key] for key in x_dict.keys()}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if
+                          key == res_key}
+                x_dict = {key: x.relu() for key, x in x_dict.items()}
+
+        out = self.project_lin(x_dict[self.target_node_type])
+
+        return out  #x_dict[self.target_node_type]
 
 
 # Models
@@ -293,7 +310,8 @@ class STGNN(torch.nn.Module):
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0,
-                 tweedie_out=False):
+                 tweedie_out=False,
+                 skip_connection=True):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
@@ -309,7 +327,8 @@ class STGNN(torch.nn.Module):
                                          dropout=dropout,
                                          node_types=self.node_types,
                                          edge_types=self.edge_types,
-                                         target_node_type=target_node)
+                                         target_node_type=target_node,
+                                         skip_connection=skip_connection)
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
@@ -1484,6 +1503,7 @@ class graphmodel():
               num_layers=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
+              skip_connection=True,
               device='cpu'):
 
         # key metadata for model def
@@ -1502,7 +1522,8 @@ class graphmodel():
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
                            dropout=dropout,
-                           tweedie_out=self.tweedie_out)
+                           tweedie_out=self.tweedie_out,
+                           skip_connection=skip_connection)
 
         # init model
         self.model = self.model.to(self.device)

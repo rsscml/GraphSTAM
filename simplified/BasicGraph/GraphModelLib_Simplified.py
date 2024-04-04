@@ -337,7 +337,8 @@ class STGNN(torch.nn.Module):
                  target_node,
                  time_steps=1,
                  n_quantiles=1,
-                 dropout=0.0):
+                 dropout=0.0,
+                 skip_connection=True):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
@@ -353,7 +354,8 @@ class STGNN(torch.nn.Module):
                                          dropout=dropout,
                                          node_types=self.node_types,
                                          edge_types=self.edge_types,
-                                         target_node_type=target_node)
+                                         target_node_type=target_node,
+                                         skip_connection=skip_connection)
 
     def forward(self, x_dict, edge_index_dict):
         # gnn model
@@ -1267,6 +1269,7 @@ class graphmodel():
               num_layers=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
+              skip_connection=True,
               device='cpu'):
         
         # key metadata for model def
@@ -1284,7 +1287,8 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
-                           dropout=dropout)
+                           dropout=dropout,
+                           skip_connection=skip_connection)
         
         # init model
         self.model = self.model.to(self.device)

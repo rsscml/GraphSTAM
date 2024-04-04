@@ -268,6 +268,8 @@ class HeteroGraphSAGE(torch.nn.Module):
         if num_layers == 1:
             self.skip_connection = False
 
+        self.project_lin = Linear(hidden_channels, out_channels)
+
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
@@ -291,7 +293,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             )
             """
             conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
-                                          out_channels=out_channels if i == num_layers - 1 else hidden_channels,
+                                          out_channels=hidden_channels,  #out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
                                           edge_types=edge_types,
@@ -309,23 +311,21 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
-        """
         if self.skip_connection:
             res_dict = x_dict
-        """
 
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
 
-            """
             if self.skip_connection:
                 res_dict = {key: res_dict[key] for key in x_dict.keys()}
                 x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
                 x_dict = {key: x.relu() for key, x in x_dict.items()}
-            """
 
-        return x_dict[self.target_node_type]
+        out = self.project_lin(x_dict[self.target_node_type])
+
+        return out  #x_dict[self.target_node_type]
 
 
 # Models
