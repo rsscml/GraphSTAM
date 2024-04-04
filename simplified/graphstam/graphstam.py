@@ -30,8 +30,11 @@ class gml(object):
         self.fh = self.data_config.get('fh')
         self.forecast = None
         self.baseline_forecast = None
-        tweedie_out = self.train_config.get('tweedie_loss')
-        poisson_out = self.train_config.get('poisson_loss')
+
+        # check for non-quantile loss fn.
+        tweedie_out = self.train_config.get('tweedie_loss', False)
+        poisson_out = self.train_config.get('poisson_loss', False)
+        rmse_out = self.train_config.get('rmse_loss', False)
 
         if self.train_batch_size is None:
             self.train_batch_size = 1
@@ -40,7 +43,8 @@ class gml(object):
             self.fh = 1
 
         self.forecast_quantiles = self.model_config.get('forecast_quantiles', None)
-        if tweedie_out or poisson_out:
+        if tweedie_out or poisson_out or rmse_out:
+            print("Training for point predictions")
             self.forecast_quantiles = [0.5]
         if self.forecast_quantiles is None:
             print("Training for default quantiles: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]")

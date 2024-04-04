@@ -277,9 +277,6 @@ class HeteroGraphSAGE(torch.nn.Module):
                                                                       num_layers=1,
                                                                       batch_first=True)
 
-        # linear
-        self.lin = Linear(hidden_channels, hidden_channels)
-
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -312,21 +309,23 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
+        """
         if self.skip_connection:
             res_dict = x_dict
+        """
 
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
 
+            """
             if self.skip_connection:
                 res_dict = {key: res_dict[key] for key in x_dict.keys()}
                 x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
                 x_dict = {key: x.relu() for key, x in x_dict.items()}
+            """
 
-        out = self.lin(x_dict[self.target_node_type])
-        print(out.shape)
-        return out  #x_dict[self.target_node_type]
+        return x_dict[self.target_node_type]
 
 
 # Models
@@ -345,6 +344,7 @@ class STGNN(torch.nn.Module):
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
+        self.hidden_channels = hidden_channels
 
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
