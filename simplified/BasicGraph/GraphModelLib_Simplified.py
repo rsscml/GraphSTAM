@@ -277,6 +277,9 @@ class HeteroGraphSAGE(torch.nn.Module):
                                                                       num_layers=1,
                                                                       batch_first=True)
 
+        # linear
+        self.lin = Linear(hidden_channels, hidden_channels)
+
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -318,10 +321,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
             if self.skip_connection:
                 res_dict = {key: res_dict[key] for key in x_dict.keys()}
-                x_dict = {key: torch.add(x, res_x) for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
                 x_dict = {key: x.relu() for key, x in x_dict.items()}
 
-        return x_dict[self.target_node_type]
+        out = self.lin(x_dict[self.target_node_type])
+
+        return out  #x_dict[self.target_node_type]
 
 
 # Models
