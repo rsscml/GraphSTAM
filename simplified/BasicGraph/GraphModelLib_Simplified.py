@@ -310,7 +310,7 @@ class HeteroGraphSAGE(torch.nn.Module):
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
         if self.skip_connection:
-            res_dict = torch.nn.Identity(x_dict)
+            res_dict = x_dict
 
         # run convolutions
         for conv in self.conv_layers:

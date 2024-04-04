@@ -205,7 +205,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels)
             else:
                 if first_layer:
-                    conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=False)
+                    conv_dict[e] = SAGEConv(in_channels=in_channels, out_channels=out_channels, bias=True)
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
@@ -259,10 +259,14 @@ class HeteroSAGEConv(torch.nn.Module):
 
 class HeteroGraphSAGE(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
-                 target_node_type):
+                 target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
+        self.skip_connection = skip_connection
+
+        if num_layers == 1:
+            self.skip_connection = False
 
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -305,9 +309,17 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
+        if self.skip_connection:
+            res_dict = torch.nn.Identity(x_dict)
+
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
+
+            if self.skip_connection:
+                res_dict = {key: res_dict[key] for key in x_dict.keys()}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
+                x_dict = {key: x.relu() for key, x in x_dict.items()}
 
         return x_dict[self.target_node_type]
 
