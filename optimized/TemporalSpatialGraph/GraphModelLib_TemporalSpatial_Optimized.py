@@ -2492,7 +2492,7 @@ class graphmodel():
                 print(scaled_output.groupby(self.time_index_col)[['forecast',self.target_col,'abs_error']].sum())
                 
             # append forecast
-            forecast_df = forecast_df.append(scaled_output)
+            forecast_df = pd.concat([forecast_df,scaled_output], axis=0)
 
             # update df
             base_df = self.update_dataframe(base_df, scaled_output)
