@@ -669,8 +669,8 @@ class graphmodel():
         max_iterations = 100
 
         try:
-            endog = df[self.target_col].to_numpy()
-            exog = df[self.temporal_known_num_col_list].to_numpy()
+            endog = df[self.target_col].astype(np.float32).to_numpy()
+            exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # fit glm model
             def glm_fit(endog, exog, power):

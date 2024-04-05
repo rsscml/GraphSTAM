@@ -115,11 +115,14 @@ class TweedieLoss:
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
         """
+        # convert all 2-d inputs to 3-d
+        y_true = torch.unsqueeze(y_true, dim=2)
+        scaler = torch.unsqueeze(scaler, dim=2)
+        p = torch.unsqueeze(p, dim=2)
 
         if log1p_transform:
             # scale first, log1p after
             y_true = torch.expm1(y_true) * scaler
-            y_pred = torch.squeeze(y_pred, dim=2)
             # reverse log of prediction y_pred
             y_pred = torch.exp(y_pred)
             # get pred
@@ -133,11 +136,9 @@ class TweedieLoss:
             loss = -a + b
         else:
             # no log1p
-            y_true = y_true
-            y_pred = torch.squeeze(y_pred, dim=2)
-
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            y_true = y_true * scaler
+            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
 
         return loss
@@ -239,10 +240,16 @@ class HeteroSAGEConv(torch.nn.Module):
 
 class HeteroGraphSAGE(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
-                 target_node_type):
+                 target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
+        self.skip_connection = skip_connection
+
+        if num_layers == 1:
+            self.skip_connection = False
+
+        self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -267,7 +274,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             )
             """
             conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
-                                          out_channels=out_channels if i == num_layers - 1 else hidden_channels,
+                                          out_channels=hidden_channels, #out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
                                           edge_types=edge_types,
@@ -285,11 +292,22 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
 
+        if self.skip_connection:
+            res_dict = x_dict
+
         # run convolutions
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
 
-        return x_dict[self.target_node_type]
+            if self.skip_connection:
+                res_dict = {key: res_dict[key] for key in x_dict.keys()}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if
+                          key == res_key}
+                x_dict = {key: x.relu() for key, x in x_dict.items()}
+
+        out = self.project_lin(x_dict[self.target_node_type])
+
+        return out  #x_dict[self.target_node_type]
 
 
 # Models
@@ -301,7 +319,8 @@ class STGNN(torch.nn.Module):
                  target_node,
                  time_steps=1,
                  n_quantiles=1,
-                 dropout=0.0):
+                 dropout=0.0,
+                 skip_connection=True):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
@@ -316,7 +335,8 @@ class STGNN(torch.nn.Module):
                                          dropout=dropout,
                                          node_types=self.node_types,
                                          edge_types=self.edge_types,
-                                         target_node_type=target_node)
+                                         target_node_type=target_node,
+                                         skip_connection=skip_connection)
 
     def forward(self, x_dict, edge_index_dict):
         # gnn model
@@ -1299,6 +1319,7 @@ class graphmodel():
               num_layers=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
+              skip_connection=True,
               device='cpu'):
         
         # key metadata for model def
@@ -1316,7 +1337,8 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
-                           dropout=dropout)
+                           dropout=dropout,
+                           skip_connection=skip_connection)
         
         # init model
         self.model = self.model.to(self.device)
