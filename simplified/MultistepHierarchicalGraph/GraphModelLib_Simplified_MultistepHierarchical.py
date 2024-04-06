@@ -1301,10 +1301,16 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # split into train,test,infer
-        print("splitting dataframe for training & testing...")
-        train_df, test_df = self.split_train_test(df)
-        
-        df_dict = {'train': train_df, 'test': test_df}
+        #print("splitting dataframe for training & testing...")
+        #train_df, test_df = self.split_train_test(df)
+
+        #df_dict = {'train': train_df, 'test': test_df}
+
+        print("create train/test cutoffs ...")
+        train_cutoff, test_cutoff = self.split_train_test(df)
+
+        df_dict = {'train': df[df[self.time_index_col] <= train_cutoff],
+                   'test': df[(df[self.time_index_col] > self.train_till) & (df[self.time_index_col] <= test_cutoff)]}
         
         def parallel_snapshot_graphs(df, period):
             df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
@@ -1393,9 +1399,12 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # split into train,test,infer
-        infer_df = self.split_infer(df, infer_start)
+        #infer_df = self.split_infer(df, infer_start)
+        #df_dict = {'infer': infer_df}
 
-        df_dict = {'infer': infer_df}
+        print("create infer cutoff ...")
+        infer_start = self.split_infer(df, infer_start)
+        df_dict = {'infer': df[df[self.time_index_col] == infer_start]}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1429,18 +1438,18 @@ class graphmodel():
         train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
         test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
 
-        train_data = data[data[self.time_index_col] <= train_cut_off].reset_index(drop=True)
-        test_data = data[(data[self.time_index_col] > self.train_till) & (data[self.time_index_col] <= test_cut_off)].reset_index(drop=True)
+        #train_data = data[data[self.time_index_col] <= train_cut_off].reset_index(drop=True)
+        #test_data = data[(data[self.time_index_col] > self.train_till) & (data[self.time_index_col] <= test_cut_off)].reset_index(drop=True)
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
-        return train_data, test_data
+        return train_cut_off, test_cut_off  #train_data, test_data
     
     def split_infer(self, data, infer_start):
 
-        infer_data = data[data[self.time_index_col] == infer_start].reset_index(drop=True)
-        print("infer multistep cutoff: ", infer_data[self.time_index_col].max())
-
-        return infer_data
+        #infer_data = data[data[self.time_index_col] == infer_start].reset_index(drop=True)
+        #print("infer multistep cutoff: ", infer_data[self.time_index_col].max())
+        print("infer multistep cutoff: ", data[data[self.time_index_col] == infer_start][self.time_index_col].max())
+        return infer_start  #infer_data
 
     def get_metadata(self, dataset):
         
