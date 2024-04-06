@@ -116,7 +116,6 @@ class TweedieLoss:
 
         """
         if log1p_transform:
-            """
             # scale first, log1p after
             y_true = torch.expm1(y_true) * scaler
             # reverse log of prediction y_pred
@@ -129,24 +128,24 @@ class TweedieLoss:
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
+
             """
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
-
-        else:
             """
+        else:
             # no log1p
             y_true = y_true * scaler
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
+
             """
-            y_true = y_true
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
-
+            """
         return loss
 
 
@@ -903,23 +902,23 @@ class graphmodel():
         df = self.sort_dataset(df)
 
         if self.log1p_transform:
+            # estimate tweedie p
+            if self.estimate_tweedie_p:
+                print("   estimating tweedie p using GLM ...")
+                df = self.parallel_tweedie_p_estimate(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
             # apply log1p transform
             df = self.log1p_transform_target(df)
+        else:
             # estimate tweedie p
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-        else:
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
-            # estimate tweedie p
-            if self.estimate_tweedie_p:
-                print("   estimating tweedie p using GLM ...")
-                df = self.parallel_tweedie_p_estimate(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")

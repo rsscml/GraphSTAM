@@ -100,7 +100,7 @@ class TweedieLoss:
         y_true = torch.unsqueeze(y_true, dim=2)
         scaler = torch.unsqueeze(scaler, dim=2)
         p = torch.unsqueeze(p, dim=2)
-
+        """
         if log1p_transform:
             # log1p first, scale next
             # reverse process actual
@@ -114,27 +114,37 @@ class TweedieLoss:
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
 
+        """
+        if log1p_transform:
             """
-            if log1p_transform:
-                # scale first, log1p after
-                y_true = torch.expm1(y_true) * scaler
-                # reverse log of prediction y_pred
-                y_pred = torch.exp(y_pred)
-                # get pred
-                y_pred = torch.expm1(y_pred)
-                # take log of y_pred again
-                y_pred = y_pred * scaler
-                y_pred = torch.log(y_pred + 1e-8)
+            # scale first, log1p after
+            y_true = torch.expm1(y_true) * scaler
+            # reverse log of prediction y_pred
+            y_pred = torch.exp(y_pred)
+            # get pred
+            y_pred = torch.expm1(y_pred) * scaler
+            # take log of y_pred again
+            y_pred = torch.log(y_pred + 1e-8)
     
-                a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-                b = torch.exp(y_pred * (2 - p)) / (2 - p)
-                loss = -a + b
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            loss = -a + b
             """
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            loss = -a + b
+
         else:
+            """
             # no log1p
             y_true = y_true * scaler
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
+            loss = -a + b
+            """
+            y_true = y_true
+            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+            b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
 
         return loss
@@ -893,15 +903,15 @@ class graphmodel():
         df = self.sort_dataset(df)
 
         if self.log1p_transform:
+            # scale dataset
+            print("   preprocessing dataframe - scale numeric cols...")
+            df = self.scale_dataset(df)
+            # apply log1p transform
+            df = self.log1p_transform_target(df)
             # estimate tweedie p
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            # apply log1p transform
-            df = self.log1p_transform_target(df)
-            # scale dataset
-            print("   preprocessing dataframe - scale numeric cols...")
-            df = self.scale_dataset(df)
         else:
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
@@ -1699,6 +1709,10 @@ class graphmodel():
             # update df
             base_df = self.update_dataframe(base_df, output)
 
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -1709,10 +1723,6 @@ class graphmodel():
         else:
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
 
@@ -1783,6 +1793,10 @@ class graphmodel():
             # update df
             sim_df = self.update_dataframe(sim_df, output)
 
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -1795,9 +1809,5 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
-
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
