@@ -1431,7 +1431,7 @@ class graphmodel():
         
         infer_dataset = datasets.get('infer')
 
-        return infer_df, infer_dataset
+        return df[df[self.time_index_col] == infer_start], infer_dataset
 
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
