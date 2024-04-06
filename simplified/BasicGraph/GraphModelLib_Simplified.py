@@ -96,43 +96,40 @@ class TweedieLoss:
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
-        """
-        if log1p_transform:
-            # log1p first, scale next
-            y_true = y_true * scaler
-            y_pred = torch.squeeze(y_pred, dim=2)
-            # reverse log of prediction y_pred
-            #y_pred = torch.exp(y_pred)
-            # rescale
-            #y_pred = y_pred * scaler
-            # get pred
-            #y_pred = torch.expm1(y_pred)
-            # take log of y_pred again
-            #y_pred = torch.log(y_pred + 1e-8)
-
-            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
-            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
-            loss = -a + b
-        """
         # convert all 2-d inputs to 3-d
         y_true = torch.unsqueeze(y_true, dim=2)
         scaler = torch.unsqueeze(scaler, dim=2)
         p = torch.unsqueeze(p, dim=2)
 
         if log1p_transform:
-            # scale first, log1p after
-            y_true = torch.expm1(y_true) * scaler
-            # reverse log of prediction y_pred
-            y_pred = torch.exp(y_pred)
-            # get pred
-            y_pred = torch.expm1(y_pred)
+            # log1p first, scale next
+            # reverse process actual
+            y_true = torch.expm1(y_true * scaler)
+            # reverse proceess y_pred
+            y_pred = torch.expm1(torch.exp(y_pred) * scaler)
             # take log of y_pred again
-            y_pred = y_pred * scaler
             y_pred = torch.log(y_pred + 1e-8)
 
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
+
+            """
+            if log1p_transform:
+                # scale first, log1p after
+                y_true = torch.expm1(y_true) * scaler
+                # reverse log of prediction y_pred
+                y_pred = torch.exp(y_pred)
+                # get pred
+                y_pred = torch.expm1(y_pred)
+                # take log of y_pred again
+                y_pred = y_pred * scaler
+                y_pred = torch.log(y_pred + 1e-8)
+    
+                a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
+                b = torch.exp(y_pred * (2 - p)) / (2 - p)
+                loss = -a + b
+            """
         else:
             # no log1p
             y_true = y_true * scaler
@@ -900,11 +897,11 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
+            # apply log1p transform
+            df = self.log1p_transform_target(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
-            # apply log1p transform
-            df = self.log1p_transform_target(df)
         else:
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
