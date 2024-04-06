@@ -1699,10 +1699,6 @@ class graphmodel():
             # update df
             base_df = self.update_dataframe(base_df, output)
 
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
-
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -1713,6 +1709,10 @@ class graphmodel():
         else:
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
 
@@ -1783,10 +1783,6 @@ class graphmodel():
             # update df
             sim_df = self.update_dataframe(sim_df, output)
 
-        if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
-
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
@@ -1799,5 +1795,9 @@ class graphmodel():
             forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
                 'scaler_mu']
+
+        if self.log1p_transform:
+            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
+            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
 
         return forecast_df
