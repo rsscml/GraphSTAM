@@ -1404,7 +1404,8 @@ class graphmodel():
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
-        df_dict = {'infer': df[df[self.time_index_col] == infer_start]}
+        infer_df = df[df[self.time_index_col] == infer_start]
+        df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
         datasets = {}
@@ -1448,6 +1449,7 @@ class graphmodel():
 
         #infer_data = data[data[self.time_index_col] == infer_start].reset_index(drop=True)
         #print("infer multistep cutoff: ", infer_data[self.time_index_col].max())
+
         print("infer multistep cutoff: ", data[data[self.time_index_col] == infer_start][self.time_index_col].max())
         return infer_start  #infer_data
 
@@ -1923,19 +1925,19 @@ class graphmodel():
 
     def infer(self, infer_start, select_quantile):
 
-        base_df = self.onetime_prep_df.copy()
+        base_df = self.onetime_prep_df #.copy()
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
 
         # infer fn
-        def infer_fn(model, model_path, infer_dataset):
+        def infer_fn(model, model_path, infer_data):
             model.load_state_dict(torch.load(model_path))
             model.eval()
             model.train(False)
             output = []
             with torch.no_grad():
-                for i, batch in enumerate(infer_dataset):
+                for i, batch in enumerate(infer_data):
                     batch = batch.to(self.device)
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
@@ -1954,14 +1956,14 @@ class graphmodel():
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
-        assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+        assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
         if self.tweedie_loss:
             output_arr = output_arr[:, :, 0]
             output_arr = np.exp(output_arr)
         else:
             try:
-                q_index = self.forecast_quantiles(select_quantile)
+                q_index = self.forecast_quantiles[select_quantile]
                 output_arr = output_arr[:, :, q_index]
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
