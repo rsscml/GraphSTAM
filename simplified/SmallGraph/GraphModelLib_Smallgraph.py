@@ -1112,10 +1112,12 @@ class graphmodel():
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
-        train_df, test_df = self.split_train_test(df)
-        
-        df_dict = {'train': train_df, 'test': test_df}
-        
+        #train_df, test_df = self.split_train_test(df)
+        #df_dict = {'train': train_df, 'test': test_df}
+
+        df_dict = {'train': df[df[self.time_index_col] <= self.train_till],
+                   'test': df[(df[self.time_index_col] > self.train_till) & (df[self.time_index_col] <= self.test_till)]}
+
         def parallel_snapshot_graphs(df, period):
             df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
@@ -1200,8 +1202,9 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         # split into train,test,infer
-        infer_df = self.split_infer(df)
+        #infer_df = self.split_infer(df)
 
+        infer_df = df[df[self.time_index_col] <= self.infer_till]
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -1680,7 +1683,7 @@ class graphmodel():
 
     def infer(self, infer_start, infer_end, select_quantile):
         
-        base_df = self.onetime_prep_df.copy()
+        base_df = self.onetime_prep_df #.copy()
 
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
