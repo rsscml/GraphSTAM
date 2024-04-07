@@ -403,6 +403,7 @@ class graphmodel():
                  max_leads,
                  train_till,
                  test_till,
+                 autoregressive_target=True,
                  min_history=1,
                  fh=1,
                  batch=1,
@@ -467,6 +468,7 @@ class graphmodel():
         # adjust train_till/test_till for delta|max_leads - fh| in split_* methods
         self.train_till = train_till
         self.test_till = test_till
+        self.autoregressive_target = autoregressive_target
         
         self.batch = batch
         self.grad_accum = grad_accum
@@ -1132,6 +1134,10 @@ class graphmodel():
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_level_weight = torch.tensor(df_snap['Key_Level_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap[self.multistep_mask].to_numpy().reshape(-1, self.fh), dtype=torch.float)
+
+        # in case target lags are not to be used as a feature
+        if not self.autoregressive_target:
+            data[self.target_col].x = torch.zeros_like(data[self.target_col].x)
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
