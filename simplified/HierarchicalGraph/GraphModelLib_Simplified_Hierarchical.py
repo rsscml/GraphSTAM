@@ -409,7 +409,7 @@ class STGNN(torch.nn.Module):
 
 # Graph Object
 
-class graphmodel():
+class graphmodel:
     def __init__(self, 
                  col_dict,
                  max_target_lags,

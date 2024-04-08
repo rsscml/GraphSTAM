@@ -11,6 +11,7 @@ import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
 import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
 import simplified.SmallGraph as small_graphmodel
+import inspect
 
 class gml(object):
     def __init__(self, model_type, config):
@@ -89,6 +90,10 @@ class gml(object):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'HierarchicalGraphSage':
+            signature = inspect.signature(hierarchical_graphmodel.graphmodel.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
             self.graphobj = hierarchical_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             if self.train_config['tweedie_loss']:
