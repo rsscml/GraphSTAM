@@ -1,2 +1,0 @@
-from optimized.BasicGraph.GraphModelLib_Simplified_Optimized import graphmodel
-from optimized.BasicGraph.GraphModelLib_Simplified_LSTMTransform_Optimized import graphmodel as graphmodel_large

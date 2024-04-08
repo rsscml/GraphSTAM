@@ -78,6 +78,10 @@ class gml(object):
 
     def build(self, data):
         if self.model_type == 'SimpleGraphSage':
+            signature = inspect.signature(graphmodel.graphmodel.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
             self.graphobj = graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             if self.train_config['tweedie_loss']:
@@ -106,6 +110,10 @@ class gml(object):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'MultistepHierarchicalGraphSage':
+            signature = inspect.signature(multistep_hierarchical_graphmodel.graphmodel.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
             self.graphobj = multistep_hierarchical_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             if self.train_config['tweedie_loss']:
@@ -118,6 +126,10 @@ class gml(object):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'SmallGraphSage':
+            signature = inspect.signature(small_graphmodel.graphmodel.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
             self.graphobj = small_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             if self.train_config['tweedie_loss']:
