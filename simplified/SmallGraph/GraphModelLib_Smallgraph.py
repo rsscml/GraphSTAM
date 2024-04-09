@@ -933,9 +933,6 @@ class graphmodel():
             print("NaN column(s): ", null_cols)
             raise ValueError("Column(s) with NaN detected!")
 
-        # reduce mem usage
-        #df = self.reduce_mem_usage(data)
-
         # check data sufficiency
         df = self.check_data_sufficiency(data)
             
@@ -1225,7 +1222,9 @@ class graphmodel():
 
                 # append
                 datasets[df_type] = dataset
-        
+
+        del df_dict
+        gc.collect()
         train_dataset, test_dataset = datasets.get('train'), datasets.get('test')
         get_reusable_executor().shutdown(wait=True)
 
@@ -1272,7 +1271,9 @@ class graphmodel():
             
             # append
             datasets[df_type] = dataset
-        
+
+        del df_dict
+        gc.collect()
         infer_dataset = datasets.get('infer')
 
         return infer_df, infer_dataset
