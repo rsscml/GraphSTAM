@@ -1008,6 +1008,7 @@ class graphmodel():
         # get a df of all timestamps in the dataset
         dateindex = pd.DataFrame(sorted(df[self.time_index_col].unique()), columns=[self.time_index_col])
 
+        df[self.id_col] = df[self.id_col].astype('str')
         groups = df.groupby([self.id_col])
         padded_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.pad_dataframe)(gdf, dateindex) for _, gdf in groups)
         gdf = pd.concat(padded_gdfs, axis=0)
