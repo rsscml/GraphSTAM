@@ -1429,8 +1429,8 @@ class graphmodel():
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        print("reduce mem usage post lags creation...")
-        df = self.reduce_mem_usage(df)
+        #print("reduce mem usage post lags creation...")
+        #df = self.reduce_mem_usage(df)
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
