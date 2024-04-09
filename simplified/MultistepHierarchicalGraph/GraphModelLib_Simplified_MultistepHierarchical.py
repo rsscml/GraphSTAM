@@ -38,7 +38,7 @@ from ast import literal_eval
 from joblib import Parallel, delayed
 from joblib.externals.loky import get_reusable_executor
 import shutil
-import sys
+import sys, os, psutil
 import time
 
 os = sys.platform
@@ -566,6 +566,39 @@ class graphmodel():
         else:
             self.tweedie_p_col = []
 
+    def get_memory_usage(self):
+        return np.round(psutil.Process(os.getpid()).memory_info()[0] / 2. ** 30, 2)
+
+    def reduce_mem_usage(self, df, verbose=True):
+        numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+        start_mem = df.memory_usage().sum() / 1024 ** 2
+        for col in df.columns:
+            col_type = df[col].dtypes
+            if col_type in numerics:
+                c_min = df[col].min()
+                c_max = df[col].max()
+                if str(col_type)[:3] == 'int':
+                    if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                        df[col] = df[col].astype(np.int8)
+                    elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                        df[col] = df[col].astype(np.int16)
+                    elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                        df[col] = df[col].astype(np.int32)
+                    elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                        df[col] = df[col].astype(np.int64)
+                else:
+                    if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+                        df[col] = df[col].astype(np.float16)
+                    elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                        df[col] = df[col].astype(np.float32)
+                    else:
+                        df[col] = df[col].astype(np.float64)
+        end_mem = df.memory_usage().sum() / 1024 ** 2
+        if verbose:
+            print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (
+                        start_mem - end_mem) / start_mem))
+        return df
+
     def create_new_keys(self, df):
         for i, k in enumerate(self.key_combinations):
             key = "key_" + "_".join(k)
@@ -1004,8 +1037,11 @@ class graphmodel():
             print("NaN column(s): ", null_cols)
             raise ValueError("Column(s) with NaN detected!")
 
+        # reduce mem usage
+        df = self.reduce_mem_usage(data)
+
         # check data sufficiency
-        df = self.check_data_sufficiency(data)
+        df = self.check_data_sufficiency(df)
 
         # create new keys
         print("   preprocessing dataframe - creating aggregate keys...")
@@ -1291,6 +1327,8 @@ class graphmodel():
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        print("reduce mem usage post padding ...")
+        df = self.reduce_mem_usage(df)
         print("creating relative time index & recency weights...")
         self.onetime_prep_df = self.get_relative_time_index(df)
         # add 'relative time index' to self.temporal_known_num_col_list
@@ -1298,19 +1336,11 @@ class graphmodel():
 
     def create_train_test_dataset(self, df):
 
-        # recast all numeric cols as float32
-        df[self.temporal_known_num_col_list] = df[self.temporal_known_num_col_list].astype(np.float32)
-        df[self.target_col] = df[self.target_col].astype(np.float32)
-
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-
-        # split into train,test,infer
-        #print("splitting dataframe for training & testing...")
-        #train_df, test_df = self.split_train_test(df)
-
-        #df_dict = {'train': train_df, 'test': test_df}
+        print("reduce mem usage post lags creation...")
+        df = self.reduce_mem_usage(df)
 
         print("create train/test cutoffs ...")
         train_cutoff, test_cutoff = self.split_train_test(df)
@@ -1396,17 +1426,11 @@ class graphmodel():
         except:
             pass
 
-        # cast num as float32
-        df[self.temporal_known_num_col_list] = df[self.temporal_known_num_col_list].astype(np.float32)
-        df[self.target_col] = df[self.target_col].astype(np.float32)
-
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-
-        # split into train,test,infer
-        #infer_df = self.split_infer(df, infer_start)
-        #df_dict = {'infer': infer_df}
+        print("reduce mem usage post lags creation...")
+        df = self.reduce_mem_usage(df)
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
@@ -1445,19 +1469,13 @@ class graphmodel():
         train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
         test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
 
-        #train_data = data[data[self.time_index_col] <= train_cut_off].reset_index(drop=True)
-        #test_data = data[(data[self.time_index_col] > self.train_till) & (data[self.time_index_col] <= test_cut_off)].reset_index(drop=True)
-
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
-        return train_cut_off, test_cut_off  #train_data, test_data
+        return train_cut_off, test_cut_off
     
     def split_infer(self, data, infer_start):
 
-        #infer_data = data[data[self.time_index_col] == infer_start].reset_index(drop=True)
-        #print("infer multistep cutoff: ", infer_data[self.time_index_col].max())
-
         print("infer multistep cutoff: ", data[data[self.time_index_col] == infer_start][self.time_index_col].max())
-        return infer_start  #infer_data
+        return infer_start
 
     def get_metadata(self, dataset):
         
@@ -1931,7 +1949,7 @@ class graphmodel():
 
     def infer(self, infer_start, select_quantile):
 
-        base_df = self.onetime_prep_df #.copy()
+        base_df = self.onetime_prep_df
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
@@ -2039,14 +2057,14 @@ class graphmodel():
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
-        assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+        assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
         if self.tweedie_loss:
             output_arr = output_arr[:, :, 0]
             output_arr = np.exp(output_arr)
         else:
             try:
-                q_index = self.forecast_quantiles(select_quantile)
+                q_index = self.forecast_quantiles[select_quantile]
                 output_arr = output_arr[:, :, q_index]
             except:
                 q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
