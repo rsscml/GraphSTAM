@@ -949,16 +949,20 @@ class graphmodel():
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in
                                                                      self.lead_lag_features_dict.items()]))
 
+        print("df before drop: ", df.shape)
         # drop rows with
         if self.drop_na_snapshots:
             df = df.dropna(subset=self.lead_lag_features_dict[self.target_col])
+            print("df after drop: ", df.shape)
 
         # Apply interleaving
         df = df.reset_index(drop=True)
 
+        print("df before interleave: ", df.shape)
         if self.interleave > 1:
             df = df.iloc[::self.interleave]
             df = df.reset_index(drop=True)
+            print("df after interleave: ", df.shape)
 
         return df
 
@@ -1385,6 +1389,7 @@ class graphmodel():
                 # restrict samples based on drop_na_snapshots or min_history
                 if (df_type == 'train') and (not self.drop_na_snapshots):
                     snap_periods_list = snap_periods_list[int(self.max_target_lags - self.min_history):]
+                print("snap_periods_list: ", snap_periods_list)
 
                 if self.subgraph_sample_size > 0:
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
