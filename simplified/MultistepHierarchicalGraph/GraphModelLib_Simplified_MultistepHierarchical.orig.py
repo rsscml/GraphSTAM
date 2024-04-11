@@ -423,7 +423,6 @@ class graphmodel():
                  interleave=1,
                  recency_weights=False,
                  recency_alpha=0,
-                 drop_na_snapshots=False,
                  PARALLEL_DATA_JOBS=4,
                  PARALLEL_DATA_JOBS_BATCHSIZE=128):
 
@@ -463,7 +462,6 @@ class graphmodel():
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
         self.max_covar_lags = int(max_covar_lags) if (max_covar_lags is not None) and (max_covar_lags > 0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads > 0) else 1
-        self.drop_na_snapshots = drop_na_snapshots
 
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
@@ -678,7 +676,7 @@ class graphmodel():
 
     def check_data_sufficiency(self, df):
         """
-        Exclude keys which do not have at least min_history data points within the training cutoff period
+        Exclude keys which do not have at least one data point within the training cutoff period
         """
         df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
 
@@ -903,11 +901,6 @@ class graphmodel():
         self.forecast_periods = []
         self.multistep_mask = []
 
-        if self.drop_na_snapshots:
-            target_lag_fill_value = np.nan
-        else:
-            target_lag_fill_value = 0
-
         for col in [self.target_col, self.time_index_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
@@ -920,7 +913,7 @@ class graphmodel():
 
             if col == self.target_col:
                 for lag in range(self.max_target_lags, 0, -1):
-                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=target_lag_fill_value)
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
@@ -945,20 +938,9 @@ class graphmodel():
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
 
-        # all lag columns
+        # don't drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in
                                                                      self.lead_lag_features_dict.items()]))
-
-        # drop rows with
-        if self.drop_na_snapshots:
-            df = df.dropna(subset=self.lead_lag_features_dict[self.target_col])
-
-        # Apply interleaving
-        df = df.reset_index(drop=True)
-
-        if self.interleave > 1:
-            df = df.iloc[::self.interleave]
-            df = df.reset_index(drop=True)
 
         return df
 
@@ -1382,9 +1364,11 @@ class graphmodel():
                 snapshot_list = []
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-                # restrict samples based on drop_na_snapshots or min_history
-                if (df_type == 'train') and (not self.drop_na_snapshots):
-                    snap_periods_list = snap_periods_list[int(self.max_target_lags - self.min_history):]
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
                 if self.subgraph_sample_size > 0:
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
@@ -1410,9 +1394,11 @@ class graphmodel():
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
 
-                # restrict samples based on drop_na_snapshots or min_history
-                if (df_type == 'train') and (not self.drop_na_snapshots):
-                    snap_periods_list = snap_periods_list[int(self.max_target_lags - self.min_history):]
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
@@ -1443,8 +1429,8 @@ class graphmodel():
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        print("reduce mem usage post lags creation...")
-        df = self.reduce_mem_usage(df)
+        #print("reduce mem usage post lags creation...")
+        #df = self.reduce_mem_usage(df)
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
