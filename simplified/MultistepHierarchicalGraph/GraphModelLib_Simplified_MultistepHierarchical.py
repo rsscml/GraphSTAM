@@ -965,7 +965,7 @@ class graphmodel():
                 for lag in range(self.max_target_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
                 for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
             elif col == 'y_mask':
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
@@ -1502,8 +1502,8 @@ class graphmodel():
 
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
-        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(self.fh/self.interleave)]
-        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh/self.interleave)]
+        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(np.ceil(self.fh/self.interleave))]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(np.ceil(self.fh/self.interleave))]
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_cut_off, test_cut_off
