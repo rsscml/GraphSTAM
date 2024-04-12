@@ -1435,7 +1435,7 @@ class graphmodel():
             else:
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-
+                print("snap_periods_list {}: {}".format(df_type, snap_periods_list))
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
                 # sample snapshot graphs
