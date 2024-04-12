@@ -1502,8 +1502,8 @@ class graphmodel():
 
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
-        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
-        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
+        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(self.fh/self.interleave)]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh/self.interleave)]
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_cut_off, test_cut_off
