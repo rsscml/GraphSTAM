@@ -553,13 +553,6 @@ class graphmodel():
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
 
-        # initialize necessary ds for lead/lag feats
-        self.lead_lag_features_dict = {}
-        self.all_lead_lag_cols = []
-        self.multistep_targets = []
-        self.forecast_periods = []
-        self.multistep_mask = []
-
         # scaler cols
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             self.scaler_cols = ['scaler']
@@ -902,6 +895,13 @@ class graphmodel():
         return df
 
     def parallel_create_lead_lag_features(self, df):
+
+        # initialize necessary ds for lead/lag feats
+        self.lead_lag_features_dict = {}
+        self.all_lead_lag_cols = []
+        self.multistep_targets = []
+        self.forecast_periods = []
+        self.multistep_mask = []
 
         # populate column names only
         for col in [self.target_col, self.time_index_col] + \
@@ -2038,9 +2038,6 @@ class graphmodel():
                 output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
         # show current o/p
-        print(infer_df.isnull().any().any())
-        print(infer_df.columns[infer_df.isnull().any()])
-        print(infer_df.shape)
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
         # reverse log1p transform after re-scaling
@@ -2052,15 +2049,9 @@ class graphmodel():
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            print(forecast_df.shape)
-            print(forecast_df.isnull().any())
-            print(forecast_df.columns[forecast_df.isnull().any()])
-            print(forecast_df.head(3))
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
             for col in self.multistep_targets:
-                print(col, forecast_df[col].dtype)
-                print(forecast_df.head(3))
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
