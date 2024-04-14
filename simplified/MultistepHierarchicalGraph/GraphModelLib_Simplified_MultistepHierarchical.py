@@ -1400,6 +1400,7 @@ class graphmodel():
                 if (self.interleave > 1) and (df_type == 'train'):
                     snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
+                print("snap_periods_list {}: {}".format(df_type, snap_periods_list))
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
                 # sample snapshot graphs
