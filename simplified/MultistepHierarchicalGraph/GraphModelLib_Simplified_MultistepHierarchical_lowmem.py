@@ -2038,8 +2038,9 @@ class graphmodel():
                 output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
         # show current o/p
-        print(infer_df.isnull().any())
-        print(infer_df.dtypes)
+        print(infer_df.isnull().any().any())
+        print(infer_df.columns[infer_df.isnull().any()])
+        print(infer_df.shape)
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
         # reverse log1p transform after re-scaling
@@ -2052,7 +2053,9 @@ class graphmodel():
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             print(forecast_df.shape)
-            print(forecast_df.dtypes)
+            print(forecast_df.isnull().any())
+            print(forecast_df.columns[forecast_df.isnull().any()])
+            print(forecast_df.head(3))
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
             for col in self.multistep_targets:
