@@ -1472,6 +1472,7 @@ class graphmodel():
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
         infer_df = df[df[self.time_index_col] == infer_start]
+        infer_df = infer_df.reset_index(drop=True)
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -2037,6 +2038,8 @@ class graphmodel():
                 output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
         # show current o/p
+        print(infer_df.isnull().any())
+        print(infer_df.dtypes)
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
         # reverse log1p transform after re-scaling
@@ -2048,9 +2051,13 @@ class graphmodel():
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+            print(forecast_df.shape)
+            print(forecast_df.dtypes)
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
             for col in self.multistep_targets:
+                print(col, forecast_df[col].dtype)
+                print(forecast_df.head(3))
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
