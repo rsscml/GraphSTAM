@@ -1472,7 +1472,6 @@ class graphmodel():
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
         infer_df = df[df[self.time_index_col] == infer_start]
-        infer_df = infer_df.reset_index(drop=True)
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
