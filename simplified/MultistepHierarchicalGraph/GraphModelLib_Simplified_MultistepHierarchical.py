@@ -986,7 +986,9 @@ class graphmodel():
 
         # apply interleaving
         if self.interleave > 1:
-            df = pd.concat([df.iloc[::self.interleave], df.iloc[-1:]], axis=0).drop_duplicates()
+            #df = pd.concat([df.iloc[::self.interleave], df.iloc[-1:]], axis=0).drop_duplicates()
+            df = pd.concat([df[df[self.time_index_col] < self.train_till].iloc[::self.interleave],
+                            df[df[self.time_index_col] >= self.train_till]], axis=0)
             df = df.reset_index(drop=True)
 
         return df
@@ -1503,7 +1505,7 @@ class graphmodel():
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
         train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(np.ceil(self.fh/self.interleave))]
-        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(np.ceil(self.fh/self.interleave))]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_cut_off, test_cut_off
