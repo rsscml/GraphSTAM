@@ -552,6 +552,14 @@ class graphmodel():
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
+
+        # initialize necessary ds for lead/lag feats
+        self.lead_lag_features_dict = {}
+        self.all_lead_lag_cols = []
+        self.multistep_targets = []
+        self.forecast_periods = []
+        self.multistep_mask = []
+
         # scaler cols
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             self.scaler_cols = ['scaler']
@@ -893,14 +901,9 @@ class graphmodel():
         
         return df
 
-    def create_lead_lag_features(self, df):
-        # critical to initialize these to empty
-        self.lead_lag_features_dict = {}
-        self.all_lead_lag_cols = []
-        self.multistep_targets = []
-        self.forecast_periods = []
-        self.multistep_mask = []
+    def parallel_create_lead_lag_features(self, df):
 
+        # populate column names only
         for col in [self.target_col, self.time_index_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
@@ -913,27 +916,21 @@ class graphmodel():
 
             if col == self.target_col:
                 for lag in range(self.max_target_lags, 0, -1):
-                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_targets.append(f'{col}_fh_{h}')
             elif col == 'y_mask':
                 for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_mask.append(f'{col}_fh_{h}')
             elif col == self.time_index_col:
                 for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
-                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
                 for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
@@ -941,6 +938,59 @@ class graphmodel():
         # don't drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in
                                                                      self.lead_lag_features_dict.items()]))
+
+        # call create_lead_lag_features()
+        groups = df.groupby([self.id_col])
+        gdf_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS,
+                            batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
+                            backend=backend,
+                            timeout=timeout)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
+        df = pd.concat(gdf_list, axis=0)
+        df = df.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
+
+        return df
+
+    def create_lead_lag_features(self, df):
+
+        # only create lead/lag features
+        for col in [self.target_col, self.time_index_col] + \
+                   self.temporal_known_num_col_list + \
+                   self.temporal_unknown_num_col_list + \
+                   self.known_onehot_cols + \
+                   self.unknown_onehot_cols + \
+                   ['y_mask']:
+
+            if col == self.target_col:
+                for lag in range(self.max_target_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
+            elif col == 'y_mask':
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
+            elif col == self.time_index_col:
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
+            else:
+                for lag in range(self.max_covar_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
+
+            if col in self.temporal_known_num_col_list + self.known_onehot_cols:
+                for lead in range(0, self.max_leads):
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
+
+        # drop-na
+        df = df.dropna(subset=self.all_lead_lag_cols)
+        df = df.reset_index(drop=True)
+
+        # apply interleaving
+        if self.interleave > 1:
+            #df = pd.concat([df.iloc[::self.interleave], df.iloc[-1:]], axis=0).drop_duplicates()
+            df = pd.concat([df[df[self.time_index_col] < self.train_till].iloc[:-self.fh:self.interleave],
+                            df[df[self.time_index_col] < self.train_till].iloc[-self.fh:],
+                            df[df[self.time_index_col] >= self.train_till]], axis=0)
+            df = df.reset_index(drop=True)
 
         return df
 
@@ -1335,9 +1385,9 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.create_lead_lag_features(df)
-        print("reduce mem usage post lags creation...")
-        df = self.reduce_mem_usage(df)
+        df = self.parallel_create_lead_lag_features(df)
+        #print("reduce mem usage post lags creation...")
+        #df = self.reduce_mem_usage(df)
 
         print("create train/test cutoffs ...")
         train_cutoff, test_cutoff = self.split_train_test(df)
@@ -1364,11 +1414,6 @@ class graphmodel():
                 snapshot_list = []
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-                # restrict samples for very large datasets based on interleaving
-                if df_type == 'train':
-                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
-                if (self.interleave > 1) and (df_type == 'train'):
-                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
                 if self.subgraph_sample_size > 0:
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
@@ -1393,13 +1438,7 @@ class graphmodel():
             else:
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-
-                # restrict samples for very large datasets based on interleaving
-                if df_type == 'train':
-                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
-                if (self.interleave > 1) and (df_type == 'train'):
-                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
-
+                print("snap_periods_list {}: {}".format(df_type, snap_periods_list))
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
                 # sample snapshot graphs
@@ -1428,9 +1467,7 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.create_lead_lag_features(df)
-        #print("reduce mem usage post lags creation...")
-        #df = self.reduce_mem_usage(df)
+        df = self.parallel_create_lead_lag_features(df)
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
@@ -1468,8 +1505,8 @@ class graphmodel():
 
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
-        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
-        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
+        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_cut_off, test_cut_off
