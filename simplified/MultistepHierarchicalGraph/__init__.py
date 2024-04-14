@@ -1,2 +1,2 @@
 from simplified.MultistepHierarchicalGraph.GraphModelLib_Simplified_MultistepHierarchical import graphmodel
-
+from simplified.MultistepHierarchicalGraph.GraphModelLib_Simplified_MultistepHierarchical_lowmem import graphmodel_lowmem
