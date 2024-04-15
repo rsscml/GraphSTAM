@@ -1678,6 +1678,8 @@ class graphmodel():
         
         base_df = self.onetime_prep_df
 
+        print(base_df.dtypes)
+        print(base_df[self.time_index_col].unique().tolist())
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
 
