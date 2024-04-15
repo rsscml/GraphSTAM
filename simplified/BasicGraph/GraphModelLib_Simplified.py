@@ -1680,7 +1680,8 @@ class graphmodel():
 
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
-        
+
+        print(infer_periods)
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
         
