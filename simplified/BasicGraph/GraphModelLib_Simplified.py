@@ -1735,8 +1735,12 @@ class graphmodel():
 
             # show current o/p
             output = self.process_output(infer_df, output_arr)
+            print(output.shape)
+            print(output.head(2))
             # append forecast
             forecast_df = pd.concat([forecast_df, output], axis=0)
+            print(forecast_df.shape)
+            print(forecast_df.head(2))
             # update df
             base_df = self.update_dataframe(base_df, output)
 
