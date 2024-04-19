@@ -209,11 +209,9 @@ class gml(object):
             f_df[forecast_cols] = np.clip(f_df[forecast_cols], a_min=0, a_max=None)
 
             f_df = f_df.rename(columns={col: col + '_' + str(quantile) for col in forecast_cols})
-            print("infer f_df clipped: ", f_df.shape)
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
-        print("infer f_df concat: ", self.forecast.shape)
         #self.forecast = self.forecast.T.drop_duplicates().T
         #print("infer f_df dedup: ", self.forecast.shape)
         return self.forecast
