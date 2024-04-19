@@ -374,13 +374,14 @@ class STGNN(torch.nn.Module):
         # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
         # nested/dynamic shape tensors
         out = torch.cat([out, dummy_out], dim=0)
+        print("out concat: ", out.shape, out)
 
-        print("out dummy concat: ", out.shape, out)
         # replace -1 from key bom with last dim in out
-        print("orig keybom: ", keybom)
-        keybom[keybom == -1] = int(out.shape[0] - 1)
-
-        print("mod keybom: ", keybom)
+        if keybom.shape[-1] == 1:
+            # for rare non-hierarchical cases
+            keybom[keybom == -1] = int(0)
+        else:
+            keybom[keybom == -1] = int(out.shape[0] - 1)
 
         # call vmap on sum_over_index function
         if self.tweedie_out:
@@ -1774,7 +1775,6 @@ class graphmodel():
 
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
-                print("print x: ", batch.x_dict[self.target_col].x)
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
                 if self.tweedie_loss:
@@ -2042,7 +2042,6 @@ class graphmodel():
         output_arr = output[0]
         output_arr = output_arr.cpu().numpy()
 
-        print("output shape: ", output_arr.shape)
         # quantile selection
         min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
@@ -2065,7 +2064,6 @@ class graphmodel():
 
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
-        print("forecast_df: ", forecast_df.shape)
 
         # reverse log1p transform after re-scaling
         if self.log1p_transform:
@@ -2078,10 +2076,8 @@ class graphmodel():
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            print("forecast_df rescaled: ", forecast_df.shape)
             for col in self.multistep_targets:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            print("forecast_df targets rescaled: ", forecast_df.shape)
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
@@ -2146,8 +2142,6 @@ class graphmodel():
         # show current o/p
         forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
-        print("forecast_df: ", forecast_df.shape)
-
         # reverse log1p transform after re-scaling
         if self.log1p_transform:
             for col in forecast_cols:
@@ -2159,10 +2153,8 @@ class graphmodel():
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            print("forecast_df rescaled: ", forecast_df.shape)
             for col in self.multistep_targets:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            print("forecast_df targets rescaled: ", forecast_df.shape)
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
