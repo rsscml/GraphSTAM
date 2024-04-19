@@ -786,7 +786,8 @@ class graphmodel():
         """
         # obtain scalers
         
-        scale_gdf = gdf.reset_index(drop=True)
+        known_gdf = gdf.reset_index(drop=True)
+        unknown_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
 
         if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:
 
@@ -794,22 +795,37 @@ class graphmodel():
             if self.scaling_method == 'mean_scaling':
 
                 if len(self.temporal_known_num_col_list) > 0:
-                    """
-                    known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                    known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
+                    known_nz_count = np.maximum(np.count_nonzero(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_sum = np.sum(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                    """
                     # use max scale for known co-variates
-                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    #known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1.0
 
+                if len(self.temporal_unknown_num_col_list) > 0:
+                    unknown_nz_count = np.maximum(np.count_nonzero(np.abs(unknown_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                    unknown_sum = np.sum(np.abs(unknown_gdf[self.temporal_unknown_num_col_list].values), axis=0)
+                    unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                else:
+                    unknown_scale = 1.0
+
             elif self.scaling_method == 'no_scaling':
                 if len(self.temporal_known_num_col_list) > 0:
+                    known_nz_count = np.maximum(np.count_nonzero(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_sum = np.sum(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0)
+                    known_scale = np.divide(known_sum, known_nz_count) + 1.0
                     # use max scale for known co-variates
-                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    # known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1
+
+                if len(self.temporal_unknown_num_col_list) > 0:
+                    unknown_nz_count = np.maximum(np.count_nonzero(np.abs(unknown_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                    unknown_sum = np.sum(np.abs(unknown_gdf[self.temporal_unknown_num_col_list].values), axis=0)
+                    unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
+                else:
+                    unknown_scale = 1.0
 
             # reset index
             gdf = gdf.reset_index(drop=True)
@@ -817,6 +833,7 @@ class graphmodel():
             # scale each feature independently
             if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
                 gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
+                gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
 
         return gdf
 
