@@ -790,7 +790,7 @@ class graphmodel():
         known_gdf = gdf.reset_index(drop=True)
         unknown_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
 
-        if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:
+        if gdf['key_level'].unique().tolist()[0] == self.covar_key_level:
 
             # for lowest level keys, scale both target & co-variates
             if self.scaling_method == 'mean_scaling':
