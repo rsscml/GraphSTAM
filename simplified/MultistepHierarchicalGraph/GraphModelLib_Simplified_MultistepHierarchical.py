@@ -811,6 +811,7 @@ class graphmodel():
                     unknown_scale = 1.0
 
             elif self.scaling_method == 'no_scaling':
+                """
                 if len(self.temporal_known_num_col_list) > 0:
                     known_nz_count = np.maximum(np.count_nonzero(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                     known_sum = np.sum(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0)
@@ -826,6 +827,9 @@ class graphmodel():
                     unknown_scale = np.divide(unknown_sum, unknown_nz_count) + 1.0
                 else:
                     unknown_scale = 1.0
+                """
+                known_scale = 1.0
+                unknown_scale = 1.0
 
             # reset index
             gdf = gdf.reset_index(drop=True)
