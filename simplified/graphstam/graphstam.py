@@ -214,8 +214,8 @@ class gml(object):
 
         self.forecast = pd.concat(f_df_list, axis=1)
         print("infer f_df concat: ", self.forecast.shape)
-        self.forecast = self.forecast.T.drop_duplicates().T
-        print("infer f_df dedup: ", self.forecast.shape)
+        #self.forecast = self.forecast.T.drop_duplicates().T
+        #print("infer f_df dedup: ", self.forecast.shape)
         return self.forecast
 
     def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):

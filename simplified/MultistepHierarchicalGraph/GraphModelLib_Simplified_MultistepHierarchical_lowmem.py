@@ -1772,6 +1772,7 @@ class graphmodel():
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
+                print("out: ", out.shape)
                 if self.tweedie_loss:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
