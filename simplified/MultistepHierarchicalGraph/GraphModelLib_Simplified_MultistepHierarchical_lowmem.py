@@ -354,7 +354,7 @@ class STGNN(torch.nn.Module):
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
-
+        print("out pre-vec: ", out.shape, out)
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
         """
@@ -375,6 +375,7 @@ class STGNN(torch.nn.Module):
         # nested/dynamic shape tensors
         out = torch.cat([out, dummy_out], dim=0)
 
+        print("out dummy concat: ", out.shape, out)
         # replace -1 from key bom with last dim in out
         keybom[keybom == -1] = int(out.shape[0] - 1)
 
@@ -388,6 +389,7 @@ class STGNN(torch.nn.Module):
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
 
+        print("out post-vec: ", out.shape, out)
         # returned shape of out should be same as that before cat with dummy_out
 
         return out
@@ -1770,9 +1772,9 @@ class graphmodel():
 
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
+                print("print x: ", batch.x_dict[self.target_col].x)
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                print("out: ", out)
                 if self.tweedie_loss:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
