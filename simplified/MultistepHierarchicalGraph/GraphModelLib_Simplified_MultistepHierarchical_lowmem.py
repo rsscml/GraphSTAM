@@ -354,7 +354,7 @@ class STGNN(torch.nn.Module):
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
-        print("out pre-vec: ", out.shape, out)
+
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
         """
@@ -375,15 +375,12 @@ class STGNN(torch.nn.Module):
         # nested/dynamic shape tensors
         out = torch.cat([out, dummy_out], dim=0)
 
-        print("orig keybom: ", keybom)
         # replace -1 from key bom with last dim in out
         if keybom.shape[-1] == 1:
             # for rare non-hierarchical cases
             keybom[keybom == -1] = int(0)
-            print("mod keybom 1 dim: ", keybom)
         elif keybom.shape[-1] == 0:
             keybom = torch.zeros((1, 1), dtype=torch.int64).to(device)
-            print("mod keybom null: ", keybom)
         else:
             keybom[keybom == -1] = int(out.shape[0] - 1)
 
@@ -396,7 +393,7 @@ class STGNN(torch.nn.Module):
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
-            print("out post-vec: ", out.shape, out)
+
         # returned shape of out should be same as that before cat with dummy_out
 
         return out

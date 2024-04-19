@@ -376,7 +376,13 @@ class STGNN(torch.nn.Module):
         out = torch.cat([out, dummy_out], dim=0)
 
         # replace -1 from key bom with last dim in out
-        keybom[keybom == -1] = int(out.shape[0] - 1)
+        if keybom.shape[-1] == 1:
+            # for rare non-hierarchical cases
+            keybom[keybom == -1] = int(0)
+        elif keybom.shape[-1] == 0:
+            keybom = torch.zeros((1, 1), dtype=torch.int64).to(device)
+        else:
+            keybom[keybom == -1] = int(out.shape[0] - 1)
 
         # call vmap on sum_over_index function
         if self.tweedie_out:
