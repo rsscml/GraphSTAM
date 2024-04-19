@@ -376,10 +376,12 @@ class STGNN(torch.nn.Module):
         out = torch.cat([out, dummy_out], dim=0)
         print("out concat: ", out.shape, out)
 
+        print("orig keybom: ", keybom)
         # replace -1 from key bom with last dim in out
         if keybom.shape[-1] == 1:
             # for rare non-hierarchical cases
             keybom[keybom == -1] = int(0)
+            print("mod keybom: ", keybom)
         else:
             keybom[keybom == -1] = int(out.shape[0] - 1)
 
