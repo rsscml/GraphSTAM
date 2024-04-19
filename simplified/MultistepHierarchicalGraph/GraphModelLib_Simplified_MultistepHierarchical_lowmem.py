@@ -377,7 +377,10 @@ class STGNN(torch.nn.Module):
 
         print("out dummy concat: ", out.shape, out)
         # replace -1 from key bom with last dim in out
+        print("orig keybom: ", keybom)
         keybom[keybom == -1] = int(out.shape[0] - 1)
+
+        print("mod keybom: ", keybom)
 
         # call vmap on sum_over_index function
         if self.tweedie_out:
@@ -388,8 +391,7 @@ class STGNN(torch.nn.Module):
         else:
             batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
             out = batched_sum_over_index(out, keybom)
-
-        print("out post-vec: ", out.shape, out)
+            print("out post-vec: ", out.shape, out)
         # returned shape of out should be same as that before cat with dummy_out
 
         return out
