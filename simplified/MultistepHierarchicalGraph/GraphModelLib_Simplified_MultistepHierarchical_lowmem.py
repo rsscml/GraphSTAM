@@ -382,7 +382,7 @@ class STGNN(torch.nn.Module):
             keybom[keybom == -1] = int(0)
             print("mod keybom 1 dim: ", keybom)
         elif keybom.shape[-1] == 0:
-            keybom = torch.zeros(1, 1).to(device)
+            keybom = torch.zeros((1, 1), dtype=torch.int64).to(device)
             print("mod keybom null: ", keybom)
         else:
             keybom[keybom == -1] = int(out.shape[0] - 1)
