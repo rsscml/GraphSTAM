@@ -1740,9 +1740,11 @@ class graphmodel():
             if self.loss in ['Tweedie', 'Poisson']:
                 output_arr = output_arr[:, :, 0]
                 output_arr = np.exp(output_arr)
+            elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
+                output_arr = output_arr[:, :, 0]
             else:
                 try:
-                    q_index = self.forecast_quantiles[select_quantile]
+                    q_index = self.forecast_quantiles.index(select_quantile)
                     output_arr = output_arr[:, :, q_index]
                 except:
                     q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
@@ -1820,9 +1822,11 @@ class graphmodel():
             if self.loss in ['Tweedie', 'Poisson']:
                 output_arr = output_arr[:, :, 0]
                 output_arr = np.exp(output_arr)
+            elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
+                output_arr = output_arr[:, :, 0]
             else:
                 try:
-                    q_index = self.forecast_quantiles[select_quantile]
+                    q_index = self.forecast_quantiles.index(select_quantile)
                     output_arr = output_arr[:, :, q_index]
                 except:
                     q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
