@@ -183,7 +183,7 @@ class SMAPE:
             torch.Tensor: SMAPE loss.
         """
         numerator = torch.abs(y_pred - y_true)
-        denominator = torch.clamp(torch.abs(y_pred) + torch.abs(y_true) + self.epsilon, min=0.5 + self.epsilon)
+        denominator = torch.clamp(torch.abs(y_pred) + torch.abs(y_true), min=self.epsilon)
         loss = 2.0 * (numerator / denominator)
 
         return loss
