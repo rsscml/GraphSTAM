@@ -68,12 +68,12 @@ class QuantileLoss:
     def __init__(self, quantiles = [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]):
         self.quantiles = quantiles
 
-    def loss(self, y_pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
 
         # calculate quantile loss
         losses = []
         for i, q in enumerate(self.quantiles):
-            errors = target - y_pred[..., i]
+            errors = y_true - y_pred[..., i]
             losses.append(torch.max((q - 1) * errors, q * errors).unsqueeze(-1))
         losses = 2 * torch.cat(losses, dim=2)
 
@@ -89,8 +89,9 @@ class RMSE:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
-        loss = torch.pow(y_pred - target, 2)
+    def loss(self, y_pred: torch.Tensor, y_true: torch.tensor) -> torch.Tensor:
+        loss = torch.pow(y_pred - y_true, 2)
+
         return loss
 
 
@@ -132,6 +133,40 @@ class TweedieLoss:
             loss = -a + b
 
         return loss
+
+
+class SMAPE:
+    def __init__(self, epsilon=1e-2):
+        super().__init__()
+        self.epsilon = epsilon
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor):
+        """
+        Compute SMAPE loss between predictions and ground truth values.
+
+        Parameters:
+            y_true (torch.Tensor): Ground truth values.
+            y_pred (torch.Tensor): Predicted values.
+            epsilon: prevent 0 division when y_pred, y_true are 0
+        Returns:
+            torch.Tensor: SMAPE loss.
+        """
+        numerator = torch.abs(y_pred - y_true)
+        denominator = torch.clamp(torch.abs(y_pred) + torch.abs(y_true) + self.epsilon, min=0.5 + self.epsilon)
+        loss = 2.0 * (numerator / denominator)
+
+        return loss
+
+
+class Huber:
+    def __init__(self, delta=1.0):
+        super().__init__()
+        self.delta = delta
+
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor):
+        loss = torch.nn.functional.huber_loss(input=y_pred, target=y_true, reduction='none', delta=self.delta)
+        return loss
+
 
 class DirSageConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, alpha):
@@ -1651,18 +1686,26 @@ class graphmodel():
               patience,
               min_delta,
               model_prefix,
-              tweedie_loss=False,
+              loss='Quantile',  # 'Tweedie','SMAPE','RMSE'
+              delta=1.0,  # for Huber
+              epsilon=0.01,  # for SMAPE
               use_amp=True,
               use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
               sample_weights=False):
 
-        self.tweedie_loss = tweedie_loss
+        self.loss = loss
 
-        if self.tweedie_loss:
+        if self.loss == 'Tweedie':
             loss_fn = TweedieLoss()
-        else:
+        elif self.loss == 'Quantile':
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
+        elif self.loss == 'SMAPE':
+            loss_fn = SMAPE(epsilon=epsilon)
+        elif self.loss == 'RMSE':
+            loss_fn = RMSE()
+        elif self.loss == 'Huber':
+            loss_fn = Huber(delta=delta)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -1703,7 +1746,7 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
-                if self.tweedie_loss:
+                if self.loss == 'Tweedie':
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
 
@@ -1711,11 +1754,12 @@ class graphmodel():
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
                     # compute loss masking out N/A targets -- last snapshot
-                    if self.tweedie_loss:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                    if self.loss == 'Tweedie':
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
+                                            scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
                     else:
-                        loss = loss_fn.loss(out, batch[self.target_col].y)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
 
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
@@ -1736,7 +1780,7 @@ class graphmodel():
 
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
                     # metric
-                    if self.tweedie_loss:
+                    if self.loss == 'Tweedie':
                         out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
                     else:
                         out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
@@ -1778,16 +1822,17 @@ class graphmodel():
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                if self.tweedie_loss:
+                if self.loss == 'Tweedie':
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
 
                 # compute loss masking out N/A targets -- last snapshot
-                if self.tweedie_loss:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                if self.loss == 'Tweedie':
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
+                                        scaler=batch[self.target_col].scaler,
                                         log1p_transform=self.log1p_transform)
                 else:
-                    loss = loss_fn.loss(out, batch[self.target_col].y)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
 
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
@@ -1809,7 +1854,7 @@ class graphmodel():
                 weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
                 # metric
-                if self.tweedie_loss:
+                if self.loss == 'Tweedie':
                     out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
                 else:
                     out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
@@ -1845,7 +1890,7 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
-                    if self.tweedie_loss:
+                    if self.loss == 'Tweedie':
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
 
@@ -1853,7 +1898,7 @@ class graphmodel():
                         out = self.model(batch.x_dict, batch.edge_index_dict)
 
                         # compute loss masking out N/A targets -- last snapshot
-                        if self.tweedie_loss:
+                        if self.loss == 'Tweedie':
                             loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                                 log1p_transform=self.log1p_transform)
                         else:
@@ -1877,7 +1922,7 @@ class graphmodel():
                         weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
                         # metric
-                        if self.tweedie_loss:
+                        if self.loss == 'Tweedie':
                             out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
                         else:
                             out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
@@ -1902,12 +1947,12 @@ class graphmodel():
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                    if self.tweedie_loss:
+                    if self.loss == 'Tweedie':
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
 
                     # compute loss masking out N/A targets -- last snapshot
-                    if self.tweedie_loss:
+                    if self.loss == 'Tweedie':
                         loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
                     else:
@@ -1931,7 +1976,7 @@ class graphmodel():
                     weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
                     # metric
-                    if self.tweedie_loss:
+                    if self.loss == 'Tweedie':
                         out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
                     else:
                         out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
@@ -2048,7 +2093,7 @@ class graphmodel():
 
         assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-        if self.tweedie_loss:
+        if self.loss == 'Tweedie':
             output_arr = output_arr[:, :, 0]
             output_arr = np.exp(output_arr)
         else:
@@ -2125,7 +2170,7 @@ class graphmodel():
 
         assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-        if self.tweedie_loss:
+        if self.loss == 'Tweedie':
             output_arr = output_arr[:, :, 0]
             output_arr = np.exp(output_arr)
         else:
