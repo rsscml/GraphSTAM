@@ -1759,7 +1759,7 @@ class graphmodel():
                                             scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
                     else:
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
+                        loss = loss_fn.loss(out, batch[self.target_col].y)
 
                     mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
@@ -1832,7 +1832,7 @@ class graphmodel():
                                         scaler=batch[self.target_col].scaler,
                                         log1p_transform=self.log1p_transform)
                 else:
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y)
+                    loss = loss_fn.loss(out, batch[self.target_col].y)
 
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 

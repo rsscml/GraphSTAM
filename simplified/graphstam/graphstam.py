@@ -33,9 +33,7 @@ class gml(object):
         self.baseline_forecast = None
 
         # check for non-quantile loss fn.
-        tweedie_out = self.train_config.get('tweedie_loss', False)
-        poisson_out = self.train_config.get('poisson_loss', False)
-        rmse_out = self.train_config.get('rmse_loss', False)
+        self.loss = self.train_config.get('loss')
 
         if self.train_batch_size is None:
             self.train_batch_size = 1
@@ -44,12 +42,14 @@ class gml(object):
             self.fh = 1
 
         self.forecast_quantiles = self.model_config.get('forecast_quantiles', None)
-        if tweedie_out or poisson_out or rmse_out:
+
+        if self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']:
             print("Training for point predictions")
             self.forecast_quantiles = [0.5]
-        if self.forecast_quantiles is None:
-            print("Training for default quantiles: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]")
-            self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+        elif self.loss == 'Quantile':
+            if self.forecast_quantiles is None:
+                print("Training for default quantiles: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]")
+                self.forecast_quantiles = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
 
         # default common configs
         self.common_data_config = {'fh': self.fh,
@@ -84,13 +84,9 @@ class gml(object):
 
             self.graphobj = graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
-            if self.train_config['tweedie_loss']:
-                #  remove all forecast quantiles and replace with 1
-                self.model_config['forecast_quantiles'] = [0.5]
-                print("modifying model_config for tweedie_loss")
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
-            if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'HierarchicalGraphSage':
@@ -100,13 +96,9 @@ class gml(object):
 
             self.graphobj = hierarchical_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
-            if self.train_config['tweedie_loss']:
-                #  remove all forecast quantiles and replace with 1
-                self.model_config['forecast_quantiles'] = [0.5]
-                print("modifying model_config for tweedie_loss")
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
-            if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'MultistepHierarchicalGraphSage':
@@ -116,13 +108,9 @@ class gml(object):
 
             self.graphobj = multistep_hierarchical_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
-            if self.train_config['tweedie_loss']:
-                #  remove all forecast quantiles and replace with 1
-                self.model_config['forecast_quantiles'] = [0.5]
-                print("modifying model_config for tweedie_loss")
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
-            if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'MultistepHierarchicalGraphSageLowMemory':
@@ -132,13 +120,9 @@ class gml(object):
 
             self.graphobj = multistep_hierarchical_graphmodel.graphmodel_lowmem(**self.data_config)
             self.graphobj.build_dataset(data)
-            if self.train_config['tweedie_loss']:
-                #  remove all forecast quantiles and replace with 1
-                self.model_config['forecast_quantiles'] = [0.5]
-                print("modifying model_config for tweedie_loss")
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
-            if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
         elif self.model_type == 'SmallGraphSage':
@@ -148,13 +132,9 @@ class gml(object):
 
             self.graphobj = small_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
-            if self.train_config['tweedie_loss']:
-                #  remove all forecast quantiles and replace with 1
-                self.model_config['forecast_quantiles'] = [0.5]
-                print("modifying model_config for tweedie_loss")
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
-            if len(self.infer_quantiles) == 0 or self.train_config['tweedie_loss']:
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
     def train(self):
@@ -212,8 +192,7 @@ class gml(object):
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
-        #self.forecast = self.forecast.T.drop_duplicates().T
-        #print("infer f_df dedup: ", self.forecast.shape)
+
         return self.forecast
 
     def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):
@@ -344,7 +323,7 @@ class gml(object):
         from torch_geometric.explain import Explainer, CaptumExplainer, ModelConfig, ThresholdConfig, Explanation
         import pickle
 
-        if self.model_type == 'SimpleGraphSageAuto':
+        if self.model_type in ['SimpleGraphSage', 'HierarchicalGraphSage', 'SmallGraphSage']:
 
             try:
                 del model_config, explainer
