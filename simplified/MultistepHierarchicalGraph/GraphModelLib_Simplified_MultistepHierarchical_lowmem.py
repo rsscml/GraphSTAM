@@ -405,6 +405,8 @@ class STGNN(torch.nn.Module):
         enc_out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
         # repeat 'out' embedding for time_steps
         enc_out = enc_out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
+        print("enc_out : ", enc_out.shape, enc_out.dtype)
         out = torch.cat((enc_out, lead_tensor), dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
         print("enc_out concat, seq input: ", enc_out.shape)
         out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
