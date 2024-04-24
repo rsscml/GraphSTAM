@@ -403,12 +403,22 @@ class STGNN(torch.nn.Module):
         x_dict = {key: x_dict[key][:-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
 
         enc_out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
-        # repeat 'out' embedding for time_steps
+
+        # vectorized approach follows:
+        device_int = enc_out.get_device()
+
+        if device_int == -1:
+            device = torch.device('cpu')
+        else:
+            device = torch.device('cuda')
+
+        # repeat 'enc_out' embedding for time_steps
         enc_out = enc_out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
         print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
         print("enc_out : ", enc_out.shape, enc_out.dtype)
-        out = torch.cat((enc_out, lead_tensor), dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = torch.cat([enc_out, lead_tensor], dim=2).to(device)  # (num_nodes, time_steps, 2*hidden_channels)
         print("enc_out concat, seq input: ", out, out.shape)
+
         out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
@@ -423,14 +433,6 @@ class STGNN(torch.nn.Module):
         for i in agg_indices:
             out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
         """
-
-        # vectorized approach follows:
-        device_int = out.get_device()
-
-        if device_int == -1:
-            device = torch.device('cpu')
-        else:
-            device = torch.device('cuda')
 
         dummy_out = torch.zeros(1, out.shape[1], out.shape[2]).to(device)
         # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
