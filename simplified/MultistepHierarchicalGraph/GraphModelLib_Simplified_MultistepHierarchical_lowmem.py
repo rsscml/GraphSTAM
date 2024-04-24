@@ -404,6 +404,15 @@ class STGNN(torch.nn.Module):
 
         out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
 
+        # repeat 'enc_out' embedding for time_steps
+        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
+
+        # old
+        #out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+
         # vectorized approach follows:
         device_int = out.get_device()
 
@@ -412,21 +421,7 @@ class STGNN(torch.nn.Module):
         else:
             device = torch.device('cuda')
 
-        # repeat 'enc_out' embedding for time_steps
-        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
-        print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
-        print("enc_out : ", out.shape, out.dtype)
-        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        print("enc_out concat, seq input: ", out, out.shape)
-
-        out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
-
-        # old
-        #out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
-
         # rest of the steps remain the same
-
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
         """
