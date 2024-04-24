@@ -402,10 +402,10 @@ class STGNN(torch.nn.Module):
         # get embeddings from lag data only
         x_dict = {key: x_dict[key][:-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
 
-        enc_out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
+        out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
 
         # vectorized approach follows:
-        device_int = enc_out.get_device()
+        device_int = out.get_device()
 
         if device_int == -1:
             device = torch.device('cpu')
@@ -413,11 +413,11 @@ class STGNN(torch.nn.Module):
             device = torch.device('cuda')
 
         # repeat 'enc_out' embedding for time_steps
-        enc_out = enc_out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
         print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
-        print("enc_out : ", enc_out.shape, enc_out.dtype)
-        out = torch.cat([enc_out, lead_tensor], dim=2).to(device)  # (num_nodes, time_steps, 2*hidden_channels)
-        print("enc_out concat, seq input: ", out, out.shape)
+        print("enc_out : ", out.shape, out.dtype)
+        out = torch.cat([out, lead_tensor], dim=2).to(device)  # (num_nodes, time_steps, 2*hidden_channels)
+        print("enc_out concat, seq input: ", out)
 
         out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
