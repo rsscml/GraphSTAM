@@ -396,8 +396,7 @@ class STGNN(torch.nn.Module):
         del x_dict['key_aggregation_status']
 
         # get lead vars embedding for "decoder"
-        print("sales_corr.shape: ", x_dict['sales_corr'].shape, x_dict['sales_corr'])
-        x_dict_lead = {key: torch.reshape(x_dict[key][-self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
+        x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
         print("lead vars: ", x_dict_lead.keys())
         print("x_dict lead: ", x_dict_lead)
         lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
