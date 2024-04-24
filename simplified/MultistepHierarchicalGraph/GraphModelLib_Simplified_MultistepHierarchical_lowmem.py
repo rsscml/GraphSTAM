@@ -273,7 +273,7 @@ class HeteroGraphSAGE(torch.nn.Module):
         if num_layers == 1:
             self.skip_connection = False
 
-        self.project_lin = Linear(hidden_channels, out_channels)
+        self.project_lin = Linear(hidden_channels, hidden_channels)  # previously: (hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -342,6 +342,7 @@ class STGNN(torch.nn.Module):
                  num_layers,
                  metadata,
                  target_node,
+                 leading_features,
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0,
@@ -351,6 +352,7 @@ class STGNN(torch.nn.Module):
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
+        self.leading_features = leading_features
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
         self.tweedie_out = tweedie_out
@@ -364,6 +366,13 @@ class STGNN(torch.nn.Module):
                                          edge_types=self.edge_types,
                                          target_node_type=target_node,
                                          skip_connection=skip_connection)
+
+        self.lead_transform = Linear(-1, hidden_channels)
+        self.sequence_layer = torch.nn.LSTM(input_size=int(2*hidden_channels),
+                                            hidden_size=int(2*hidden_channels),
+                                            num_layers=1,
+                                            batch_first=True)
+        self.out_layer = Linear(int(2*hidden_channels), int(n_quantiles))
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
@@ -386,9 +395,26 @@ class STGNN(torch.nn.Module):
         del x_dict['keybom']
         del x_dict['key_aggregation_status']
 
-        # gnn model
-        out = self.gnn_model(x_dict, edge_index_dict)
-        out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+        # get lead vars embedding for "decoder"
+        x_dict_lead = {key: torch.reshape(x_dict[key][-self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
+        lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
+        lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
+
+        # gnn model (encoder)
+        # get embeddings from lag data only
+        x_dict = {key: x_dict[key][:-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
+
+        out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
+        # repeat 'out' embedding for time_steps
+        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        out = torch.concat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = self.sequence_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
+
+        # old
+        #out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+
+        # rest of the steps remain the same
 
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
@@ -966,7 +992,7 @@ class graphmodel():
         self.multistep_mask = []
 
         # populate column names only
-        for col in [self.target_col, self.time_index_col] + \
+        for col in [self.target_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -984,9 +1010,6 @@ class graphmodel():
             elif col == 'y_mask':
                 for h in range(0, self.fh):
                     self.multistep_mask.append(f'{col}_fh_{h}')
-            elif col == self.time_index_col:
-                for h in range(0, self.fh):
-                    self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
@@ -1016,7 +1039,7 @@ class graphmodel():
     def create_lead_lag_features(self, df):
 
         # only create lead/lag features
-        for col in [self.target_col, self.time_index_col] + \
+        for col in [self.target_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -1029,9 +1052,6 @@ class graphmodel():
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
             elif col == 'y_mask':
-                for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
-            elif col == self.time_index_col:
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
             else:
@@ -1659,6 +1679,7 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
+                           leading_features=self.temporal_known_num_col_list + self.known_onehot_cols,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
