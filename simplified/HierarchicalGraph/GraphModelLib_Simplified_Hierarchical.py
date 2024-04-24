@@ -1638,7 +1638,7 @@ class graphmodel:
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
               sample_weights=False):
 
-        sself.loss = loss
+        self.loss = loss
 
         if self.loss == 'Tweedie':
             loss_fn = TweedieLoss()
