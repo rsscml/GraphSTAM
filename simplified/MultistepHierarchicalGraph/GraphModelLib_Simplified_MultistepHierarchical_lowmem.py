@@ -368,10 +368,8 @@ class STGNN(torch.nn.Module):
                                          skip_connection=skip_connection)
 
         self.lead_transform = Linear(-1, hidden_channels)
-        self.sequence_layer = torch.nn.LSTM(input_size=int(2*hidden_channels),
-                                            hidden_size=int(2*hidden_channels),
-                                            num_layers=1,
-                                            batch_first=True)
+        self.seq_layer = torch.nn.LSTM(input_size=int(2*hidden_channels), hidden_size=int(2*hidden_channels),
+                                       num_layers=1, batch_first=True)
         self.out_layer = Linear(int(2*hidden_channels), int(n_quantiles))
 
     def sum_over_index(self, x, x_index):
@@ -397,24 +395,19 @@ class STGNN(torch.nn.Module):
 
         # get lead vars embedding for "decoder"
         x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
-        print("lead vars: ", x_dict_lead.keys())
-        print("x_dict lead: ", x_dict_lead)
         lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
-        print("lead tensor shape: ", lead_tensor.shape)
         lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
-        print("lead tensor shape: ", lead_tensor.shape)
 
         # gnn model (encoder)
         # get embeddings from lag data only
         x_dict = {key: x_dict[key][:-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
 
-        out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
-        print("out shape: ", out.shape)
+        enc_out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
         # repeat 'out' embedding for time_steps
-        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
-        print("out repeat vec shape: ", out.shape)
-        out = torch.concat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = self.sequence_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
+        enc_out = enc_out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        out = torch.cat((enc_out, lead_tensor), dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        print("enc_out concat, seq input: ", enc_out.shape)
+        out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
         # old
