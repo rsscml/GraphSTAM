@@ -341,6 +341,7 @@ class STGNN(torch.nn.Module):
                  num_layers,
                  metadata,
                  target_node,
+                 leading_features,
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0,
@@ -350,6 +351,7 @@ class STGNN(torch.nn.Module):
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
+        self.leading_features = leading_features
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
         self.tweedie_out = tweedie_out
@@ -363,6 +365,11 @@ class STGNN(torch.nn.Module):
                                          edge_types=self.edge_types,
                                          target_node_type=target_node,
                                          skip_connection=skip_connection)
+
+        self.lead_transform = Linear(-1, hidden_channels)
+        self.seq_layer = torch.nn.LSTM(input_size=int(2 * hidden_channels), hidden_size=int(2 * hidden_channels),
+                                       num_layers=1, batch_first=True)
+        self.out_layer = Linear(int(2 * hidden_channels), int(n_quantiles))
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
@@ -385,9 +392,23 @@ class STGNN(torch.nn.Module):
         del x_dict['keybom']
         del x_dict['key_aggregation_status']
 
-        # gnn model
+        # get lead vars embedding for "decoder"
+        x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
+        lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
+        lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
+
+        # gnn model (encoder)
+        # get embeddings from lag data only
+        x_dict = {key: x_dict[key][:, :-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
+
         out = self.gnn_model(x_dict, edge_index_dict)
-        out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+        # repeat 'enc_out' embedding for time_steps
+        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = F.selu(out)
+        out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
+        out = F.selu(out)
+        out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
@@ -962,7 +983,7 @@ class graphmodel():
         self.forecast_periods = []
         self.multistep_mask = []
 
-        for col in [self.target_col, self.time_index_col] + \
+        for col in [self.target_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -983,10 +1004,6 @@ class graphmodel():
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_mask.append(f'{col}_fh_{h}')
-            elif col == self.time_index_col:
-                for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
-                    self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
@@ -1622,6 +1639,7 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
+                           leading_features=self.temporal_known_num_col_list + self.known_onehot_cols,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,

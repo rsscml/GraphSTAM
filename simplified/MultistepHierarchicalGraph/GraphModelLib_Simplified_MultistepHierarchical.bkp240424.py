@@ -68,12 +68,12 @@ class QuantileLoss:
     def __init__(self, quantiles = [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]):
         self.quantiles = quantiles
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def loss(self, y_pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
         # calculate quantile loss
         losses = []
         for i, q in enumerate(self.quantiles):
-            errors = y_true - y_pred[..., i]
+            errors = target - y_pred[..., i]
             losses.append(torch.max((q - 1) * errors, q * errors).unsqueeze(-1))
         losses = 2 * torch.cat(losses, dim=2)
 
@@ -89,9 +89,8 @@ class RMSE:
     def __init__(self):
         super().__init__()
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.tensor) -> torch.Tensor:
-        loss = torch.pow(y_pred[..., 0] - y_true, 2)
-
+    def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
+        loss = torch.pow(y_pred[..., 0] - target, 2)
         return loss
 
 
@@ -273,7 +272,7 @@ class HeteroGraphSAGE(torch.nn.Module):
         if num_layers == 1:
             self.skip_connection = False
 
-        self.project_lin = Linear(hidden_channels, hidden_channels)  # previously: (hidden_channels, out_channels)
+        self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -342,7 +341,6 @@ class STGNN(torch.nn.Module):
                  num_layers,
                  metadata,
                  target_node,
-                 leading_features,
                  time_steps=1,
                  n_quantiles=1,
                  dropout=0.0,
@@ -352,7 +350,6 @@ class STGNN(torch.nn.Module):
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
-        self.leading_features = leading_features
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
         self.tweedie_out = tweedie_out
@@ -366,11 +363,6 @@ class STGNN(torch.nn.Module):
                                          edge_types=self.edge_types,
                                          target_node_type=target_node,
                                          skip_connection=skip_connection)
-
-        self.lead_transform = Linear(-1, hidden_channels)
-        self.seq_layer = torch.nn.LSTM(input_size=int(2*hidden_channels), hidden_size=int(2*hidden_channels),
-                                       num_layers=1, batch_first=True)
-        self.out_layer = Linear(int(2*hidden_channels), int(n_quantiles))
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
@@ -393,24 +385,9 @@ class STGNN(torch.nn.Module):
         del x_dict['keybom']
         del x_dict['key_aggregation_status']
 
-        # get lead vars embedding for "decoder"
-        x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
-        lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
-        lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
-
-        # gnn model (encoder)
-        # get embeddings from lag data only
-        x_dict = {key: x_dict[key][:, :-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
-
-        out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
-
-        # repeat 'enc_out' embedding for time_steps
-        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
-        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = F.selu(out)
-        out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = F.selu(out)
-        out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
+        # gnn model
+        out = self.gnn_model(x_dict, edge_index_dict)
+        out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
 
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
@@ -457,6 +434,7 @@ class STGNN(torch.nn.Module):
 
 
 # Graph Object
+
 class graphmodel():
     def __init__(self, 
                  col_dict,
@@ -614,7 +592,6 @@ class graphmodel():
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
         self.unknown_onehot_cols = []
-
         # scaler cols
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             self.scaler_cols = ['scaler']
@@ -862,7 +839,7 @@ class graphmodel():
                     known_sum = np.sum(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
                     # use max scale for known co-variates
-                    #known_scale = np.maximum(np.nanmax(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    #known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1.0
 
@@ -880,7 +857,7 @@ class graphmodel():
                     known_sum = np.sum(np.abs(known_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
                     # use max scale for known co-variates
-                    #known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    # known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 else:
                     known_scale = 1
 
@@ -900,7 +877,7 @@ class graphmodel():
             # scale each feature independently
             if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
                 gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
-                gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
+                gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
 
         return gdf
 
@@ -977,17 +954,15 @@ class graphmodel():
         
         return df
 
-    def parallel_create_lead_lag_features(self, df):
-
-        # initialize necessary ds for lead/lag feats
+    def create_lead_lag_features(self, df):
+        # critical to initialize these to empty
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
         self.multistep_targets = []
         self.forecast_periods = []
         self.multistep_mask = []
 
-        # populate column names only
-        for col in [self.target_col] + \
+        for col in [self.target_col, self.time_index_col] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -999,18 +974,27 @@ class graphmodel():
 
             if col == self.target_col:
                 for lag in range(self.max_target_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
                 for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_targets.append(f'{col}_fh_{h}')
             elif col == 'y_mask':
                 for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
                     self.multistep_mask.append(f'{col}_fh_{h}')
+            elif col == self.time_index_col:
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
+                    self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
+                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
 
             if col in self.temporal_known_num_col_list + self.known_onehot_cols:
                 for lead in range(0, self.max_leads):
+                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lead_{lead}')
 
             self.node_features_label[col] = self.lead_lag_features_dict[col]
@@ -1018,56 +1002,6 @@ class graphmodel():
         # don't drop rows with NaNs in lag/lead cols
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in
                                                                      self.lead_lag_features_dict.items()]))
-
-        # call create_lead_lag_features()
-        groups = df.groupby([self.id_col])
-        gdf_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS,
-                            batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
-                            backend=backend,
-                            timeout=timeout)(delayed(self.create_lead_lag_features)(gdf) for _, gdf in groups)
-        df = pd.concat(gdf_list, axis=0)
-        df = df.reset_index(drop=True)
-        get_reusable_executor().shutdown(wait=True)
-
-        return df
-
-    def create_lead_lag_features(self, df):
-
-        # only create lead/lag features
-        for col in [self.target_col] + \
-                   self.temporal_known_num_col_list + \
-                   self.temporal_unknown_num_col_list + \
-                   self.known_onehot_cols + \
-                   self.unknown_onehot_cols + \
-                   ['y_mask']:
-
-            if col == self.target_col:
-                for lag in range(self.max_target_lags, 0, -1):
-                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
-                for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h, fill_value=0)
-            elif col == 'y_mask':
-                for h in range(0, self.fh):
-                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
-            else:
-                for lag in range(self.max_covar_lags, 0, -1):
-                    df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
-
-            if col in self.temporal_known_num_col_list + self.known_onehot_cols:
-                for lead in range(0, self.max_leads):
-                    df[f'{col}_lead_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
-
-        # drop-na
-        df = df.dropna(subset=self.all_lead_lag_cols)
-        df = df.reset_index(drop=True)
-
-        # apply interleaving
-        if self.interleave > 1:
-            #df = pd.concat([df.iloc[::self.interleave], df.iloc[-1:]], axis=0).drop_duplicates()
-            df = pd.concat([df[df[self.time_index_col] < self.train_till].iloc[:-self.fh:self.interleave],
-                            df[df[self.time_index_col] < self.train_till].iloc[-self.fh:],
-                            df[df[self.time_index_col] >= self.train_till]], axis=0)
-            df = df.reset_index(drop=True)
 
         return df
 
@@ -1462,7 +1396,7 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.parallel_create_lead_lag_features(df)
+        df = self.create_lead_lag_features(df)
         print("lead/lag feature names...")
         print(self.lead_lag_features_dict)
 
@@ -1494,6 +1428,11 @@ class graphmodel():
                 snapshot_list = []
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
                 if self.subgraph_sample_size > 0:
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
@@ -1518,6 +1457,13 @@ class graphmodel():
             else:
                 # all snapshot timestamps
                 snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
+
                 print("snap_periods_list {}: {}".format(df_type, snap_periods_list))
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
@@ -1547,9 +1493,11 @@ class graphmodel():
 
         # create lagged features
         print("create lead & lag features...")
-        df = self.parallel_create_lead_lag_features(df)
+        df = self.create_lead_lag_features(df)
         print("lead/lag feature names...")
         print(self.lead_lag_features_dict)
+        #print("reduce mem usage post lags creation...")
+        #df = self.reduce_mem_usage(df)
 
         print("create infer cutoff ...")
         infer_start = self.split_infer(df, infer_start)
@@ -1587,8 +1535,8 @@ class graphmodel():
 
     def split_train_test(self, data):
         # multistep adjusted train/test cutoff
-        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
-        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
+        train_cut_off = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-self.fh]
+        test_cut_off = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-self.fh]
 
         print("train & test multistep cutoffs: ", train_cut_off, test_cut_off)
         return train_cut_off, test_cut_off
@@ -1674,7 +1622,6 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
-                           leading_features=self.temporal_known_num_col_list + self.known_onehot_cols,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
@@ -1727,7 +1674,6 @@ class graphmodel():
             loss_fn = RMSE()
         elif self.loss == 'Huber':
             loss_fn = Huber(delta=delta)
-
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         if use_lr_scheduler:
@@ -1776,8 +1722,7 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss == 'Tweedie':
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                            scaler=batch[self.target_col].scaler,
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
@@ -1849,8 +1794,7 @@ class graphmodel():
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss == 'Tweedie':
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                        scaler=batch[self.target_col].scaler,
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
                                         log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
