@@ -400,7 +400,7 @@ class STGNN(torch.nn.Module):
 
         # gnn model (encoder)
         # get embeddings from lag data only
-        x_dict = {key: x_dict[key][:-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
+        x_dict = {key: x_dict[key][:, :-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
 
         out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
 
@@ -416,8 +416,8 @@ class STGNN(torch.nn.Module):
         out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
         print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
         print("enc_out : ", out.shape, out.dtype)
-        out = torch.cat([out, lead_tensor], dim=2).to(device)  # (num_nodes, time_steps, 2*hidden_channels)
-        print("enc_out concat, seq input: ", out)
+        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
+        print("enc_out concat, seq input: ", out, out.shape)
 
         out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
