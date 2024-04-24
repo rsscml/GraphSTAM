@@ -398,7 +398,9 @@ class STGNN(torch.nn.Module):
         # get lead vars embedding for "decoder"
         x_dict_lead = {key: torch.reshape(x_dict[key][-self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
         print("lead vars: ", x_dict_lead.keys())
+        print("x_dict lead: ", x_dict_lead)
         lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
+        print("lead tensor shape: ", lead_tensor.shape)
         lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
         print("lead tensor shape: ", lead_tensor.shape)
 
