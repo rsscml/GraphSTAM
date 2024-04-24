@@ -407,9 +407,9 @@ class STGNN(torch.nn.Module):
         # repeat 'enc_out' embedding for time_steps
         out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
         out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = out.SELU()
+        out = F.selu(out)
         out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = out.SELU()
+        out = F.selu(out)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
         # old
