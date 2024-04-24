@@ -408,7 +408,7 @@ class STGNN(torch.nn.Module):
         print("lead_tensor : ", lead_tensor.shape, lead_tensor.dtype)
         print("enc_out : ", enc_out.shape, enc_out.dtype)
         out = torch.cat((enc_out, lead_tensor), dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        print("enc_out concat, seq input: ", enc_out.shape)
+        print("enc_out concat, seq input: ", out, out.shape)
         out = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
