@@ -90,7 +90,8 @@ class RMSE:
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.tensor) -> torch.Tensor:
-        loss = torch.pow(y_pred[..., 0] - y_true, 2)
+        y_true = torch.unsqueeze(y_true, dim=2)
+        loss = torch.pow(y_pred - y_true, 2)
 
         return loss
 
@@ -151,8 +152,9 @@ class SMAPE:
         Returns:
             torch.Tensor: SMAPE loss.
         """
-        numerator = torch.abs(y_pred[..., 0] - y_true)
-        denominator = torch.clamp(torch.abs(y_pred[..., 0]) + torch.abs(y_true), min=self.epsilon)
+        y_true = torch.unsqueeze(y_true, dim=2)
+        numerator = torch.abs(y_pred - y_true)
+        denominator = torch.clamp(torch.abs(y_pred) + torch.abs(y_true), min=self.epsilon)
         loss = 2.0 * (numerator / denominator)
 
         return loss
@@ -164,7 +166,8 @@ class Huber:
         self.delta = delta
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        loss = torch.nn.functional.huber_loss(input=y_pred[..., 0], target=y_true, reduction='none', delta=self.delta)
+        y_true = torch.unsqueeze(y_true, dim=2)
+        loss = torch.nn.functional.huber_loss(input=y_pred, target=y_true, reduction='none', delta=self.delta)
         return loss
 
 
