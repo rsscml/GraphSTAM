@@ -469,6 +469,7 @@ class graphmodel():
                  train_till,
                  test_till,
                  autoregressive_target=True,
+                 rolling_features_list=[],
                  min_history=1,
                  fh=1,
                  batch=1,
@@ -511,11 +512,8 @@ class graphmodel():
                                                        sort_col_list:[] # UNUSED
                                                        wt_col:None # UNUSED
                                                        }
-        window_len: history_len + forecast_horizon
-        fh: forecast_horizon
-        batch: batch_size (per strata)
-        min_nz: min. no. of non-zeros in the target input series to be eligible for train/test batch
         scaling_method: 'mean_scaling','no_scaling'
+        rolling_features_list: [('col','stat','periods','min_periods'), ...], 'stat' : ['mean','std']
         
         """
         super().__init__()
@@ -534,6 +532,7 @@ class graphmodel():
         self.train_till = train_till
         self.test_till = test_till
         self.autoregressive_target = autoregressive_target
+        self.rolling_features_list = rolling_features_list
         
         self.batch = batch
         self.grad_accum = grad_accum
@@ -1008,6 +1007,9 @@ class graphmodel():
             elif col == 'y_mask':
                 for h in range(0, self.fh):
                     self.multistep_mask.append(f'{col}_fh_{h}')
+            elif col == self.time_index_col:
+                for h in range(0, self.fh):
+                    self.forecast_periods.append(f'{col}_fh_{h}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
@@ -1052,6 +1054,9 @@ class graphmodel():
             elif col == 'y_mask':
                 for h in range(0, self.fh):
                     df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
+            elif col == self.time_index_col:
+                for h in range(0, self.fh):
+                    df[f'{col}_fh_{h}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-h)
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag)
@@ -1066,12 +1071,46 @@ class graphmodel():
 
         # apply interleaving
         if self.interleave > 1:
-            #df = pd.concat([df.iloc[::self.interleave], df.iloc[-1:]], axis=0).drop_duplicates()
             df = pd.concat([df[df[self.time_index_col] < self.train_till].iloc[:-self.fh:self.interleave],
                             df[df[self.time_index_col] < self.train_till].iloc[-self.fh:],
                             df[df[self.time_index_col] >= self.train_till]], axis=0)
             df = df.reset_index(drop=True)
 
+        return df
+
+    def derive_rolling_features(self, df):
+        """"
+        Can be run once
+        """
+        self.rolling_feature_cols = []
+
+        if len(self.rolling_features_list) > 0:
+            for tup in self.rolling_features_list:
+                if len(tup) != 3:
+                    raise ValueError("rolling feature tuples no defined properly.")
+                else:
+                    col = tup[0]
+                    stat = tup[1]
+                    window_size = tup[2]
+                    # check
+                    if col not in self.col_list:
+                        raise ValueError("rolling feature window col not in columns list.")
+                    if stat not in ['mean', 'std']:
+                        raise ValueError("stat not one of ['mean','std'].")
+                    if col != self.time_index_col:
+                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
+                        if stat == 'mean':
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        else:
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        self.rolling_feature_cols.append(feat_name)
+                    else:
+                        feat_name = f'rolling_{stat}_win_{window_size}'
+                        if stat == 'mean':
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        else:
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        self.rolling_feature_cols.append(feat_name)
         return df
 
     def pad_dataframe(self, df, dateindex):
@@ -1244,16 +1283,6 @@ class graphmodel():
                 onehot_cols_prefix = str(node) + '_'
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.unknown_onehot_cols += onehot_col_features
-
-        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
-        print("\n")
-        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
-        print("\n")
-        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
-        print("\n")
-        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
-        print("\n")
-        print("   preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
 
         return df
     
@@ -1454,12 +1483,26 @@ class graphmodel():
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
+        print("create rolling features...")
+        df = self.derive_rolling_features(df)
         print("reduce mem usage post padding ...")
         df = self.reduce_mem_usage(df)
         print("creating relative time index & recency weights...")
         self.onetime_prep_df = self.get_relative_time_index(df)
         # add 'relative time index' to self.temporal_known_num_col_list
-        self.temporal_known_num_col_list = self.temporal_known_num_col_list + ['relative_time_index']
+        self.temporal_known_num_col_list += ['relative_time_index']
+        # add rolling features to temporal unknown col list
+        self.temporal_unknown_num_col_list += self.rolling_feature_cols
+        # for debug
+        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
+        print("\n")
+        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
+        print("\n")
+        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
+        print("\n")
+        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
+        print("\n")
+        print("   preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
 
     def create_train_test_dataset(self, df):
 
@@ -1468,9 +1511,6 @@ class graphmodel():
         df = self.parallel_create_lead_lag_features(df)
         print("lead/lag feature names...")
         print(self.lead_lag_features_dict)
-
-        #print("reduce mem usage post lags creation...")
-        #df = self.reduce_mem_usage(df)
 
         print("create train/test cutoffs ...")
         train_cutoff, test_cutoff = self.split_train_test(df)
