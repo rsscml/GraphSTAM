@@ -2065,8 +2065,9 @@ class graphmodel():
 
             if use_lr_scheduler:
                 scheduler.step(val_loss)
-                scheduler.get_last_lr()
+                print("previous lr: ", scheduler.get_last_lr())
 
+            print("current lr: ", optimizer.param_groups[0]['lr'])
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
             print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
 
