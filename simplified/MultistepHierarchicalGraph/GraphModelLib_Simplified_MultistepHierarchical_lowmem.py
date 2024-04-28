@@ -2063,11 +2063,12 @@ class graphmodel():
                 loss, rmse = train_fn()
                 val_loss, val_rmse = test_fn()
 
-            print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
-            print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
-
             if use_lr_scheduler:
                 scheduler.step(val_loss)
+                scheduler.get_last_lr()
+
+            print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+            print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
 
             train_loss_hist.append(loss)
             val_loss_hist.append(val_loss)
