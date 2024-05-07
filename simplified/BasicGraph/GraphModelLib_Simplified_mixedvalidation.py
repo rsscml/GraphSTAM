@@ -1215,8 +1215,8 @@ class graphmodel():
         test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
         train_snapshots = [snapshot_list[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
 
-        print("train samples picked: {}".format(train_snapshots))
-        print("test samples picked: {}".format(test_snapshots))
+        print("train samples picked: {}".format(len(train_snapshots)))
+        print("test samples picked: {}".format(len(test_snapshots)))
 
         train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
         test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
