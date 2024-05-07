@@ -1221,6 +1221,9 @@ class graphmodel():
         train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
         test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
 
+        del snapshot_list
+        gc.collect()
+
         return train_dataset, test_dataset
 
     def create_train_test_dataset_orig(self, df):

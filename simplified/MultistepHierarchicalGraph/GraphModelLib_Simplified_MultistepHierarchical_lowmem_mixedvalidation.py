@@ -1572,6 +1572,9 @@ class graphmodel():
             train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
             test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
 
+            del snapshot_list
+            gc.collect()
+
         else:
             print("snap_periods_list: {}".format(all_snap_periods_list))
             print("picking {} total samples".format(len(all_snap_periods_list)))
@@ -1600,6 +1603,9 @@ class graphmodel():
 
             train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
             test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+
+            del snapshot_list
+            gc.collect()
 
         return train_dataset, test_dataset
 
