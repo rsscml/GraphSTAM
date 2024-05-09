@@ -1204,8 +1204,8 @@ class graphmodel():
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        print("reduce mem usage post lags creation...")
-        df = self.reduce_mem_usage(df)
+        #print("reduce mem usage post lags creation...")
+        #df = self.reduce_mem_usage(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
