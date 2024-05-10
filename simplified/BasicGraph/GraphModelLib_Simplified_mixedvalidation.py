@@ -697,8 +697,8 @@ class graphmodel():
             target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
             scale = np.divide(target_sum, target_nz_count) + 1.0
 
-            if target_nz_count < self.min_nz_history:
-                scale = scale_gdf['npd_scaler']
+            #if target_nz_count < self.min_nz_history:
+            #    scale = scale_gdf['npd_scaler']
 
             if len(self.temporal_known_num_col_list) > 0:
                 # use max scale for known co-variates
@@ -1002,7 +1002,7 @@ class graphmodel():
                 df = self.parallel_tweedie_p_estimate(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
-            df = self.get_npd_scale(df)
+            #df = self.get_npd_scale(df)
             df = self.scale_dataset(df)
             # apply log1p transform
             df = self.log1p_transform_target(df)
@@ -1013,7 +1013,7 @@ class graphmodel():
                 df = self.parallel_tweedie_p_estimate(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
-            df = self.get_npd_scale(df)
+            #df = self.get_npd_scale(df)
             df = self.scale_dataset(df)
 
         # onehot encode
