@@ -418,6 +418,7 @@ class graphmodel():
                  test_random_percentage=0.1,
                  autoregressive_target=True,
                  min_history=1,
+                 min_nz_history=1,
                  fh=1,
                  batch=1,
                  grad_accum=False,
@@ -463,6 +464,7 @@ class graphmodel():
         
         self.col_dict = copy.deepcopy(col_dict)
         self.min_history = int(min_history)
+        self.min_nz_history = int(min_nz_history)
         self.fh = int(fh)
         self.max_history = int(1)
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
@@ -661,6 +663,9 @@ class graphmodel():
         df['npd_scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(self.target_scale_col)[self.target_col].transform(lambda x: x[x > 0].mean())
         df['npd_scaler'] = df.groupby(self.target_scale_col)['npd_scaler'].transform(lambda x: x.ffill().bfill())
 
+        if df['npd_scaler'].isnull().any():
+            raise ValueError("npd scaler column has nulls.")
+
         return df
 
     def scale_dataset(self, df):
@@ -685,15 +690,16 @@ class graphmodel():
         # obtain scalers
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        npd_scaler = scale_gdf['npd_scaler'].unique().tolist()[0]
         covar_gdf = gdf.reset_index(drop=True)
 
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
             target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
             scale = np.divide(target_sum, target_nz_count) + 1.0
-            scale = np.where(scale <= 1.0, npd_scaler, scale)
-            
+
+            if target_nz_count < self.min_nz_history:
+                scale = scale_gdf['npd_scaler']
+
             if len(self.temporal_known_num_col_list) > 0:
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
