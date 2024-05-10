@@ -685,12 +685,14 @@ class graphmodel():
         # obtain scalers
         
         scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
+        npd_scaler = scale_gdf['npd_scaler'].unique().tolist()[0]
         covar_gdf = gdf.reset_index(drop=True)
 
         if self.scaling_method == 'mean_scaling':
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
             target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
-            scale = np.maximum(np.divide(target_sum, target_nz_count) + 1.0, scale_gdf['npd_scaler'])
+            scale = np.divide(target_sum, target_nz_count) + 1.0
+            scale = np.where(scale <= 1.0, npd_scaler, scale)
             
             if len(self.temporal_known_num_col_list) > 0:
                 # use max scale for known co-variates
