@@ -418,7 +418,6 @@ class graphmodel():
                  test_random_percentage=0.1,
                  autoregressive_target=True,
                  min_history=1,
-                 min_nz_history=1,
                  fh=1,
                  batch=1,
                  grad_accum=False,
@@ -441,7 +440,6 @@ class graphmodel():
         """
         col_dict: dictionary of various column groups {id_col:'',
                                                        target_col:'',
-                                                       target_scale_col:'',
                                                        time_index_col:'',
                                                        global_context_col_list:[],
                                                        static_cat_col_list:[],
@@ -464,7 +462,6 @@ class graphmodel():
         
         self.col_dict = copy.deepcopy(col_dict)
         self.min_history = int(min_history)
-        self.min_nz_history = int(min_nz_history)
         self.fh = int(fh)
         self.max_history = int(1)
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
@@ -503,7 +500,6 @@ class graphmodel():
         # extract column sets from col_dict
         self.id_col = self.col_dict.get('id_col', None)
         self.target_col = self.col_dict.get('target_col', None)
-        self.target_scale_col = self.col_dict.get('target_scale_col', None)
         self.time_index_col = self.col_dict.get('time_index_col', None)
         self.datetime_format = self.col_dict.get('datetime_format', None)
         self.strata_col_list = self.col_dict.get('strata_col_list', [])
@@ -655,19 +651,6 @@ class graphmodel():
         get_reusable_executor().shutdown(wait=True)
         return gdf
 
-    def get_npd_scale(self, df):
-        """
-        For NPD or less history cases, the mean scaling may result in high target values in the fh.
-        Use one of the 'link' columns in static_cat_col_list or global_context_col_list as basis for scale
-        """
-        df['npd_scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(self.target_scale_col)[self.target_col].transform(lambda x: x[x > 0].mean())
-        df['npd_scaler'] = df.groupby(self.target_scale_col)['npd_scaler'].transform(lambda x: x.ffill().bfill())
-
-        if df['npd_scaler'].isnull().any():
-            raise ValueError("npd scaler column has nulls.")
-
-        return df
-
     def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
@@ -696,9 +679,6 @@ class graphmodel():
             target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
             target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
             scale = np.divide(target_sum, target_nz_count) + 1.0
-
-            #if target_nz_count < self.min_nz_history:
-            #    scale = scale_gdf['npd_scaler']
 
             if len(self.temporal_known_num_col_list) > 0:
                 # use max scale for known co-variates
@@ -1002,7 +982,6 @@ class graphmodel():
                 df = self.parallel_tweedie_p_estimate(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
-            #df = self.get_npd_scale(df)
             df = self.scale_dataset(df)
             # apply log1p transform
             df = self.log1p_transform_target(df)
@@ -1013,7 +992,6 @@ class graphmodel():
                 df = self.parallel_tweedie_p_estimate(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
-            #df = self.get_npd_scale(df)
             df = self.scale_dataset(df)
 
         # onehot encode
