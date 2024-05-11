@@ -1540,40 +1540,65 @@ class graphmodel():
             snapshot_list = []
 
             if self.subgraph_sample_size > 0:
+                train_snapshots = []
+                test_snapshots = []
                 for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
                     df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i + self.subgraph_sample_size])]
                     # sample snapshot graphs
                     print("  gathering for subgraph_col_values: ", all_subgraph_col_values[i:i + self.subgraph_sample_size])
                     sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in all_snap_periods_list)
-                    snapshot_list.append(sample_snapshot_list)
+
+                    # split into train/test
+                    num_total_snapshots = len(sample_snapshot_list)
+                    print("total samples picked: {}".format(num_total_snapshots))
+
+                    num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
+                    num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
+                    num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
+                    val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
+
+                    recent_val_snapshots = sample_snapshot_list[-num_recent_val_snapshots:]
+                    nonrecent_val_snapshots = [sample_snapshot_list[i] for i in val_random_select_indices]
+                    test_snapshots += recent_val_snapshots + nonrecent_val_snapshots
+                    train_snapshots += [sample_snapshot_list[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
+
+                    del sample_snapshot_list
+                    gc.collect()
+
+                print("train samples picked: {}".format(len(train_snapshots)))
+                print("test samples picked: {}".format(len(test_snapshots)))
+                train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+
+
             else:
                 # sample snapshot graphs
                 sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in all_snap_periods_list)
                 snapshot_list.append(sample_snapshot_list)
 
-            # Create dataset iterators
-            num_total_snapshots = len(list(itertools.chain.from_iterable(snapshot_list)))
-            print("total samples picked: {}".format(num_total_snapshots))
+                # Create dataset iterators
+                num_total_snapshots = len(list(itertools.chain.from_iterable(snapshot_list)))
+                print("total samples picked: {}".format(num_total_snapshots))
 
-            # split into train/test
-            # test = last 10% of snapshots + randomly selected 10% of rest of the snapshots
-            num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
-            num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
-            num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
-            val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
+                # split into train/test
+                # test = last 10% of snapshots + randomly selected 10% of rest of the snapshots
+                num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
+                num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
+                num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
+                val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
 
-            recent_val_snapshots = list(itertools.chain.from_iterable(snapshot_list))[-num_recent_val_snapshots:]
-            nonrecent_val_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in val_random_select_indices]
-            test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
-            train_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
+                recent_val_snapshots = list(itertools.chain.from_iterable(snapshot_list))[-num_recent_val_snapshots:]
+                nonrecent_val_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in val_random_select_indices]
+                test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
+                train_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
 
-            print("train samples picked: {}".format(len(train_snapshots)))
-            print("test samples picked: {}".format(len(test_snapshots)))
-            train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
-            test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                print("train samples picked: {}".format(len(train_snapshots)))
+                print("test samples picked: {}".format(len(test_snapshots)))
+                train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
 
-            del snapshot_list
-            gc.collect()
+                del snapshot_list
+                gc.collect()
 
         else:
             print("snap_periods_list: {}".format(all_snap_periods_list))
