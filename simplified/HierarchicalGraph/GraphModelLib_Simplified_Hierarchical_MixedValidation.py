@@ -471,6 +471,7 @@ class graphmodel:
                  test_recent_percentage=0.1,
                  test_random_percentage=0.1,
                  autoregressive_target=True,
+                 rolling_features_list=[],
                  min_history=1,
                  fh=1,
                  batch=1,
@@ -517,7 +518,8 @@ class graphmodel:
         batch: batch_size (per strata)
         min_nz: min. no. of non-zeros in the target input series to be eligible for train/test batch
         scaling_method: 'mean_scaling','no_scaling'
-        
+        rolling_features_list: [('col','stat','periods','min_periods'), ...], 'stat' : ['mean','std']
+
         """
         super().__init__()
         
@@ -537,6 +539,7 @@ class graphmodel:
         self.test_recent_percentage = test_recent_percentage
         self.test_random_percentage = test_random_percentage
         self.autoregressive_target = autoregressive_target
+        self.rolling_features_list = rolling_features_list
         
         self.batch = batch
         self.grad_accum = grad_accum
@@ -975,7 +978,8 @@ class graphmodel:
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
-                   self.unknown_onehot_cols:
+                   self.unknown_onehot_cols + \
+                   self.rolling_feature_cols:
 
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
@@ -1000,6 +1004,41 @@ class graphmodel:
         self.all_lead_lag_cols = list(itertools.chain.from_iterable([feat_col_list for col, feat_col_list in
                                                                      self.lead_lag_features_dict.items()]))
 
+        return df
+
+    def derive_rolling_features(self, df):
+        """"
+        Can be run once
+        """
+        self.rolling_feature_cols = []
+
+        if len(self.rolling_features_list) > 0:
+            for tup in self.rolling_features_list:
+                if len(tup) != 3:
+                    raise ValueError("rolling feature tuples not defined properly.")
+                else:
+                    col = tup[0]
+                    stat = tup[1]
+                    window_size = tup[2]
+                    # check
+                    if col not in self.col_list:
+                        raise ValueError("rolling feature window col not in columns list.")
+                    if stat not in ['mean', 'std']:
+                        raise ValueError("stat not one of ['mean','std'].")
+                    if col != self.time_index_col:
+                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
+                        if stat == 'mean':
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        else:
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        self.rolling_feature_cols.append(feat_name)
+                    else:
+                        feat_name = f'rolling_{stat}_win_{window_size}'
+                        if stat == 'mean':
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        else:
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        self.rolling_feature_cols.append(feat_name)
         return df
 
     def pad_dataframe(self, df, dateindex):
@@ -1258,6 +1297,9 @@ class graphmodel:
         
         for col in self.unknown_onehot_cols:
             data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+
+        for col in self.rolling_feature_cols:
+            data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
             
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
@@ -1378,14 +1420,17 @@ class graphmodel:
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
-        print("reduce mem usage post padding ...")
-        df = self.reduce_mem_usage(df)
+        #print("reduce mem usage post padding ...")
+        #df = self.reduce_mem_usage(df)
         print("creating relative time index & recency weights...")
         self.onetime_prep_df = self.get_relative_time_index(df)
         # add 'relative time index' to self.temporal_known_num_col_list
         self.temporal_known_num_col_list = self.temporal_known_num_col_list + ['relative_time_index']
 
     def create_train_test_dataset(self, df):
+
+        print("create rolling features...")
+        df = self.derive_rolling_features(df)
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1504,11 +1549,11 @@ class graphmodel:
 
     def create_train_test_dataset_orig(self, df):
 
+        print("create rolling features...")
+        df = self.derive_rolling_features(df)
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        #print("reduce mem usage post lags creation...")
-        #df = self.reduce_mem_usage(df)
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
@@ -1594,15 +1639,15 @@ class graphmodel:
 
         # drop lead/lag features if present
         try:
-            df.drop(columns=self.all_lead_lag_cols, inplace=True)
+            df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols, inplace=True)
         except:
             pass
 
+        print("create rolling features...")
+        df = self.derive_rolling_features(df)
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        #print("reduce mem usage post lags creation...")
-        #df = self.reduce_mem_usage(df)
 
         infer_df = df[df[self.time_index_col] <= self.infer_till]
         df_dict = {'infer': infer_df}
