@@ -141,6 +141,7 @@ class gml(object):
         import torch
         # train k models & average the weights for stable o/p
         state_dict_list = []
+        averaged_model_path = ""
         for i in range(k):
             # build dataset
             self.build(data)
@@ -156,6 +157,7 @@ class gml(object):
                 self.graphobj.best_model = None
             else:
                 best_model_path = self.graphobj.best_model
+                averaged_model_path = best_model_path
                 self.graphobj.model.load_state_dict(torch.load(best_model_path))
                 break
 
@@ -168,8 +170,8 @@ class gml(object):
             self.graphobj.model.state_dict[key] = avg_key/k
 
         # save updated model at the same path
-        print("saving averaged model at: {}".format(best_model_path))
-        torch.save(self.graphobj.model.state_dict(), best_model_path)
+        print("saving averaged model at: {}".format(averaged_model_path))
+        torch.save(self.graphobj.model.state_dict(), averaged_model_path)
 
         # run inference as usual
 
