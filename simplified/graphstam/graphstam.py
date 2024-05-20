@@ -152,6 +152,7 @@ class gml(object):
             if i < k-1:
                 best_model_path = self.graphobj.best_model
                 self.graphobj.model.load_state_dict(torch.load(best_model_path))
+                self.graphobj.model.eval()
                 state_dict_list.append(self.graphobj.model.state_dict())
                 del self.graphobj.model
                 self.graphobj.best_model = None
@@ -159,6 +160,7 @@ class gml(object):
                 best_model_path = self.graphobj.best_model
                 averaged_model_path = best_model_path
                 self.graphobj.model.load_state_dict(torch.load(best_model_path))
+                self.graphobj.model.eval()
                 break
 
         # average & load state_dicts
