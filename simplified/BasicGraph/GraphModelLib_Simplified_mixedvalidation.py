@@ -1820,7 +1820,7 @@ class graphmodel():
         
         # infer fn
         def infer_fn(model, model_path, infer_dataset):
-            model.load_state_dict(torch.load(model_path))
+            model.load_state_dict(torch.load(model_path), strict=True)
             model.eval()
             model.train(False)
             output = []
