@@ -1769,6 +1769,9 @@ class graphmodel():
 
             print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
 
+            # freeze before saving
+            self.model.eval()
+
             # track & save best model
             if save_condition:
                 self.best_model = model_path
@@ -1778,6 +1781,9 @@ class graphmodel():
                 time_since_improvement = 0
             else:
                 time_since_improvement += 1
+
+            # unfreeze after saving
+            self.model.train(True)
 
             # remove older models
             if len(model_list) > patience:
