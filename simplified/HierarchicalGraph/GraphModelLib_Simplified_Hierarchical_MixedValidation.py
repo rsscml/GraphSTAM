@@ -1298,10 +1298,6 @@ class graphmodel:
         for col in self.unknown_onehot_cols:
             data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
 
-        if len(self.rolling_feature_cols) > 0:
-            for col in self.rolling_feature_cols:
-                data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
-
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
             onehot_cols_prefix = str(col) + '_'
@@ -1432,6 +1428,8 @@ class graphmodel:
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
+        self.temporal_unknown_num_col_list = self.temporal_unknown_num_col_list + self.rolling_feature_cols
+        print("   new preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1553,6 +1551,8 @@ class graphmodel:
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
+        self.temporal_unknown_num_col_list = self.temporal_unknown_num_col_list + self.rolling_feature_cols
+        print("   new preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
@@ -1643,11 +1643,13 @@ class graphmodel:
         # drop lead/lag features if present
         try:
             df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols, inplace=True)
+            self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_feature_cols))
         except:
             pass
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
+        self.temporal_unknown_num_col_list = self.temporal_unknown_num_col_list + self.rolling_feature_cols
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
