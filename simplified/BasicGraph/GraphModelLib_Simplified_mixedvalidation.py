@@ -519,7 +519,7 @@ class graphmodel():
             raise ValueError("Id Column, Target Column or Index Column not specified!")
 
         # full column set for train/test/infer
-        self.col_list = [self.id_col] + [self.target_col] + \
+        self.col_list = [self.id_col] + [self.target_col] + [self.time_index_col] + \
                          self.static_cat_col_list + self.global_context_col_list + \
                          self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
