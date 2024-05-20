@@ -1420,8 +1420,8 @@ class graphmodel:
         # pad dataframe if required (will return df unchanged if not)
         print("padding dataframe...")
         df = self.parallel_pad_dataframe(df)  # self.pad_dataframe(df)
-        #print("reduce mem usage post padding ...")
-        #df = self.reduce_mem_usage(df)
+        print("reduce mem usage post padding ...")
+        df = self.reduce_mem_usage(df)
         print("creating relative time index & recency weights...")
         self.onetime_prep_df = self.get_relative_time_index(df)
         # add 'relative time index' to self.temporal_known_num_col_list
@@ -1434,6 +1434,7 @@ class graphmodel:
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
+        print("lead_lag_features_dict: ", self.lead_lag_features_dict)
 
         def parallel_snapshot_graphs(df, period):
             df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
@@ -1554,6 +1555,7 @@ class graphmodel:
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
+
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
