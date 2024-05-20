@@ -137,6 +137,42 @@ class gml(object):
             if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
+    def train_cross_validate(self, data, k=1):
+        import torch
+        # train k models & average the weights for stable o/p
+        state_dict_list = []
+        for i in range(k):
+            # build dataset
+            self.build(data)
+            # train
+            self.train()
+            # load best model weights to self.model
+            print("cross validation train: {} with best model: {}".format(i+1, self.graphobj.best_model))
+            if i < k-1:
+                best_model_path = self.graphobj.best_model
+                self.graphobj.model.load_state_dict(torch.load(best_model_path))
+                state_dict_list.append(self.graphobj.model.state_dict())
+                del self.graphobj.model
+                self.graphobj.best_model = None
+            else:
+                best_model_path = self.graphobj.best_model
+                self.graphobj.model.load_state_dict(torch.load(best_model_path))
+                break
+
+        # average & load state_dicts
+        print("averaging weights across : {} models".format(len(state_dict_list)+1))
+        for key in self.graphobj.model.state_dict():
+            avg_key = self.graphobj.model.state_dict[key]
+            for sd in state_dict_list:
+                avg_key += sd[key]
+            self.graphobj.model.state_dict[key] = avg_key/k
+
+        # save updated model at the same path
+        print("saving averaged model at: {}".format(best_model_path))
+        torch.save(self.graphobj.model.state_dict(), best_model_path)
+
+        # run inference as usual
+
     def train(self):
         self.graphobj.train(**self.train_config)
     
