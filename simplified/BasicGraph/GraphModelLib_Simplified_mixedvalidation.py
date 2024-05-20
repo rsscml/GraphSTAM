@@ -1138,6 +1138,7 @@ class graphmodel():
 
         if len(self.rolling_feature_cols) > 0:
             for col in self.rolling_feature_cols:
+                print(" snapshot rolling feat:", col)
                 data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
 
         # global context node features (one-hot features)
