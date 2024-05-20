@@ -849,8 +849,7 @@ class graphmodel():
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
-                   self.unknown_onehot_cols + \
-                   self.rolling_feature_cols:
+                   self.unknown_onehot_cols:
 
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
@@ -1136,9 +1135,9 @@ class graphmodel():
         for col in self.unknown_onehot_cols:
             data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
 
-        if len(self.rolling_feature_cols) > 0:
-            for col in self.rolling_feature_cols:
-                data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
+        #if len(self.rolling_feature_cols) > 0:
+        #    for col in self.rolling_feature_cols:
+        #        data[col].x = torch.tensor(df_snap[self.lead_lag_features_dict[col]].to_numpy(), dtype=torch.float)
 
         # global context node features (one-hot features)
         for col in self.global_context_col_list:
