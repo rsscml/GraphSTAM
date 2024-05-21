@@ -153,6 +153,11 @@ class gml(object):
                 best_model_path = self.graphobj.best_model
                 self.graphobj.model.load_state_dict(torch.load(best_model_path), strict=True)
                 model_state = self.graphobj.model.state_dict()
+                # check state_dict parameters count
+                saved_model_param_count = sum(p.numel() for p in model_state.values())
+                print("saved state_dict param count: ", saved_model_param_count)
+                print("saved model param count: ", sum(p.numel() for p in self.graphobj.model.parameters()))
+                print("show 1 layer parameters: ", model_state['gnn_model.project_lin.weight'])
                 state_dict_list.append(model_state)
                 del self.graphobj.model
                 self.graphobj.best_model = None
@@ -160,6 +165,11 @@ class gml(object):
                 best_model_path = self.graphobj.best_model
                 averaged_model_path = best_model_path
                 self.graphobj.model.load_state_dict(torch.load(best_model_path), strict=True)
+                model_state = self.graphobj.model.state_dict()
+                saved_model_param_count = sum(p.numel() for p in model_state.values())
+                print("saved state_dict param count: ", saved_model_param_count)
+                print("saved model param count: ", sum(p.numel() for p in self.graphobj.model.parameters()))
+                print("show 1 layer parameters: ", model_state['gnn_model.project_lin.weight'])
                 break
 
         # average & load state_dicts
@@ -174,6 +184,10 @@ class gml(object):
         # save updated model at the same path
         print("saving averaged model at: {}".format(averaged_model_path))
         torch.save(self.graphobj.model.state_dict(), averaged_model_path)
+        avg_model_param_count = sum(p.numel() for p in self.graphobj.model.state_dict().values())
+        print("avg state_dict param count: ", avg_model_param_count)
+        print("avg model param count: ", sum(p.numel() for p in self.graphobj.model.parameters()))
+        print("show 1 layer parameters: ", self.graphobj.model.state_dict()['gnn_model.project_lin.weight'])
 
         # run inference as usual
 
