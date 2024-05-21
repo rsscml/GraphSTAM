@@ -1,2 +1,3 @@
-from simplified.SmallGraph.GraphModelLib_Smallgraph import graphmodel
+#from simplified.SmallGraph.GraphModelLib_Smallgraph import graphmodel
+from simplified.SmallGraph.GraphModelLib_Smallgraph_MixedValidation import graphmodel
 
