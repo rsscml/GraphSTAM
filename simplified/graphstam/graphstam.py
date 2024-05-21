@@ -179,7 +179,8 @@ class gml(object):
             avg_key = self.graphobj.model.state_dict()[key]
             for sd in state_dict_list:
                 avg_key += sd[key]
-            self.graphobj.model.state_dict()[key] = avg_key/k
+            self.graphobj.model.state_dict()[key] = avg_key
+            self.graphobj.model.state_dict()[key] = (self.graphobj.model.state_dict()[key]/k)
 
         # save updated model at the same path
         print("saving averaged model at: {}".format(averaged_model_path))
