@@ -195,7 +195,7 @@ class gml(object):
     def train(self):
         self.graphobj.train(**self.train_config)
     
-    def infer(self, infer_start=None, infer_end=None):
+    def infer(self, infer_start=None, infer_end=None, return_forecast_cols_list=False):
         try:
             del self.graphobj.train_dataset, self.graphobj.test_dataset
             gc.collect()
@@ -204,6 +204,7 @@ class gml(object):
             pass
 
         f_df_list = []
+        forecast_cols = []
         for quantile in self.infer_quantiles:
             self.infer_config.pop('select_quantile')
             self.infer_config.update({'select_quantile': quantile})
@@ -217,15 +218,20 @@ class gml(object):
                 f_df['forecast'] = np.clip(f_df['forecast'], a_min=0, a_max=None)
 
             if len(self.infer_quantiles) == 1:
+                forecast_cols.append('forecast')
                 pass
             else:
                 f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+                forecast_cols.append('forecast_' + str(quantile))
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
         self.forecast = self.forecast.T.drop_duplicates().T
 
-        return self.forecast
+        if return_forecast_cols_list:
+            return self.forecast, forecast_cols
+        else:
+            return self.forecast
 
     def infer_multistep(self, infer_start=None):
         try:

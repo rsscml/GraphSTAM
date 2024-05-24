@@ -439,7 +439,7 @@ class graphmodel():
                                                        time_index_col:'',
                                                        global_context_col_list:[],
                                                        static_cat_col_list:[],
-                                                       subgraph_samples_col:None,
+                                                       subgraph_sample_col:None,
                                                        subgraph_sample_size:100,
                                                        temporal_known_num_col_list:[],
                                                        temporal_unknown_num_col_list:[],
