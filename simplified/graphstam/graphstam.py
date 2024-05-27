@@ -7,6 +7,7 @@ import numpy as np
 import gc
 import copy
 import sklearn
+from joblib import Parallel, delayed
 import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
 import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
@@ -256,7 +257,7 @@ class gml(object):
 
         return self.forecast
 
-    def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None):
+    def infer_baseline(self, remove_effects_col_list, infer_start=None, infer_end=None, return_forecast_cols_list=False):
         # get the onetime prepped df
         baseline_data = self.graphobj.onetime_prep_df.copy()
 
@@ -290,6 +291,7 @@ class gml(object):
             pass
 
         f_df_list = []
+        forecast_cols = []
         for quantile in self.infer_quantiles:
             baseline_infer_config.pop('select_quantile')
             baseline_infer_config.update({'select_quantile': quantile})
@@ -304,14 +306,19 @@ class gml(object):
 
             if len(self.infer_quantiles) == 1:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast'})
+                forecast_cols.append('baseline_forecast')
             else:
                 f_df = f_df.rename(columns={'forecast': 'baseline_forecast_' + str(quantile)})
+                forecast_cols.append('baseline_forecast_' + str(quantile))
             f_df_list.append(f_df)
 
         self.baseline_forecast = pd.concat(f_df_list, axis=1)
         self.baseline_forecast = self.baseline_forecast.T.drop_duplicates().T
 
-        return self.baseline_forecast
+        if return_forecast_cols_list:
+            return self.baseline_forecast, forecast_cols
+        else:
+            return self.baseline_forecast
 
     def infer_multistep_baseline(self, remove_effects_col_list, infer_start=None):
         # get the onetime prepped df
@@ -676,3 +683,74 @@ class gml(object):
         print(attribution_df.head())
 
         return attribution_df
+
+
+#  Optional helper functions
+
+def train_ensemble(data, model_type, config_dict, infer_start, infer_end, infer_total=True, infer_baseline=False,
+                   remove_effects_col_list=[], k=1):
+    """
+    :param data: pandas dataframe
+    :param config_dict: config dict
+    :param model_type: One of available models of non-multistep kind
+    :param infer_start: 1st forecast period
+    :param infer_end: last forecast period
+    :param infer_total: thf
+    :param infer_baseline: baseline forecast
+    :param remove_effects_col_list: column contributions to ignore for baseline
+    :param k: no. of models in ensemble
+    :return: forecast dataframe
+    """
+    def multi_model_train(df, model_num):
+
+        gml_object = gml(model_type=model_type, config=config_dict)
+        gml_object.build(df)
+        gml_object.train()
+
+        if infer_total:
+            f_df, f_cols = gml_object.infer(infer_start=infer_start, infer_end=infer_end, return_forecast_cols_list=True)
+            f_df['infer_start'] = str(infer_start)
+        else:
+            f_df = None
+            f_cols = None
+
+        if infer_baseline:
+            base_df, base_df_cols = gml_object.infer_baseline(remove_effects_col_list=remove_effects_col_list, infer_start=infer_start, infer_end=infer_end, return_forecast_cols_list=True)
+            base_df['infer_start'] = str(infer_start)
+        else:
+            base_df = None
+            base_df_cols = None
+
+        return f_df, f_cols, base_df, base_df_cols
+
+    results = Parallel(n_jobs=k)(delayed(multi_model_train)(data, m) for m in range(k))
+
+    if infer_total:
+        f_df_list = [result[0] for result in results]
+        f_cols_list = [result[1] for result in results]
+        f_cols_list = list(set(f_cols_list)) # remove duplicate col names
+        forecasts = pd.concat(f_df_list, axis=0)
+        forecasts = forecasts.reset_index(drop=True)
+        forecast_cols = forecasts.columns.tolist()
+        # group keys
+        group_keys = list(set(forecast_cols) - set(f_cols_list))
+        # mean forecast df
+        forecasts = forecasts.groupby(group_keys)[f_cols_list].mean().reset_index()
+    else:
+        forecasts = None
+
+    if infer_baseline:
+        f_df_list = [result[2] for result in results]
+        f_cols_list = [result[3] for result in results]
+        f_cols_list = list(set(f_cols_list))  # remove duplicate col names
+        baseline_forecasts = pd.concat(f_df_list, axis=0)
+        baseline_forecasts = baseline_forecasts.reset_index(drop=True)
+        baseline_forecast_cols = baseline_forecasts.columns.tolist()
+        # group keys
+        group_keys = list(set(baseline_forecast_cols) - set(f_cols_list))
+        # mean forecast df
+        baseline_forecasts = baseline_forecasts.groupby(group_keys)[f_cols_list].mean().reset_index()
+    else:
+        baseline_forecasts = None
+
+    return forecasts, baseline_forecasts

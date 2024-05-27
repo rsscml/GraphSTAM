@@ -1,1 +1,1 @@
-from simplified.graphstam.graphstam import gml
+from simplified.graphstam.graphstam import gml, train_ensemble
