@@ -8,6 +8,7 @@ import gc
 import copy
 import sklearn
 from joblib import Parallel, delayed
+import itertools
 import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
 import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
@@ -728,7 +729,8 @@ def train_ensemble(data, model_type, config_dict, infer_start, infer_end, infer_
     if infer_total:
         f_df_list = [result[0] for result in results]
         f_cols_list = [result[1] for result in results]
-        f_cols_list = list(set(f_cols_list)) # remove duplicate col names
+        f_cols_list = list(itertools.chain.from_iterable(f_cols_list))
+        f_cols_list = list(set(f_cols_list))  # remove duplicate col names
         forecasts = pd.concat(f_df_list, axis=0)
         forecasts = forecasts.reset_index(drop=True)
         forecast_cols = forecasts.columns.tolist()
@@ -742,6 +744,7 @@ def train_ensemble(data, model_type, config_dict, infer_start, infer_end, infer_
     if infer_baseline:
         f_df_list = [result[2] for result in results]
         f_cols_list = [result[3] for result in results]
+        f_cols_list = list(itertools.chain.from_iterable(f_cols_list))
         f_cols_list = list(set(f_cols_list))  # remove duplicate col names
         baseline_forecasts = pd.concat(f_df_list, axis=0)
         baseline_forecasts = baseline_forecasts.reset_index(drop=True)
