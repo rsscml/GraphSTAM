@@ -1264,6 +1264,8 @@ class graphmodel():
                 # apply power correction if required
                 print("   applying tweedie p correction for continuous ts, if applicable ...")
                 df = self.apply_agg_power_correction(df)
+            else:
+                df['tweedie_p'] = self.tweedie_variance_power
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")

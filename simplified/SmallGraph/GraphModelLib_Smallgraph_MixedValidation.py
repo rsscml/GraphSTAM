@@ -1048,6 +1048,8 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
+            else:
+                df['tweedie_p'] = self.tweedie_variance_power
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
@@ -1061,6 +1063,8 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
+            else:
+                df['tweedie_p'] = self.tweedie_variance_power
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1144,8 +1148,7 @@ class graphmodel():
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
-        if self.estimate_tweedie_p:
-            data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
