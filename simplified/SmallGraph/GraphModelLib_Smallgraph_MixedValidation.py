@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import gc
@@ -364,6 +364,20 @@ class HeteroGraphSAGE(torch.nn.Module):
         return out  #x_dict[self.target_node_type]
 
 
+# HAN Model
+class HAN(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=8, dropout=0.1):
+        super().__init__()
+        self.target_node_type = target_node_type
+        self.han_conv = HANConv(in_channels, hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+        self.lin = torch.nn.Linear(hidden_channels, out_channels)
+
+    def forward(self, x_dict, edge_index_dict):
+        out = self.han_conv(x_dict, edge_index_dict)
+        out = self.lin(out[self.target_node_type])
+        return out
+
+
 # Models
 class STGNN(torch.nn.Module):
     def __init__(self,
@@ -373,6 +387,7 @@ class STGNN(torch.nn.Module):
                  target_node,
                  time_steps=1,
                  n_quantiles=1,
+                 heads=1,
                  dropout=0.0,
                  skip_connection=True):
 
@@ -382,6 +397,7 @@ class STGNN(torch.nn.Module):
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
 
+        """
         self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                          hidden_channels=hidden_channels,
                                          num_layers=num_layers,
@@ -391,6 +407,14 @@ class STGNN(torch.nn.Module):
                                          edge_types=self.edge_types,
                                          target_node_type=target_node,
                                          skip_connection=skip_connection)
+        """
+        self.gnn_model = HAN(in_channels=-1,
+                             out_channels=int(n_quantiles * time_steps),
+                             metadata=metadata,
+                             target_node_type=target_node,
+                             hidden_channels=hidden_channels,
+                             heads=heads,
+                             dropout=dropout)
 
     def forward(self, x_dict, edge_index_dict):
         # gnn model
