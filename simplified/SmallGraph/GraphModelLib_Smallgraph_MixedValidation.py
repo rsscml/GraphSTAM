@@ -366,45 +366,15 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 # HAN Model
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, num_layers=1, hidden_channels=128, heads=1, dropout=0.1):
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
-
-        # Transform/Feature Extraction Layers
-        #self.transformed_feat_dict = torch.nn.ModuleDict()
-        #self.transformed_feat_dict[target_node_type] = torch.nn.LSTM(input_size=1, hidden_size=hidden_channels, num_layers=1, batch_first=True)
-
-        #
-        self.han_layers = torch.nn.ModuleList()
-        for i in range(num_layers):
-            han_conv = HANConv(in_channels=in_channels if i == 0 else hidden_channels,
-                               out_channels=hidden_channels,
-                               heads=heads,
-                               dropout=dropout,
-                               metadata=metadata)
-            self.han_layers.append(han_conv)
-
+        self.han_conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-        # process
-        # lstm input is 3 -d (N,L,1)
-        #o, _ = self.transformed_feat_dict[self.target_node_type](torch.unsqueeze(x_dict[self.target_node_type], dim=2))
-        # take last o/p (N,H)
-        #x_dict[self.target_node_type] = o[:, -1, :]
-
-        # conv
-        for i, han_conv in enumerate(self.han_layers):
-            if i > 0:
-                #print("dict keys: ", x_dict.keys(), edge_index_dict.keys())
-                x_dict = {key: x.relu() for key, x in x_dict.items() if key == self.target_node_type}
-                edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
-            x_dict = han_conv(x_dict, edge_index_dict)
-
-        #out = self.han_conv(x_dict, edge_index_dict)
-
-        out = self.lin(x_dict[self.target_node_type])
-
+        out = self.han_conv(x_dict, edge_index_dict)
+        out = self.lin(out[self.target_node_type])
         return out
 
 
@@ -419,7 +389,8 @@ class STGNN(torch.nn.Module):
                  n_quantiles=1,
                  heads=1,
                  dropout=0.0,
-                 skip_connection=True):
+                 skip_connection=True,
+                 layer_type='HAN'):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
@@ -427,25 +398,24 @@ class STGNN(torch.nn.Module):
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
 
-        """
-        self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
-                                         hidden_channels=hidden_channels,
-                                         num_layers=num_layers,
-                                         out_channels=int(n_quantiles * time_steps),
-                                         dropout=dropout,
-                                         node_types=self.node_types,
-                                         edge_types=self.edge_types,
-                                         target_node_type=target_node,
-                                         skip_connection=skip_connection)
-        """
-        self.gnn_model = HAN(in_channels=-1,
-                             out_channels=int(n_quantiles * time_steps),
-                             metadata=metadata,
-                             num_layers=num_layers,
-                             target_node_type=target_node,
-                             hidden_channels=hidden_channels,
-                             heads=heads,
-                             dropout=dropout)
+        if layer_type == 'SAGE':
+            self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
+                                             hidden_channels=hidden_channels,
+                                             num_layers=num_layers,
+                                             out_channels=int(n_quantiles * time_steps),
+                                             dropout=dropout,
+                                             node_types=self.node_types,
+                                             edge_types=self.edge_types,
+                                             target_node_type=target_node,
+                                             skip_connection=skip_connection)
+        elif layer_type == 'HAN':
+            self.gnn_model = HAN(in_channels=-1,
+                                 out_channels=int(n_quantiles * time_steps),
+                                 metadata=metadata,
+                                 target_node_type=target_node,
+                                 hidden_channels=hidden_channels,
+                                 heads=heads,
+                                 dropout=dropout)
 
     def forward(self, x_dict, edge_index_dict):
         # gnn model
@@ -1640,8 +1610,10 @@ class graphmodel():
         _, self.infer_dataset = self.create_infer_dataset(df=self.onetime_prep_df, infer_till=infer_till)
 
     def build(self,
+              layer_type='HAN',
               model_dim=128,
               num_layers=1,
+              heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
               skip_connection=True,
@@ -1662,8 +1634,10 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
+                           heads=heads,
                            dropout=dropout,
-                           skip_connection=skip_connection)
+                           skip_connection=skip_connection,
+                           layer_type=layer_type)
         
         # init model
         self.model = self.model.to(self.device)
