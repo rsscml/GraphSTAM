@@ -371,9 +371,9 @@ class HAN(torch.nn.Module):
         self.target_node_type = target_node_type
 
         # Transform/Feature Extraction Layers
-        self.transformed_feat_dict = torch.nn.ModuleDict()
-        self.transformed_feat_dict[target_node_type] = torch.nn.LSTM(input_size=1, hidden_size=hidden_channels,
-                                                                     num_layers=1, batch_first=True)
+        #self.transformed_feat_dict = torch.nn.ModuleDict()
+        #self.transformed_feat_dict[target_node_type] = torch.nn.LSTM(input_size=1, hidden_size=hidden_channels, num_layers=1, batch_first=True)
+
         #
         self.han_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -389,9 +389,9 @@ class HAN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         # process
         # lstm input is 3 -d (N,L,1)
-        o, _ = self.transformed_feat_dict[self.target_node_type](torch.unsqueeze(x_dict[self.target_node_type], dim=2))
+        #o, _ = self.transformed_feat_dict[self.target_node_type](torch.unsqueeze(x_dict[self.target_node_type], dim=2))
         # take last o/p (N,H)
-        x_dict[self.target_node_type] = o[:, -1, :]
+        #x_dict[self.target_node_type] = o[:, -1, :]
 
         # conv
         for i, han_conv in enumerate(self.han_layers):
