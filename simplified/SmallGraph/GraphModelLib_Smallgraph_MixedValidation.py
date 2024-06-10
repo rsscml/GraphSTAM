@@ -366,15 +366,38 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 # HAN Model
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=8, dropout=0.1):
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, num_layers=1, hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
-        self.han_conv = HANConv(in_channels, hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+
+        # Transform/Feature Extraction Layers
+        self.transformed_feat_dict = torch.nn.ModuleDict()
+        self.transformed_feat_dict[target_node_type] = torch.nn.LSTM(input_size=1, hidden_size=hidden_channels,
+                                                                     num_layers=1, batch_first=True)
+        #
+        self.han_layers = torch.nn.ModuleList()
+        for i in range(num_layers):
+            han_conv = HANConv(in_channels, hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+            self.han_layers.append(han_conv)
+
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-        out = self.han_conv(x_dict, edge_index_dict)
-        out = self.lin(out[self.target_node_type])
+        # process
+        # lstm input is 3 -d (N,L,1)
+        o, _ = self.transformed_feat_dict[self.target_node_type](torch.unsqueeze(x_dict[self.target_node_type], dim=2))
+        # take last o/p (N,H)
+        x_dict[self.target_node_type] = o[:, -1, :]
+
+        # conv
+        node_out = x_dict
+        for han_conv in self.han_layers:
+            node_out = han_conv(node_out, edge_index_dict)
+
+        # out = self.han_conv(x_dict, edge_index_dict)
+
+        out = self.lin(node_out[self.target_node_type])
+
         return out
 
 
@@ -411,6 +434,7 @@ class STGNN(torch.nn.Module):
         self.gnn_model = HAN(in_channels=-1,
                              out_channels=int(n_quantiles * time_steps),
                              metadata=metadata,
+                             num_layers=num_layers,
                              target_node_type=target_node,
                              hidden_channels=hidden_channels,
                              heads=heads,
