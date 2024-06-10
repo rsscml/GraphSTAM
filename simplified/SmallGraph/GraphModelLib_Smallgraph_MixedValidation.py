@@ -394,16 +394,16 @@ class HAN(torch.nn.Module):
         x_dict[self.target_node_type] = o[:, -1, :]
 
         # conv
-        node_out = x_dict
         for i, han_conv in enumerate(self.han_layers):
             if i > 0:
-                print("node out keys: ", node_out.keys())
-                node_out = {key: x for key, x in node_out.items() if key == self.target_node_type}
-            node_out = han_conv(node_out, edge_index_dict)
+                print("dict keys: ", x_dict.keys(), edge_index_dict.keys())
+                x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+                edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
+            x_dict = han_conv(x_dict, edge_index_dict)
 
         #out = self.han_conv(x_dict, edge_index_dict)
 
-        out = self.lin(node_out[self.target_node_type])
+        out = self.lin(x_dict[self.target_node_type])
 
         return out
 
