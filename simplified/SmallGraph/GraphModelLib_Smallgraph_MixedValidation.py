@@ -938,21 +938,25 @@ class graphmodel():
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
-                if len(tup) != 3:
+                if len(tup) >= 3:
                     raise ValueError("rolling feature tuples not defined properly.")
                 else:
                     col = tup[0]
                     stat = tup[1]
                     window_size = tup[2]
+                    if len(tup) == 4:
+                        parameter = tup[3]
                     # check
                     if col not in self.col_list:
                         raise ValueError("rolling feature window col not in columns list.")
-                    if stat not in ['mean', 'std']:
-                        raise ValueError("stat not one of ['mean','std'].")
+                    if stat not in ['mean', 'quantile', 'std']:
+                        raise ValueError("stat not one of ['mean','quantile','std'].")
                     if col != self.time_index_col:
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        elif stat == 'quantile':
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(q=parameter))
                         else:
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         self.rolling_feature_cols.append(feat_name)
@@ -960,6 +964,8 @@ class graphmodel():
                         feat_name = f'rolling_{stat}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        elif stat == 'quantile':
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(q=parameter))
                         else:
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         self.rolling_feature_cols.append(feat_name)
