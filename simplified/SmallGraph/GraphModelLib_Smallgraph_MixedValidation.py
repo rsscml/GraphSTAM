@@ -396,7 +396,7 @@ class HAN(torch.nn.Module):
         # conv
         for i, han_conv in enumerate(self.han_layers):
             if i > 0:
-                print("dict keys: ", x_dict.keys(), edge_index_dict.keys())
+                #print("dict keys: ", x_dict.keys(), edge_index_dict.keys())
                 x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
                 edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
             x_dict = han_conv(x_dict, edge_index_dict)
