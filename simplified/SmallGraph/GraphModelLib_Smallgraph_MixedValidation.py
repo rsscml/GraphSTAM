@@ -377,7 +377,11 @@ class HAN(torch.nn.Module):
         #
         self.han_layers = torch.nn.ModuleList()
         for i in range(num_layers):
-            han_conv = HANConv(in_channels, hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+            han_conv = HANConv(in_channels=in_channels if i == 0 else hidden_channels,
+                               hidden_channels=hidden_channels,
+                               heads=heads,
+                               dropout=dropout,
+                               metadata=metadata)
             self.han_layers.append(han_conv)
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
@@ -393,10 +397,10 @@ class HAN(torch.nn.Module):
         node_out = x_dict
         for i, han_conv in enumerate(self.han_layers):
             node_out = han_conv(node_out, edge_index_dict)
-            if i > 0:
-                node_out = {key: x for key, x in node_out.items() if key == self.target_node_type}
+        #    if i > 0:
+        #        node_out = {key: x for key, x in node_out.items() if key == self.target_node_type}
 
-        # out = self.han_conv(x_dict, edge_index_dict)
+        #out = self.han_conv(x_dict, edge_index_dict)
 
         out = self.lin(node_out[self.target_node_type])
 
