@@ -378,7 +378,7 @@ class HAN(torch.nn.Module):
         self.han_layers = torch.nn.ModuleList()
         for i in range(num_layers):
             han_conv = HANConv(in_channels=in_channels if i == 0 else hidden_channels,
-                               hidden_channels=hidden_channels,
+                               out_channels=hidden_channels,
                                heads=heads,
                                dropout=dropout,
                                metadata=metadata)
