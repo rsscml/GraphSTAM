@@ -1635,7 +1635,7 @@ class graphmodel():
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
-              skip_connection=True,
+              skip_connection=False,
               device='cpu'):
         
         # key metadata for model def
