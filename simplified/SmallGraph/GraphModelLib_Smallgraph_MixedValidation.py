@@ -306,6 +306,7 @@ class HeteroGraphSAGE(torch.nn.Module):
         self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
+        """
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
             if node_type == target_node_type:
@@ -313,6 +314,7 @@ class HeteroGraphSAGE(torch.nn.Module):
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=1,
                                                                       batch_first=True)
+        """
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -339,12 +341,13 @@ class HeteroGraphSAGE(torch.nn.Module):
             self.conv_layers.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
-
+        """
         # transform target node
         for node_type, x in x_dict.items():
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+        """
 
         if self.skip_connection:
             res_dict = x_dict
@@ -949,15 +952,15 @@ class graphmodel():
                     # check
                     if col not in self.col_list:
                         raise ValueError("rolling feature window col not in columns list.")
-                    if stat not in ['mean', 'quantile', 'std']:
-                        raise ValueError("stat not one of ['mean','quantile','std'].")
+                    if stat not in ['mean', 'quantile', 'trend_disruption', 'std']:
+                        raise ValueError("stat not one of ['mean','quantile','trend_disruption','std'].")
                     if col != self.time_index_col:
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(q=parameter))
-                        else:
+                        elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         self.rolling_feature_cols.append(feat_name)
                     else:
@@ -966,8 +969,18 @@ class graphmodel():
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(q=parameter))
-                        else:
+                        elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        elif stat == 'trend_disruption':
+                            # mv avg
+                            df[feat_name+'_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                            # actual/mvavg ratio
+                            df[feat_name+'_r1'] = df[self.target_col]/df[feat_name+'_mvavg']
+                            # trend disruption ratio
+                            df[feat_name+'_r2'] = df[self.target_col]/df.groupby([self.id_col])[self.target_col].shift(1)
+                            # identify only disruption points
+                            df[feat_name] = np.where((df[feat_name+'_r2'] >= 1.5) | (df[feat_name+'_r2'] <= 0.5), 1, 0)
+
                         self.rolling_feature_cols.append(feat_name)
         return df
 
