@@ -941,7 +941,7 @@ class graphmodel():
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
-                if len(tup) >= 3:
+                if len(tup) >= 5:
                     raise ValueError("rolling feature tuples not defined properly.")
                 else:
                     col = tup[0]
