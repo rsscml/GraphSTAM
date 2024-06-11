@@ -400,6 +400,7 @@ class STGNN(torch.nn.Module):
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
+        self.layer_type = layer_type
 
         if layer_type == 'SAGE':
             self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
@@ -420,10 +421,42 @@ class STGNN(torch.nn.Module):
                                  heads=heads,
                                  dropout=dropout)
 
+        else:
+            self.han_model = HAN(in_channels=-1,
+                                 out_channels=int(n_quantiles * time_steps),
+                                 metadata=metadata,
+                                 target_node_type=target_node,
+                                 hidden_channels=hidden_channels,
+                                 heads=heads,
+                                 dropout=dropout)
+
+            self.sage_model = HeteroGraphSAGE(in_channels=(-1, -1),
+                                              hidden_channels=hidden_channels,
+                                              num_layers=num_layers,
+                                              out_channels=int(n_quantiles * time_steps),
+                                              dropout=dropout,
+                                              node_types=self.node_types,
+                                              edge_types=self.edge_types,
+                                              target_node_type=target_node,
+                                              skip_connection=skip_connection)
+            # weight
+            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1))
+
     def forward(self, x_dict, edge_index_dict):
-        # gnn model
-        out = self.gnn_model(x_dict, edge_index_dict)
+        if self.layer_type in ['HAN', 'SAGE']:
+            # gnn model
+            out = self.gnn_model(x_dict, edge_index_dict)
+        else:
+            # han out
+            han_out = self.han_model(x_dict, edge_index_dict)
+            # sage out
+            sage_out = self.sage_model(x_dict, edge_index_dict)
+            # weighted sum
+            wt = torch.nn.Sigmoid()(self.out_weight)
+            out = han_out*wt + (1-wt)*sage_out
+
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+
         return out
 
 
