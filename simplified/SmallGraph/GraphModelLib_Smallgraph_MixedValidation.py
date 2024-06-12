@@ -369,7 +369,8 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 # HAN Model
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, num_layers=1, hidden_channels=128, heads=1, dropout=0.1):
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, node_types, edge_types, num_layers=1,
+                 hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
         # Conv Layers
@@ -378,7 +379,14 @@ class HAN(torch.nn.Module):
             if i == 0:
                 conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
             else:
-                conv = SAGEConv(in_channels=in_channels, out_channels=hidden_channels, bias=True)
+                conv = HeteroForecastSageConv(in_channels=hidden_channels,
+                                              out_channels=hidden_channels,
+                                              dropout=dropout,
+                                              node_types=node_types,
+                                              edge_types=edge_types,
+                                              target_node_type=target_node_type,
+                                              first_layer=i == 0,
+                                              is_output_layer=i == num_layers - 1)
 
             self.conv_layers.append(conv)
 
@@ -387,8 +395,8 @@ class HAN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
-            x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
-            edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
+            #x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+            #edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
 
         out = self.lin(x_dict[self.target_node_type])
         return out
@@ -430,6 +438,8 @@ class STGNN(torch.nn.Module):
                                  out_channels=int(n_quantiles * time_steps),
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 node_types=self.node_types,
+                                 edge_types=self.edge_types,
                                  num_layers=num_layers,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
@@ -440,6 +450,8 @@ class STGNN(torch.nn.Module):
                                  out_channels=int(n_quantiles * time_steps),
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 node_types=self.node_types,
+                                 edge_types=self.edge_types,
                                  num_layers=num_layers,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
