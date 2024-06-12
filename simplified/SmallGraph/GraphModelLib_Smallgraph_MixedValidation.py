@@ -369,15 +369,24 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 # HAN Model
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1, dropout=0.1):
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, num_layers=1, hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
-        self.han_conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+        # Conv Layers
+        self.conv_layers = torch.nn.ModuleList()
+        for i in range(num_layers):
+            han_conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+            self.conv_layers.append(han_conv)
+
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-        out = self.han_conv(x_dict, edge_index_dict)
-        out = self.lin(out[self.target_node_type])
+        for conv in self.conv_layers:
+            x_dict = self.han_conv(x_dict, edge_index_dict)
+            x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+            edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
+
+        out = self.lin(x_dict[self.target_node_type])
         return out
 
 
@@ -417,6 +426,7 @@ class STGNN(torch.nn.Module):
                                  out_channels=int(n_quantiles * time_steps),
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 num_layers=num_layers,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
@@ -426,6 +436,7 @@ class STGNN(torch.nn.Module):
                                  out_channels=int(n_quantiles * time_steps),
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 num_layers=num_layers,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
@@ -440,23 +451,24 @@ class STGNN(torch.nn.Module):
                                               target_node_type=target_node,
                                               skip_connection=skip_connection)
             # weight
-            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1))
+            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
         if self.layer_type in ['HAN', 'SAGE']:
             # gnn model
             out = self.gnn_model(x_dict, edge_index_dict)
+            out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
         else:
             # han out
             han_out = self.han_model(x_dict, edge_index_dict)
+            han_out = torch.reshape(han_out, (-1, self.time_steps, self.n_quantiles))
             # sage out
             sage_out = self.sage_model(x_dict, edge_index_dict)
+            sage_out = torch.reshape(sage_out, (-1, self.time_steps, self.n_quantiles))
             # weighted sum
             wt = torch.nn.Sigmoid()(self.out_weight)
-            #print("wt: ", wt)
+            # print("wt: ", wt)
             out = han_out*wt + (1-wt)*sage_out
-
-        out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
 
         return out
 
