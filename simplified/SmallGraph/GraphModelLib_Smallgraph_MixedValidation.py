@@ -382,7 +382,7 @@ class HAN(torch.nn.Module):
 
     def forward(self, x_dict, edge_index_dict):
         for conv in self.conv_layers:
-            x_dict = self.han_conv(x_dict, edge_index_dict)
+            x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
             edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
 
