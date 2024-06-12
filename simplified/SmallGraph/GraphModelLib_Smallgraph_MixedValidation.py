@@ -453,7 +453,7 @@ class STGNN(torch.nn.Module):
             sage_out = self.sage_model(x_dict, edge_index_dict)
             # weighted sum
             wt = torch.nn.Sigmoid()(self.out_weight)
-            print("wt: ", wt)
+            #print("wt: ", wt)
             out = han_out*wt + (1-wt)*sage_out
 
         out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
