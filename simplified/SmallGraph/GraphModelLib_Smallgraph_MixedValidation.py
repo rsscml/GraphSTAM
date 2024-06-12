@@ -375,8 +375,12 @@ class HAN(torch.nn.Module):
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
-            han_conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
-            self.conv_layers.append(han_conv)
+            if i == 0:
+                conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
+            else:
+                conv = SAGEConv(in_channels=in_channels, out_channels=hidden_channels, bias=True)
+
+            self.conv_layers.append(conv)
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
