@@ -452,7 +452,7 @@ class STGNN(torch.nn.Module):
                                  target_node_type=target_node,
                                  node_types=self.node_types,
                                  edge_types=self.edge_types,
-                                 num_layers=num_layers,
+                                 num_layers=1,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
