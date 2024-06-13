@@ -467,7 +467,7 @@ class STGNN(torch.nn.Module):
                                               target_node_type=target_node,
                                               skip_connection=skip_connection)
             # weight
-            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
+            #self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
         if self.layer_type in ['HAN', 'SAGE']:
@@ -482,9 +482,10 @@ class STGNN(torch.nn.Module):
             sage_out = self.sage_model(x_dict, edge_index_dict)
             sage_out = torch.reshape(sage_out, (-1, self.time_steps, self.n_quantiles))
             # weighted sum
-            wt = torch.nn.Sigmoid()(self.out_weight)
+            #wt = torch.nn.Sigmoid()(self.out_weight)
             # print("wt: ", wt)
-            out = han_out*wt + (1-wt)*sage_out
+            #out = han_out*wt + (1-wt)*sage_out
+            out = han_out * 0.5 + sage_out * 0.5
 
         return out
 

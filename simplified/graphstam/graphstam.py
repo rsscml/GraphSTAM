@@ -702,6 +702,7 @@ def train_ensemble(data, model_type, config_dict, infer_start, infer_end, infer_
     :param k: no. of models in ensemble
     :return: forecast dataframe
     """
+
     def multi_model_train(df, model_num):
 
         gml_object = gml(model_type=model_type, config=config_dict)
