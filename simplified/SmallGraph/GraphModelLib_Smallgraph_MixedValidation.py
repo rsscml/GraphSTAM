@@ -337,7 +337,7 @@ class HeteroGraphSAGE(torch.nn.Module):
                 is_output_layer=i == num_layers - 1,
             )
             """
-            conv = HeteroForecastSageConv(in_channels=hidden_channels,  # in_channels if i == 0 else hidden_channels,
+            conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
                                           out_channels=hidden_channels, # out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
