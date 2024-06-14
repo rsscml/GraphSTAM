@@ -10,7 +10,7 @@ import torch_geometric
 from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
-from .ModifiedHAN import ModHANConv
+#from .ModifiedHAN import ModHANConv
 import gc
 
 # Data specific imports
@@ -307,6 +307,11 @@ class HeteroGraphSAGE(torch.nn.Module):
         self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
+        # linear projection
+        self.node_proj = torch.nn.ModuleDict()
+        for node_type in node_types:
+            self.node_proj[node_type] = Linear(in_channels, hidden_channels)
+
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
@@ -330,8 +335,8 @@ class HeteroGraphSAGE(torch.nn.Module):
                 is_output_layer=i == num_layers - 1,
             )
             """
-            conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
-                                          out_channels=hidden_channels, #out_channels if i == num_layers - 1 else hidden_channels,
+            conv = HeteroForecastSageConv(in_channels=hidden_channels,  # in_channels if i == 0 else hidden_channels,
+                                          out_channels=hidden_channels, # out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
                                           edge_types=edge_types,
@@ -349,6 +354,10 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
+
+        # Linear project nodes
+        for node_type, x in x_dict.items():
+            x_dict[node_type] = self.node_proj[node_type](x)
 
         if self.skip_connection:
             res_dict = x_dict
@@ -374,39 +383,26 @@ class HAN(torch.nn.Module):
                  hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
-
-        # edge types between target nodes
-        target_edge_types = [edge_type for edge_type in metadata[1] if (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
-
+        target_edge_types = [edge_type for edge_type in metadata[1] if
+                             (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
             if i == 0:
-                conv = ModHANConv(in_channels=in_channels,
-                                  out_channels=hidden_channels,
-                                  heads=heads,
-                                  dropout=dropout,
-                                  node_types=metadata[0],
-                                  edge_types=metadata[1],
-                                  project=True)
+                conv = HANConv(in_channels=in_channels,
+                               out_channels=hidden_channels,
+                               heads=heads,
+                               dropout=dropout,
+                               metadata=metadata)
             elif i >= 1:
-                """
                 conv = HeteroForecastSageConv(in_channels=hidden_channels,
                                               out_channels=hidden_channels,
                                               dropout=dropout,
-                                              node_types=node_types,
-                                              edge_types=edge_types,
+                                              node_types=[self.target_node_type],
+                                              edge_types=target_edge_types,
                                               target_node_type=target_node_type,
                                               first_layer=i == 0,
                                               is_output_layer=i == num_layers - 1)
-                """
-                conv = ModHANConv(in_channels=in_channels,
-                                  out_channels=hidden_channels,
-                                  heads=heads,
-                                  dropout=dropout,
-                                  node_types=[self.target_node_type],
-                                  edge_types=target_edge_types,
-                                  project=True)
 
             self.conv_layers.append(conv)
 
