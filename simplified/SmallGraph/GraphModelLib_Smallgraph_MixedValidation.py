@@ -406,7 +406,7 @@ class HAN(torch.nn.Module):
                                   dropout=dropout,
                                   node_types=[self.target_node_type],
                                   edge_types=target_edge_types,
-                                  project=False)
+                                  project=True)
 
             self.conv_layers.append(conv)
 
