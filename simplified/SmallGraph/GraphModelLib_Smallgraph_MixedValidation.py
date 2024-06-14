@@ -10,7 +10,7 @@ import torch_geometric
 from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
-from .ModifiedHAN import ModHANConv
+#from .ModifiedHAN import ModHANConv
 import gc
 
 # Data specific imports
@@ -389,17 +389,6 @@ class HAN(torch.nn.Module):
         target_edge_types = [edge_type for edge_type in metadata[1] if
                              (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
 
-        self.han_conv = ModHANConv(in_channels=in_channels,
-                                   out_channels=hidden_channels,
-                                   node_types=node_types,
-                                   edge_types=edge_types,
-                                   target_node_type=target_node_type,
-                                   layers=num_layers,
-                                   heads=heads,
-                                   negative_slope=0.2,
-                                   dropout=dropout,
-                                   project=True)
-        """
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -420,19 +409,15 @@ class HAN(torch.nn.Module):
                                               is_output_layer=i == num_layers - 1)
 
             self.conv_layers.append(conv)
-        """
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-
-        """
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
             edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
-        """
-        x_dict = self.han_conv(x_dict, edge_index_dict)
+
         out = self.lin(x_dict[self.target_node_type])
         return out
 
