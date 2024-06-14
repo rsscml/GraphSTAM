@@ -193,7 +193,7 @@ class ModHANConv(MessagePassing):
                         # updated node embeddings
                         outs = torch.stack(outs)
                         outs = torch.sum(outs, dim=0)
-                        x_node_dict[node_type] = outs
+                        x_node_dict[node_type] = outs.view(-1, H, D)
                         print("layer > 0, outs shape", node_type, outs.shape)
 
                 # reset
