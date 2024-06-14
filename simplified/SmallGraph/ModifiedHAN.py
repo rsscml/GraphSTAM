@@ -68,6 +68,8 @@ class ModHANConv(MessagePassing):
         out_channels: int,
         node_types,
         edge_types,
+        target_node_type,
+        layers: int = 1,
         heads: int = 1,
         negative_slope=0.2,
         dropout: float = 0.0,
@@ -85,6 +87,8 @@ class ModHANConv(MessagePassing):
         self.negative_slope = negative_slope
         self.node_types = node_types
         self.edge_types = edge_types
+        self.target_node_type = target_node_type
+        self.target_edge_types = [edge for edge in edge_types if (edge[0] == target_node_type) and (edge[2] == target_node_type)]
         self.dropout = dropout
         self.k_lin = nn.Linear(out_channels, out_channels)
         self.q = nn.Parameter(torch.empty(1, out_channels))
@@ -95,13 +99,26 @@ class ModHANConv(MessagePassing):
             for node_type, in_channels in self.in_channels.items():
                 self.proj[node_type] = Linear(in_channels, out_channels)
 
-        self.lin_src = nn.ParameterDict()
-        self.lin_dst = nn.ParameterDict()
+        self.conv_layers = nn.ModuleDict()
         dim = out_channels // heads
-        for edge_type in edge_types:
-            edge_type = '__'.join(edge_type)
-            self.lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-            self.lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+        for i in range(layers):
+            if i == 0:
+                lin_src = nn.ParameterDict()
+                lin_dst = nn.ParameterDict()
+                for edge_type in edge_types:
+                    edge_type = '__'.join(edge_type)
+                    lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+                    lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+            else:
+                lin_src = nn.ParameterDict()
+                lin_dst = nn.ParameterDict()
+                for edge_type in self.target_edge_types:
+                    edge_type = '__'.join(edge_type)
+                    lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+                    lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+
+            self.conv_layers[f"{i}_src"] = lin_src
+            self.conv_layers[f"{i}_dst"] = lin_dst
 
         self.reset_parameters()
 
@@ -109,8 +126,9 @@ class ModHANConv(MessagePassing):
         super().reset_parameters()
         if self.project:
             reset(self.proj)
-        glorot(self.lin_src)
-        glorot(self.lin_dst)
+        reset(self.conv_layers)
+        #glorot(self.lin_src)
+        #glorot(self.lin_dst)
         self.k_lin.reset_parameters()
         glorot(self.q)
 
@@ -148,20 +166,43 @@ class ModHANConv(MessagePassing):
             out_dict[node_type] = []
 
         # Iterate over edge types:
-        for edge_type, edge_index in edge_index_dict.items():
-            src_type, _, dst_type = edge_type
-            edge_type = '__'.join(edge_type)
-            lin_src = self.lin_src[edge_type]
-            lin_dst = self.lin_dst[edge_type]
-            x_src = x_node_dict[src_type]
-            x_dst = x_node_dict[dst_type]
-            alpha_src = (x_src * lin_src).sum(dim=-1)
-            alpha_dst = (x_dst * lin_dst).sum(dim=-1)
-            # propagate_type: (x: PairTensor, alpha: PairTensor)
-            out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
+        for i, layer in self.conv_layers.items():
+            if i == 0:
+                for edge_type, edge_index in edge_index_dict.items():
+                    src_type, _, dst_type = edge_type
+                    edge_type = '__'.join(edge_type)
+                    lin_src = self.conv_layers[f"{i}_src"][edge_type]
+                    lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
+                    x_src = x_node_dict[src_type]
+                    x_dst = x_node_dict[dst_type]
+                    alpha_src = (x_src * lin_src).sum(dim=-1)
+                    alpha_dst = (x_dst * lin_dst).sum(dim=-1)
+                    # propagate_type: (x: PairTensor, alpha: PairTensor)
+                    out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
+                    out = F.relu(out)
+                    out_dict[dst_type].append(out)
+            else:
+                for node_type, outs in out_dict.items():
+                    out = torch.stack(outs)
+                    out = torch.sum(out, dim=0)
+                    out_dict[node_type] = out
+                    # updated node embeddings
+                    x_node_dict[node_type] = out
 
-            out = F.relu(out)
-            out_dict[dst_type].append(out)
+                for edge_type, edge_index in edge_index_dict.items():
+                    if edge_type in self.target_edge_types:
+                        src_type, _, dst_type = edge_type
+                        edge_type = '__'.join(edge_type)
+                        lin_src = self.conv_layers[f"{i}_src"][edge_type]
+                        lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
+                        x_src = x_node_dict[src_type]
+                        x_dst = x_node_dict[dst_type]
+                        alpha_src = (x_src * lin_src).sum(dim=-1)
+                        alpha_dst = (x_dst * lin_dst).sum(dim=-1)
+                        # propagate_type: (x: PairTensor, alpha: PairTensor)
+                        out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
+                        out = F.relu(out)
+                        out_dict[dst_type].append(out)
 
         # iterate over node types:
         semantic_attn_dict = {}
