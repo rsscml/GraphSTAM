@@ -183,11 +183,14 @@ class ModHANConv(MessagePassing):
                     out_dict[dst_type].append(out)
             else:
                 for node_type, outs in out_dict.items():
-                    out = torch.stack(outs)
-                    out = torch.sum(out, dim=0)
-                    out_dict[node_type] = out
-                    # updated node embeddings
-                    x_node_dict[node_type] = out
+                    if len(outs) == 0:
+                        x_node_dict[node_type] = None
+                    else:
+                        out = torch.stack(outs)
+                        out = torch.sum(out, dim=0)
+                        out_dict[node_type] = out
+                        # updated node embeddings
+                        x_node_dict[node_type] = out
 
                 for edge_type, edge_index in edge_index_dict.items():
                     if edge_type in self.target_edge_types:
