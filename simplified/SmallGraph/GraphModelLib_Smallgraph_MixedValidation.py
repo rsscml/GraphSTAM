@@ -310,7 +310,7 @@ class HeteroGraphSAGE(torch.nn.Module):
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
-            self.node_proj[node_type] = Linear(in_channels, hidden_channels)
+            self.node_proj[node_type] = Linear(-1, hidden_channels)
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
