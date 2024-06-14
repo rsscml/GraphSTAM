@@ -93,6 +93,7 @@ class ModHANConv(MessagePassing):
         self.k_lin = nn.Linear(out_channels, out_channels)
         self.q = nn.Parameter(torch.empty(1, out_channels))
         self.project = project
+        self.num_layers = layers
 
         if self.project:
             self.proj = nn.ModuleDict()
@@ -109,6 +110,8 @@ class ModHANConv(MessagePassing):
                     edge_type = '__'.join(edge_type)
                     lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
                     lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
+                self.conv_layers[f"{i}_src"] = lin_src
+                self.conv_layers[f"{i}_dst"] = lin_dst
             else:
                 lin_src = nn.ParameterDict()
                 lin_dst = nn.ParameterDict()
@@ -116,9 +119,8 @@ class ModHANConv(MessagePassing):
                     edge_type = '__'.join(edge_type)
                     lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
                     lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-
-            self.conv_layers[f"{i}_src"] = lin_src
-            self.conv_layers[f"{i}_dst"] = lin_dst
+                self.conv_layers[f"{i}_src"] = lin_src
+                self.conv_layers[f"{i}_dst"] = lin_dst
 
         self.reset_parameters()
 
@@ -166,7 +168,7 @@ class ModHANConv(MessagePassing):
             out_dict[node_type] = []
 
         # Iterate over edge types:
-        for i, layer in self.conv_layers.items():
+        for i in range(self.num_layers):
             if i == 0:
                 for edge_type, edge_index in edge_index_dict.items():
                     src_type, _, dst_type = edge_type
