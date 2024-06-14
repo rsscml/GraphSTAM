@@ -191,8 +191,10 @@ class ModHANConv(MessagePassing):
                         x_node_dict[node_type] = None
                     else:
                         # updated node embeddings
+                        outs = torch.stack(outs)
+                        outs = torch.sum(outs, dim=0)
                         x_node_dict[node_type] = outs
-                        print("layer > 0, outs shape", node_type, len(outs), outs[0].shape)
+                        print("layer > 0, outs shape", node_type, outs.shape)
 
                 # reset
                 for node_type, x in x_dict.items():
@@ -206,7 +208,7 @@ class ModHANConv(MessagePassing):
                         lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
                         x_src = x_node_dict[src_type]
                         x_dst = x_node_dict[dst_type]
-                        print("layer >0, src & dst shapes: ", len(x_src), x_src[0].shape)
+                        print("layer >0, src & dst shapes: ", x_src.shape)
                         alpha_src = (x_src * lin_src).sum(dim=-1)
                         alpha_dst = (x_dst * lin_dst).sum(dim=-1)
                         # propagate_type: (x: PairTensor, alpha: PairTensor)
