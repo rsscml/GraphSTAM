@@ -10,6 +10,7 @@ import torch_geometric
 from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
+from .ModifiedHAN import ModHANConv
 import gc
 
 # Data specific imports
@@ -373,12 +374,23 @@ class HAN(torch.nn.Module):
                  hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
+
+        # edge types between target nodes
+        target_edge_types = [edge_type for edge_type in metadata[1] if (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
+
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
             if i == 0:
-                conv = HANConv(in_channels=in_channels, out_channels=hidden_channels, heads=heads, dropout=dropout, metadata=metadata)
-            else:
+                conv = ModHANConv(in_channels=in_channels,
+                                  out_channels=hidden_channels,
+                                  heads=heads,
+                                  dropout=dropout,
+                                  node_types=metadata[0],
+                                  edge_types=metadata[1],
+                                  project=True)
+            elif i >= 1:
+                """
                 conv = HeteroForecastSageConv(in_channels=hidden_channels,
                                               out_channels=hidden_channels,
                                               dropout=dropout,
@@ -387,6 +399,14 @@ class HAN(torch.nn.Module):
                                               target_node_type=target_node_type,
                                               first_layer=i == 0,
                                               is_output_layer=i == num_layers - 1)
+                """
+                conv = ModHANConv(in_channels=in_channels,
+                                  out_channels=hidden_channels,
+                                  heads=heads,
+                                  dropout=dropout,
+                                  node_types=[self.target_node_type],
+                                  edge_types=target_edge_types,
+                                  project=False)
 
             self.conv_layers.append(conv)
 
@@ -395,8 +415,8 @@ class HAN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
-            #x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
-            #edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
+            x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+            edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
 
         out = self.lin(x_dict[self.target_node_type])
         return out
@@ -467,7 +487,7 @@ class STGNN(torch.nn.Module):
                                               target_node_type=target_node,
                                               skip_connection=skip_connection)
             # weight
-            #self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
+            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
         if self.layer_type in ['HAN', 'SAGE']:
@@ -482,11 +502,10 @@ class STGNN(torch.nn.Module):
             sage_out = self.sage_model(x_dict, edge_index_dict)
             sage_out = torch.reshape(sage_out, (-1, self.time_steps, self.n_quantiles))
             # weighted sum
-            #wt = torch.nn.Sigmoid()(self.out_weight)
+            wt = torch.nn.Sigmoid()(self.out_weight)
             # print("wt: ", wt)
-            #out = han_out*wt + (1-wt)*sage_out
-            out = han_out * 0.5 + sage_out * 0.5
-
+            out = han_out*wt + (1-wt)*sage_out
+            
         return out
 
 
