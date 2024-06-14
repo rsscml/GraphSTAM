@@ -177,11 +177,13 @@ class ModHANConv(MessagePassing):
                     lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
                     x_src = x_node_dict[src_type]
                     x_dst = x_node_dict[dst_type]
+                    print("layer 0, src & dst shapes: ", x_src.shape, x_dst.shape)
                     alpha_src = (x_src * lin_src).sum(dim=-1)
                     alpha_dst = (x_dst * lin_dst).sum(dim=-1)
                     # propagate_type: (x: PairTensor, alpha: PairTensor)
                     out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
                     out = F.relu(out)
+                    print("layer 0 out shape: ", out.shape)
                     out_dict[dst_type].append(out)
             else:
                 for node_type, outs in out_dict.items():
@@ -203,6 +205,7 @@ class ModHANConv(MessagePassing):
                         lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
                         x_src = x_node_dict[src_type]
                         x_dst = x_node_dict[dst_type]
+                        print("layer >0, src & dst shapes: ", x_src.shape, x_dst.shape)
                         alpha_src = (x_src * lin_src).sum(dim=-1)
                         alpha_dst = (x_dst * lin_dst).sum(dim=-1)
                         # propagate_type: (x: PairTensor, alpha: PairTensor)
