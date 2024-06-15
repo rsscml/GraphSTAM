@@ -259,7 +259,7 @@ class HeteroForecastSageConv(torch.nn.Module):
 
         if not self.is_output_layer:
             for node_type, norm in self.norm_dict.items():
-                x = norm(self.dropout(x_dict[node_type]).relu())
+                x = norm(self.dropout(x_dict[node_type]))
                 x_dict[node_type] = x
         return x_dict
 
