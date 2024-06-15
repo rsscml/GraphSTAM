@@ -300,6 +300,7 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.target_node_type = target_node_type
         self.skip_connection = skip_connection
+        self.num_layers = num_layers
 
         if num_layers == 1:
             self.skip_connection = False
@@ -368,12 +369,13 @@ class HeteroGraphSAGE(torch.nn.Module):
             res_dict = x_dict
 
         # run convolutions
-        for conv in self.conv_layers:
+        for i, conv in enumerate(self.conv_layers):
             x_dict = conv(x_dict, edge_index_dict)
 
-            if self.skip_connection:
-                res_dict = {key: res_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
+            if i == self.num_layers - 1:
+                if self.skip_connection:
+                    res_dict = {key: res_dict[key] for key in x_dict.keys()}
+                    x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
             x_dict = {key: x.relu() for key, x in x_dict.items()}
 
         out = self.project_lin(x_dict[self.target_node_type])
