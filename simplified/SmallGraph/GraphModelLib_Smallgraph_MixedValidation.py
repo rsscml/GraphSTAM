@@ -426,6 +426,9 @@ class HGT(torch.nn.Module):
         self.target_node_type = target_node_type
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
+        target_edge_types = [edge_type for edge_type in metadata[1] if
+                             (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
+        partial_metadata = [[target_node_type], target_edge_types]
 
         """
         self.lin_dict = torch.nn.ModuleDict()
@@ -434,8 +437,11 @@ class HGT(torch.nn.Module):
         """
 
         self.conv_layers = torch.nn.ModuleList()
-        for _ in range(num_layers):
-            conv = HGTConv(in_channels=in_channels, out_channels=hidden_channels, metadata=metadata, heads=heads)
+        for i in range(num_layers):
+            if i == 0:
+                conv = HGTConv(in_channels=in_channels, out_channels=hidden_channels, metadata=metadata, heads=heads)
+            else:
+                conv = HGTConv(in_channels=in_channels, out_channels=hidden_channels, metadata=partial_metadata, heads=heads)
             self.conv_layers.append(conv)
 
         self.lin = Linear(hidden_channels, out_channels)
@@ -447,6 +453,9 @@ class HGT(torch.nn.Module):
 
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
+            x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+            edge_index_dict = {key: x for key, x in edge_index_dict.items() if
+                               (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
 
         out = self.lin(x_dict[self.target_node_type])
 
