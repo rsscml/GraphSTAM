@@ -441,7 +441,7 @@ class HGT(torch.nn.Module):
             if i == 0:
                 conv = HGTConv(in_channels=in_channels, out_channels=hidden_channels, metadata=metadata, heads=heads)
             else:
-                conv = HGTConv(in_channels=in_channels, out_channels=hidden_channels, metadata=partial_metadata, heads=heads)
+                conv = HGTConv(in_channels=hidden_channels, out_channels=hidden_channels, metadata=partial_metadata, heads=heads)
             self.conv_layers.append(conv)
 
         self.lin = Linear(hidden_channels, out_channels)
