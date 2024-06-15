@@ -430,11 +430,9 @@ class HGT(torch.nn.Module):
                              (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
         partial_metadata = [[target_node_type], target_edge_types]
 
-        """
         self.lin_dict = torch.nn.ModuleDict()
         for node_type in self.node_types:
             self.lin_dict[node_type] = Linear(-1, hidden_channels)
-        """
 
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -447,9 +445,8 @@ class HGT(torch.nn.Module):
         self.lin = Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-        """
+
         x_dict = {node_type: self.lin_dict[node_type](x).relu() for node_type, x in x_dict.items()}
-        """
 
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
