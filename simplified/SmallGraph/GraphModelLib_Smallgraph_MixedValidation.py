@@ -369,13 +369,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
             if self.skip_connection:
                 res_dict = {key: res_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if
-                          key == res_key}
-                x_dict = {key: x.relu() for key, x in x_dict.items()}
+                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
+            x_dict = {key: x.relu() for key, x in x_dict.items()}
 
         out = self.project_lin(x_dict[self.target_node_type])
 
-        return out  #x_dict[self.target_node_type]
+        return out
 
 
 # HAN Model
