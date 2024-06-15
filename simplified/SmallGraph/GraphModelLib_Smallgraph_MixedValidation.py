@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 #from .ModifiedHAN import ModHANConv
@@ -307,12 +307,11 @@ class HeteroGraphSAGE(torch.nn.Module):
         self.project_lin = Linear(hidden_channels, out_channels)
 
         # Transform/Feature Extraction Layers
-        """
+
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
-        """
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -356,11 +355,10 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
-        """
+
         # Linear project nodes
         for node_type, x in x_dict.items():
-            x_dict[node_type] = self.node_proj[node_type](x)
-        """
+            x_dict[node_type] = self.node_proj[node_type](x).relu()
 
         if self.skip_connection:
             res_dict = x_dict
@@ -422,6 +420,35 @@ class HAN(torch.nn.Module):
         return out
 
 
+class HGT(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, out_channels, metadata, target_node_type, heads=1, num_layers=1):
+        super().__init__()
+        self.target_node_type = target_node_type
+        self.node_types = metadata[0]
+        self.edge_types = metadata[1]
+
+        self.lin_dict = torch.nn.ModuleDict()
+        for node_type in self.node_types:
+            self.lin_dict[node_type] = Linear(-1, hidden_channels)
+
+        self.conv_layers = torch.nn.ModuleList()
+        for _ in range(num_layers):
+            conv = HGTConv(in_channels=hidden_channels, out_channels=hidden_channels, metadata=metadata, heads=heads)
+            self.conv_layers.append(conv)
+
+        self.lin = Linear(hidden_channels, out_channels)
+
+    def forward(self, x_dict, edge_index_dict):
+        x_dict = {node_type: self.lin_dict[node_type](x).relu() for node_type, x in x_dict.items()}
+
+        for conv in self.conv_layers:
+            x_dict = conv(x_dict, edge_index_dict)
+
+        out = self.lin(x_dict[self.target_node_type])
+
+        return out
+
+
 # Models
 class STGNN(torch.nn.Module):
     def __init__(self,
@@ -465,6 +492,15 @@ class STGNN(torch.nn.Module):
                                  heads=heads,
                                  dropout=dropout)
 
+        elif layer_type == 'HGT':
+            self.gnn_model = HGT(in_channels=-1,
+                                 out_channels=int(n_quantiles * time_steps),
+                                 metadata=metadata,
+                                 target_node_type=target_node,
+                                 num_layers=num_layers,
+                                 hidden_channels=hidden_channels,
+                                 heads=heads)
+
         else:
             self.han_model = HAN(in_channels=-1,
                                  out_channels=int(n_quantiles * time_steps),
@@ -490,7 +526,7 @@ class STGNN(torch.nn.Module):
             self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
-        if self.layer_type in ['HAN', 'SAGE']:
+        if self.layer_type in ['HAN', 'SAGE', 'HGT']:
             # gnn model
             out = self.gnn_model(x_dict, edge_index_dict)
             out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
