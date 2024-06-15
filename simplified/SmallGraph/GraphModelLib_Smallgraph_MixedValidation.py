@@ -307,14 +307,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
-        """
         # Transform/Feature Extraction Layers
 
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
-        """
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -359,11 +357,9 @@ class HeteroGraphSAGE(torch.nn.Module):
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
 
-        """"
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
-        """
 
         if self.skip_connection:
             res_dict = x_dict
