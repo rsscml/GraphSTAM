@@ -259,7 +259,7 @@ class HeteroForecastSageConv(torch.nn.Module):
 
         if not self.is_output_layer:
             for node_type, norm in self.norm_dict.items():
-                x = norm(self.dropout(x_dict[node_type]))
+                x = norm(self.dropout(x_dict[node_type]).relu())
                 x_dict[node_type] = x
 
         return x_dict
@@ -308,10 +308,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
+        """
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -355,18 +357,20 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
-
+        """"
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
-
+        
         if self.skip_connection:
             res_dict = x_dict
+        """
 
         # run convolutions
         for i, conv in enumerate(self.conv_layers):
             x_dict = conv(x_dict, edge_index_dict)
 
+            """
             # apply skip connections every 4 layers
             if ((i + 1) % 2 == 0) and self.skip_connection:
                 res_dict = {key: res_dict[key] for key in x_dict.keys()}
@@ -377,6 +381,7 @@ class HeteroGraphSAGE(torch.nn.Module):
                 res_dict = x_dict
             
             x_dict = {key: x.relu() for key, x in x_dict.items()}
+            """
 
         out = self.project_lin(x_dict[self.target_node_type])
 
