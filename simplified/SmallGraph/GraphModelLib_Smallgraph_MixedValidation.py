@@ -246,9 +246,7 @@ class HeteroGCNConv(torch.nn.Module):
 
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
-
-        for node_type in self.node_types:
-            x_dict[node_type] = x_dict[node_type].relu()
+        x_dict[self.target_node_type] = x_dict[self.target_node_type].relu()
 
         return x_dict
 
