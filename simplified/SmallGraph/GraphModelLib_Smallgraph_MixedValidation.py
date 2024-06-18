@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GCNConv
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GCNConv, GraphConv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 #from .ModifiedHAN import ModHANConv
@@ -238,12 +238,10 @@ class HeteroGCNConv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = GCNConv(in_channels=in_channels, out_channels=out_channels, add_self_loops=True,
-                                       normalize=True, bias=True)
+                conv_dict[e] = GraphConv(in_channels=in_channels, out_channels=out_channels, aggr='add')
             else:
                 if first_layer:
-                    conv_dict[e] = GCNConv(in_channels=in_channels, out_channels=out_channels, add_self_loops=False,
-                                           normalize=True, bias=True)
+                    conv_dict[e] = GraphConv(in_channels=in_channels, out_channels=out_channels, aggr='add')
         self.conv = HeteroConv(conv_dict)
 
     def forward(self, x_dict, edge_index_dict):
@@ -623,7 +621,7 @@ class STGNN(torch.nn.Module):
                                  heads=heads)
 
         elif layer_type == 'GCN':
-            self.gnn_model = HeteroGCN(in_channels=-1,
+            self.gnn_model = HeteroGCN(in_channels=(-1, -1),
                                        hidden_channels=hidden_channels,
                                        num_layers=num_layers,
                                        out_channels=int(n_quantiles * time_steps),
