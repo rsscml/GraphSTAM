@@ -343,7 +343,8 @@ class HeteroGraphSAGE(torch.nn.Module):
                                           edge_types=edge_types,
                                           target_node_type=target_node_type,
                                           first_layer=i == 0,
-                                          is_output_layer=i == num_layers - 1)
+                                          is_output_layer=False, #i == num_layers - 1
+                                          )
 
             self.conv_layers.append(conv)
 
