@@ -242,7 +242,7 @@ class HeteroGCNConv(torch.nn.Module):
                                        normalize=True, bias=True)
             else:
                 if first_layer:
-                    conv_dict[e] = GCNConv(in_channels=in_channels, out_channels=out_channels, add_self_loops=True,
+                    conv_dict[e] = GCNConv(in_channels=in_channels, out_channels=out_channels, add_self_loops=False,
                                            normalize=True, bias=True)
         self.conv = HeteroConv(conv_dict)
 
