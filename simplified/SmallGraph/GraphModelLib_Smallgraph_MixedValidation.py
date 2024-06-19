@@ -286,7 +286,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
-            self.project_lin = Linear(-1, out_channels)
+            #self.project_lin = Linear(-1, out_channels)
             self.dropout = torch.nn.Dropout(dropout)
             self.norm_dict = torch.nn.ModuleDict({
                 node_type:
@@ -303,7 +303,7 @@ class HeteroForecastSageConv(torch.nn.Module):
             for node_type, norm in self.norm_dict.items():
                 x = norm(torch.nn.functional.selu(self.dropout(x_dict[node_type])))
                 x_dict[node_type] = x
-            x_dict[self.target_node_type] = self.project_lin(x_dict[self.target_node_type])
+            #x_dict[self.target_node_type] = self.project_lin(x_dict[self.target_node_type])
         else:
             x_dict[self.target_node_type] = torch.nn.functional.selu(x_dict[self.target_node_type])
 
@@ -324,10 +324,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
+        """
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -362,9 +364,11 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
+        """
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = torch.nn.functional.selu(self.node_proj[node_type](x))
+        """
 
         """
         if self.skip_connection:
