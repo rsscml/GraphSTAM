@@ -278,7 +278,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
-                                            aggr='mean',
+                                            aggr='sum',
                                             normalize=False,
                                             bias=True)
         self.conv = HeteroConv(conv_dict)
@@ -300,8 +300,8 @@ class HeteroForecastSageConv(torch.nn.Module):
             for node_type, norm in self.norm_dict.items():
                 x = norm(self.dropout(x_dict[node_type]).relu())
                 x_dict[node_type] = x
-
-            #x_dict[self.target_node_type] = self.dropout(x_dict[self.target_node_type])
+        else:
+            x_dict[self.target_node_type] = x_dict[self.target_node_type].relu()
 
         return x_dict
 
