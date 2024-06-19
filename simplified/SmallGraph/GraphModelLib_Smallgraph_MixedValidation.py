@@ -272,38 +272,37 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
                                         aggr='mean',
-                                        normalize=True,
+                                        normalize=False,
                                         bias=True)
             else:
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
                                             aggr='mean',
-                                            normalize=True,
+                                            normalize=False,
                                             bias=True)
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
             self.dropout = torch.nn.Dropout(dropout)
-            """
+
             self.norm_dict = torch.nn.ModuleDict({
                 node_type:
                     LayerNorm(out_channels, mode='node')
                 for node_type in node_types if node_type == target_node_type
             })
-            """
+
         self.is_output_layer = is_output_layer
 
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
 
         if not self.is_output_layer:
-            """
             for node_type, norm in self.norm_dict.items():
                 x = norm(self.dropout(x_dict[node_type]))
                 x_dict[node_type] = x
-            """
-            x_dict[self.target_node_type] = self.dropout(x_dict[self.target_node_type])
+
+            #x_dict[self.target_node_type] = self.dropout(x_dict[self.target_node_type])
 
         return x_dict
 
