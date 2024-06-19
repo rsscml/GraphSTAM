@@ -272,6 +272,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
                                         aggr='mean',
+                                        project=True,
                                         normalize=False,
                                         bias=True)
             else:
@@ -279,6 +280,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
                                             aggr='sum',
+                                            project=False,
                                             normalize=False,
                                             bias=True)
         self.conv = HeteroConv(conv_dict)
