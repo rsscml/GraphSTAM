@@ -307,7 +307,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         """
 
     def forward(self, x_dict, edge_index_dict):
-        x_dict_bkp = x_dict
+        x_dict_bkp = copy.deepcopy(x_dict)
         # drop target node from bkp
         x_dict_bkp.pop(self.target_node_type)
         # run conv on orig
