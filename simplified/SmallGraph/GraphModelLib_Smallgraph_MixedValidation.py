@@ -307,14 +307,9 @@ class HeteroForecastSageConv(torch.nn.Module):
         """
 
     def forward(self, x_dict, edge_index_dict):
-        x_dict_bkp = copy.deepcopy(x_dict)
-        # drop target node from bkp
-        x_dict_bkp.pop(self.target_node_type)
-        # run conv on orig
+
         x_dict = self.conv(x_dict, edge_index_dict)
         x_dict = {key: x.relu() for key, x in x_dict.items()}
-        # update
-        x_dict.update(x_dict_bkp)
 
         """
         if not self.is_output_layer:
@@ -1506,6 +1501,10 @@ class graphmodel():
             edges = np.column_stack([nodes, nodes])
             edge_name = (col, '{}_effects'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+
+        # add self loops
+        self_loops_transform = T.AddSelfLoops()
+        data = self_loops_transform(data)
 
         # validate dataset
         print("validate snapshot graph ...")    
