@@ -272,17 +272,18 @@ class HeteroForecastSageConv(torch.nn.Module):
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
                                         aggr='mean',
-                                        normalize=False,
+                                        normalize=True,
                                         bias=True)
             else:
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
                                             aggr='mean',
-                                            normalize=False,
+                                            normalize=True,
                                             bias=True)
         self.conv = HeteroConv(conv_dict)
 
+        """
         if not is_output_layer:
             self.dropout = torch.nn.Dropout(dropout)
 
@@ -291,6 +292,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                     LayerNorm(out_channels, mode='node')
                 for node_type in node_types if node_type == target_node_type
             })
+        """
 
         self.is_output_layer = is_output_layer
 
@@ -298,11 +300,12 @@ class HeteroForecastSageConv(torch.nn.Module):
         x_dict = self.conv(x_dict, edge_index_dict)
 
         if not self.is_output_layer:
+            """
             for node_type, norm in self.norm_dict.items():
                 x = norm(self.dropout(x_dict[node_type]))
                 x_dict[node_type] = x
-
-            #x_dict[self.target_node_type] = self.dropout(x_dict[self.target_node_type])
+            """
+            x_dict[self.target_node_type] = self.dropout(x_dict[self.target_node_type])
 
         return x_dict
 
@@ -321,10 +324,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
+        """
 
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
@@ -359,10 +364,11 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
-
+        """
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x)
+        """
 
         """
         if self.skip_connection:
