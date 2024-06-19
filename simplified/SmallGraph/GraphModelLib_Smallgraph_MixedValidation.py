@@ -271,7 +271,7 @@ class HeteroForecastSageConv(torch.nn.Module):
             if e[0] == e[2]:
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
-                                        aggr='sum',
+                                        aggr='mean',
                                         project=False,
                                         normalize=False,
                                         bias=True)
@@ -279,7 +279,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
-                                            aggr='sum',
+                                            aggr='mean',
                                             project=False,
                                             normalize=False,
                                             bias=True)
