@@ -283,16 +283,16 @@ class HeteroForecastSageConv(torch.nn.Module):
                                             bias=True)
         self.conv = HeteroConv(conv_dict)
 
-        """
         if not is_output_layer:
             self.dropout = torch.nn.Dropout(dropout)
 
+            """
             self.norm_dict = torch.nn.ModuleDict({
                 node_type:
                     LayerNorm(out_channels, mode='node')
                 for node_type in node_types if node_type == target_node_type
             })
-        """
+            """
 
         self.is_output_layer = is_output_layer
 
