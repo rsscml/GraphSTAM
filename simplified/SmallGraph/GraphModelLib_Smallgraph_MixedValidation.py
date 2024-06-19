@@ -286,6 +286,7 @@ class HeteroForecastSageConv(torch.nn.Module):
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
+            self.project_lin = Linear(-1, out_channels)
             self.dropout = torch.nn.Dropout(dropout)
             self.norm_dict = torch.nn.ModuleDict({
                 node_type:
@@ -294,8 +295,6 @@ class HeteroForecastSageConv(torch.nn.Module):
             })
 
         self.is_output_layer = is_output_layer
-
-        self.project_lin = Linear(-1, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
