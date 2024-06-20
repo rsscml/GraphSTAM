@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GCNConv, GraphConv
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 #from .ModifiedHAN import ModHANConv
@@ -219,10 +219,11 @@ class DirSageConv(torch.nn.Module):
 
 
 # Forecast GNN Layers
-class HeteroGCNConv(torch.nn.Module):
+class HeteroGATv2Conv(torch.nn.Module):
     def __init__(self,
                  in_channels,
                  out_channels,
+                 heads,
                  dropout,
                  edge_types,
                  node_types,
@@ -238,10 +239,12 @@ class HeteroGCNConv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = GraphConv(in_channels=in_channels, out_channels=out_channels, aggr='add')
+                conv_dict[e] = GATv2Conv(in_channels=in_channels, out_channels=out_channels, heads=heads, concat=False,
+                                         add_self_loops=True, dropout=dropout)
             else:
                 if first_layer:
-                    conv_dict[e] = GraphConv(in_channels=in_channels, out_channels=out_channels, aggr='add')
+                    conv_dict[e] = GATv2Conv(in_channels=in_channels, out_channels=out_channels, heads=heads,
+                                             concat=False, add_self_loops=True, dropout=dropout)
         self.conv = HeteroConv(conv_dict)
 
     def forward(self, x_dict, edge_index_dict):
@@ -392,18 +395,14 @@ class HeteroGraphSAGE(torch.nn.Module):
         return out
 
 
-class HeteroGCN(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
+class HeteroGAT(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, heads, node_types, edge_types,
                  target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
         self.skip_connection = skip_connection
         self.num_layers = num_layers
-
-        if num_layers == 1:
-            self.skip_connection = False
-
         self.project_lin = Linear(hidden_channels, out_channels)
 
         # linear projection
@@ -414,14 +413,15 @@ class HeteroGCN(torch.nn.Module):
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
-            conv = HeteroGCNConv(in_channels=in_channels if i == 0 else hidden_channels,
-                                 out_channels=hidden_channels,
-                                 dropout=dropout,
-                                 node_types=node_types,
-                                 edge_types=edge_types,
-                                 target_node_type=target_node_type,
-                                 first_layer=i == 0,
-                                 is_output_layer=False)
+            conv = HeteroGATv2Conv(in_channels=in_channels if i == 0 else hidden_channels,
+                                   out_channels=hidden_channels,
+                                   dropout=dropout,
+                                   heads=heads,
+                                   node_types=node_types,
+                                   edge_types=edge_types,
+                                   target_node_type=target_node_type,
+                                   first_layer=i == 0,
+                                   is_output_layer=False)
 
             self.conv_layers.append(conv)
 
@@ -429,28 +429,11 @@ class HeteroGCN(torch.nn.Module):
 
         # Linear project nodes
         for node_type, x in x_dict.items():
-            x_dict[node_type] = self.node_proj[node_type](x)
-
-        """
-        if self.skip_connection:
-            res_dict = x_dict
-        """
+            x_dict[node_type] = self.node_proj[node_type](x).relu()
 
         # run convolutions
         for i, conv in enumerate(self.conv_layers):
             x_dict = conv(x_dict, edge_index_dict)
-            """
-            # apply skip connections every 4 layers
-            if ((i + 1) % 2 == 0) and self.skip_connection:
-                res_dict = {key: res_dict[key] for key in x_dict.keys()}
-                x_dict = {key: x + res_x for (key, x), (res_key, res_x) in zip(x_dict.items(), res_dict.items()) if key == res_key}
-
-            # update res input every 2 layers
-            if ((i + 1) % 2 == 0) and self.skip_connection:
-                res_dict = x_dict
-
-            x_dict = {key: x.relu() for key, x in x_dict.items()}
-            """
 
         out = self.project_lin(x_dict[self.target_node_type])
 
@@ -591,12 +574,13 @@ class STGNN(torch.nn.Module):
                                  hidden_channels=hidden_channels,
                                  heads=heads)
 
-        elif layer_type == 'GCN':
-            self.gnn_model = HeteroGCN(in_channels=(-1, -1),
+        elif layer_type == 'GAT':
+            self.gnn_model = HeteroGAT(in_channels=(-1, -1),
                                        hidden_channels=hidden_channels,
                                        num_layers=num_layers,
                                        out_channels=int(n_quantiles * time_steps),
                                        dropout=dropout,
+                                       heads=heads,
                                        node_types=self.node_types,
                                        edge_types=self.edge_types,
                                        target_node_type=target_node,
@@ -627,7 +611,7 @@ class STGNN(torch.nn.Module):
             self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
-        if self.layer_type in ['HAN', 'SAGE', 'HGT', 'GCN']:
+        if self.layer_type in ['HAN', 'SAGE', 'HGT', 'GAT']:
             # gnn model
             out = self.gnn_model(x_dict, edge_index_dict)
             out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
