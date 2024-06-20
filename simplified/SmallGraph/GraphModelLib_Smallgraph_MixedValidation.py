@@ -366,7 +366,7 @@ class HeteroGraphSAGE(torch.nn.Module):
         """
         # Linear project nodes
         for node_type, x in x_dict.items():
-            x_dict[node_type] = self.node_proj[node_type](x).relu()
+            x_dict[node_type] = self.node_proj[node_type](x)
 
         """
         if self.skip_connection:
@@ -429,7 +429,7 @@ class HeteroGAT(torch.nn.Module):
 
         # Linear project nodes
         for node_type, x in x_dict.items():
-            x_dict[node_type] = self.node_proj[node_type](x).relu()
+            x_dict[node_type] = self.node_proj[node_type](x)
 
         # run convolutions
         for i, conv in enumerate(self.conv_layers):
