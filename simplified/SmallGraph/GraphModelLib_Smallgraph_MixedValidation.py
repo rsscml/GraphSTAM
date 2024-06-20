@@ -247,9 +247,24 @@ class HeteroGATv2Conv(torch.nn.Module):
                                              concat=False, add_self_loops=False, dropout=dropout)
         self.conv = HeteroConv(conv_dict)
 
+        if not is_output_layer:
+            self.dropout = torch.nn.Dropout(dropout)
+            self.norm_dict = torch.nn.ModuleDict({
+                node_type:
+                    LayerNorm(out_channels, mode='node')
+                for node_type in node_types if node_type == target_node_type
+            })
+
+        self.is_output_layer = is_output_layer
+
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
-        x_dict[self.target_node_type] = x_dict[self.target_node_type].relu()
+
+        if not self.is_output_layer:
+            for node_type, norm in self.norm_dict.items():
+                x_dict[node_type] = norm(self.dropout(x_dict[node_type]).relu())
+        else:
+            x_dict[self.target_node_type] = x_dict[self.target_node_type].relu()
 
         return x_dict
 
