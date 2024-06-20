@@ -244,7 +244,7 @@ class HeteroGATv2Conv(torch.nn.Module):
             else:
                 if first_layer:
                     conv_dict[e] = GATv2Conv(in_channels=in_channels, out_channels=out_channels, heads=heads,
-                                             concat=False, add_self_loops=True, dropout=dropout)
+                                             concat=False, add_self_loops=False, dropout=dropout)
         self.conv = HeteroConv(conv_dict)
 
     def forward(self, x_dict, edge_index_dict):
