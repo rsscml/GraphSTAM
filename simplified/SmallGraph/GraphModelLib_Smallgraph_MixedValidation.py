@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv, aggr
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 #from .ModifiedHAN import ModHANConv
@@ -239,12 +239,30 @@ class HeteroGATv2Conv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = GATv2Conv(in_channels=in_channels, out_channels=out_channels, heads=heads, concat=False,
-                                         add_self_loops=True, dropout=dropout)
+                conv_dict[e] = GATv2Conv(in_channels=in_channels,
+                                         out_channels=out_channels,
+                                         heads=heads,
+                                         concat=False,
+                                         add_self_loops=True,
+                                         dropout=dropout,
+                                         aggr=['mean',
+                                               aggr.SoftmaxAggregation(t=0.1, learn=True),
+                                               aggr.SoftmaxAggregation(t=1, learn=True),
+                                               aggr.SoftmaxAggregation(t=10, learn=True)]
+                                         )
             else:
                 if first_layer:
-                    conv_dict[e] = GATv2Conv(in_channels=in_channels, out_channels=out_channels, heads=heads,
-                                             concat=False, add_self_loops=False, dropout=dropout)
+                    conv_dict[e] = GATv2Conv(in_channels=in_channels,
+                                             out_channels=out_channels,
+                                             heads=heads,
+                                             concat=False,
+                                             add_self_loops=False,
+                                             dropout=dropout,
+                                             aggr=['mean',
+                                                   aggr.SoftmaxAggregation(t=0.1, learn=True),
+                                                   aggr.SoftmaxAggregation(t=1, learn=True),
+                                                   aggr.SoftmaxAggregation(t=10, learn=True)]
+                                             )
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
@@ -289,7 +307,10 @@ class HeteroForecastSageConv(torch.nn.Module):
             if e[0] == e[2]:
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
-                                        aggr='mean',
+                                        aggr=['mean',
+                                              aggr.SoftmaxAggregation(t=0.1, learn=True),
+                                              aggr.SoftmaxAggregation(t=1, learn=True),
+                                              aggr.SoftmaxAggregation(t=10, learn=True)],
                                         project=False,
                                         normalize=False,
                                         bias=True)
@@ -297,7 +318,10 @@ class HeteroForecastSageConv(torch.nn.Module):
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
-                                            aggr='mean',
+                                            aggr=['mean',
+                                                  aggr.SoftmaxAggregation(t=0.1, learn=True),
+                                                  aggr.SoftmaxAggregation(t=1, learn=True),
+                                                  aggr.SoftmaxAggregation(t=10, learn=True)],
                                             project=False,
                                             normalize=False,
                                             bias=True)
