@@ -245,8 +245,8 @@ class HeteroGATv2Conv(torch.nn.Module):
                                          concat=False,
                                          add_self_loops=True,
                                          dropout=dropout,
-                                         aggr=['mean',
-                                               'sum',
+                                         aggr=[aggr.SoftmaxAggregation(t=10, learn=True),
+                                               aggr.SoftmaxAggregation(t=0.1, learn=True),
                                                aggr.SoftmaxAggregation(t=1, learn=True)]
                                          )
             else:
@@ -257,7 +257,7 @@ class HeteroGATv2Conv(torch.nn.Module):
                                              concat=False,
                                              add_self_loops=False,
                                              dropout=dropout,
-                                             aggr=['mean']
+                                             aggr=[ aggr.SoftmaxAggregation(t=1, learn=True)]
                                              )
         self.conv = HeteroConv(conv_dict)
 
@@ -303,8 +303,8 @@ class HeteroForecastSageConv(torch.nn.Module):
             if e[0] == e[2]:
                 conv_dict[e] = SAGEConv(in_channels=in_channels,
                                         out_channels=out_channels,
-                                        aggr=['mean',
-                                              'sum',
+                                        aggr=[aggr.SoftmaxAggregation(t=10, learn=True),
+                                              aggr.SoftmaxAggregation(t=0.1, learn=True),
                                               aggr.SoftmaxAggregation(t=1, learn=True)],
                                         project=False,
                                         normalize=False,
@@ -313,7 +313,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                 if first_layer:
                     conv_dict[e] = SAGEConv(in_channels=in_channels,
                                             out_channels=out_channels,
-                                            aggr=['mean'],
+                                            aggr=[aggr.SoftmaxAggregation(t=1, learn=True)],
                                             project=False,
                                             normalize=False,
                                             bias=True)
