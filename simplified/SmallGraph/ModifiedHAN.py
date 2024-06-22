@@ -125,7 +125,6 @@ class ModHANConv(MessagePassing):
             x_dst = x_node_dict[dst_type]
             x = (x_src, x_dst)
             x = self.conv_layers[edge_type](x, edge_index)
-            print("x: ", x)
             out = F.relu(x)
             out_dict[dst_type].append(out)
 
