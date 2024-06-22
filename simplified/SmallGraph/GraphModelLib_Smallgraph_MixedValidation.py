@@ -245,7 +245,7 @@ class HeteroGATv2Conv(torch.nn.Module):
                                          concat=False,
                                          add_self_loops=True,
                                          dropout=dropout,
-                                         aggr='sum'
+                                         aggr='mean'
                                          )
             else:
                 if first_layer:
@@ -256,7 +256,7 @@ class HeteroGATv2Conv(torch.nn.Module):
                                                  concat=False,
                                                  add_self_loops=True,
                                                  dropout=dropout,
-                                                 aggr='sum'
+                                                 aggr='mean'
                                                  )
                     else:
                         conv_dict[e] = GATv2Conv(in_channels=in_channels,
