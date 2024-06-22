@@ -10,7 +10,7 @@ import torch_geometric
 from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv, aggr
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
-#from .ModifiedHAN import ModHANConv
+from .ModifiedHAN import ModHANConv
 import gc
 
 # Data specific imports
@@ -504,11 +504,11 @@ class HAN(torch.nn.Module):
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
             if i == 0:
-                conv = HANConv(in_channels=in_channels,
-                               out_channels=hidden_channels,
-                               heads=heads,
-                               dropout=dropout,
-                               metadata=metadata)
+                conv = ModHANConv(in_channels=in_channels,
+                                  out_channels=hidden_channels,
+                                  heads=heads,
+                                  dropout=dropout,
+                                  metadata=metadata)
             elif i >= 1:
                 conv = HeteroForecastSageConv(in_channels=hidden_channels,
                                               out_channels=hidden_channels,

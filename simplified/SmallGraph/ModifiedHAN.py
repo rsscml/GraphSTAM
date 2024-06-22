@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from torch_geometric.nn import GATv2Conv, SAGEConv
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense import Linear
 from torch_geometric.nn.inits import glorot, reset
@@ -31,106 +32,58 @@ def group(
         return out, attn
 
 
-class ModHANConv(MessagePassing):
-    r"""The Heterogenous Graph Attention Operator from the
-    `"Heterogenous Graph Attention Network"
-    <https://arxiv.org/abs/1903.07293>`_ paper.
-
-    .. note::
-
-        For an example of using HANConv, see `examples/hetero/han_imdb.py
-        <https://github.com/pyg-team/pytorch_geometric/blob/master/examples/
-        hetero/han_imdb.py>`_.
-
-    Args:
-        in_channels (int or Dict[str, int]): Size of each input sample of every
-            node type, or :obj:`-1` to derive the size from the first input(s)
-            to the forward method.
-        out_channels (int): Size of each output sample.
-        metadata (Tuple[List[str], List[Tuple[str, str, str]]]): The metadata
-            of the heterogeneous graph, *i.e.* its node and edge types given
-            by a list of strings and a list of string triplets, respectively.
-            See :meth:`torch_geometric.data.HeteroData.metadata` for more
-            information.
-        heads (int, optional): Number of multi-head-attentions.
-            (default: :obj:`1`)
-        negative_slope (float, optional): LeakyReLU angle of the negative
-            slope. (default: :obj:`0.2`)
-        dropout (float, optional): Dropout probability of the normalized
-            attention coefficients which exposes each node to a stochastically
-            sampled neighborhood during training. (default: :obj:`0`)
-        **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
-    """
+class ModHANConv(torch.nn.Module):
     def __init__(
         self,
         in_channels: Union[int, Dict[str, int]],
         out_channels: int,
-        node_types,
-        edge_types,
-        target_node_type,
-        layers: int = 1,
+        metadata: Metadata,
         heads: int = 1,
         negative_slope=0.2,
         dropout: float = 0.0,
-        project: bool = True,
-        **kwargs,
     ):
-        super().__init__(aggr='add', node_dim=0, **kwargs)
+        super().__init__()
 
         if not isinstance(in_channels, dict):
-            in_channels = {node_type: in_channels for node_type in node_types}
+            in_channels = {node_type: in_channels for node_type in metadata[0]}
 
         self.heads = heads
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.negative_slope = negative_slope
-        self.node_types = node_types
-        self.edge_types = edge_types
-        self.target_node_type = target_node_type
-        self.target_edge_types = [edge for edge in edge_types if (edge[0] == target_node_type) and (edge[2] == target_node_type)]
+        self.metadata = metadata
         self.dropout = dropout
         self.k_lin = nn.Linear(out_channels, out_channels)
         self.q = nn.Parameter(torch.empty(1, out_channels))
-        self.project = project
-        self.num_layers = layers
 
-        if self.project:
-            self.proj = nn.ModuleDict()
-            for node_type, in_channels in self.in_channels.items():
-                self.proj[node_type] = Linear(in_channels, out_channels)
+        self.proj = nn.ModuleDict()
+        for node_type, in_channels in self.in_channels.items():
+            self.proj[node_type] = Linear(in_channels, out_channels)
 
         self.conv_layers = nn.ModuleDict()
         dim = out_channels // heads
-        for i in range(layers):
-            if i == 0:
-                lin_src = nn.ParameterDict()
-                lin_dst = nn.ParameterDict()
-                for edge_type in edge_types:
-                    edge_type = '__'.join(edge_type)
-                    lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-                    lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-                self.conv_layers[f"{i}_src"] = lin_src
-                self.conv_layers[f"{i}_dst"] = lin_dst
-            else:
-                lin_src = nn.ParameterDict()
-                lin_dst = nn.ParameterDict()
-                for edge_type in self.target_edge_types:
-                    edge_type = '__'.join(edge_type)
-                    lin_src[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-                    lin_dst[edge_type] = nn.Parameter(torch.empty(1, heads, dim))
-                self.conv_layers[f"{i}_src"] = lin_src
-                self.conv_layers[f"{i}_dst"] = lin_dst
 
+        for edge_type in metadata[1]:
+            if edge_type[0] == edge_type[2]:
+                add_self_loops = True
+                share_weights = True
+            else:
+                add_self_loops = False
+                share_weights = False
+            edge_type = '__'.join(edge_type)
+            self.conv_layers[edge_type] = GATv2Conv(in_channels=(-1, -1),
+                                                    out_channels=dim,
+                                                    heads=heads,
+                                                    concat=False,
+                                                    add_self_loops=add_self_loops,
+                                                    dropout=dropout,
+                                                    share_weights=share_weights)
         self.reset_parameters()
 
     def reset_parameters(self):
         super().reset_parameters()
-        if self.project:
-            reset(self.proj)
+        reset(self.proj)
         reset(self.conv_layers)
-        #glorot(self.lin_src)
-        #glorot(self.lin_dst)
         self.k_lin.reset_parameters()
         glorot(self.q)
 
@@ -161,60 +114,19 @@ class ModHANConv(MessagePassing):
 
         # Iterate over node types:
         for node_type, x in x_dict.items():
-            if self.project:
-                x_node_dict[node_type] = self.proj[node_type](x).view(-1, H, D)
-            else:
-                x_node_dict[node_type] = x.view(-1, H, D)
+            x_node_dict[node_type] = self.proj[node_type](x).view(-1, H, D)
             out_dict[node_type] = []
 
         # Iterate over edge types:
-        for i in range(self.num_layers):
-            if i == 0:
-                for edge_type, edge_index in edge_index_dict.items():
-                    src_type, _, dst_type = edge_type
-                    edge_type = '__'.join(edge_type)
-                    lin_src = self.conv_layers[f"{i}_src"][edge_type]
-                    lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
-                    x_src = x_node_dict[src_type]
-                    x_dst = x_node_dict[dst_type]
-                    #print("layer 0, src & dst shapes: ", x_src.shape, x_dst.shape)
-                    alpha_src = (x_src * lin_src).sum(dim=-1)
-                    alpha_dst = (x_dst * lin_dst).sum(dim=-1)
-                    # propagate_type: (x: PairTensor, alpha: PairTensor)
-                    out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
-                    out = F.relu(out)
-                    #print("layer 0 out shape: ", out.shape)
-                    out_dict[dst_type].append(out)
-            else:
-                for node_type, outs in out_dict.items():
-                    if len(outs) == 0:
-                        x_node_dict[node_type] = None
-                    else:
-                        # updated node embeddings
-                        outs = torch.stack(outs)
-                        outs = torch.sum(outs, dim=0)
-                        x_node_dict[node_type] = outs.view(-1, H, D)
-                        #print("layer > 0, outs shape", node_type, outs.shape)
-
-                # reset
-                for node_type, x in x_dict.items():
-                    out_dict[node_type] = []
-
-                for edge_type, edge_index in edge_index_dict.items():
-                    if edge_type in self.target_edge_types:
-                        src_type, _, dst_type = edge_type
-                        edge_type = '__'.join(edge_type)
-                        lin_src = self.conv_layers[f"{i}_src"][edge_type]
-                        lin_dst = self.conv_layers[f"{i}_dst"][edge_type]
-                        x_src = x_node_dict[src_type]
-                        x_dst = x_node_dict[dst_type]
-                        #print("layer >0, src & dst shapes: ", x_src.shape)
-                        alpha_src = (x_src * lin_src).sum(dim=-1)
-                        alpha_dst = (x_dst * lin_dst).sum(dim=-1)
-                        # propagate_type: (x: PairTensor, alpha: PairTensor)
-                        out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
-                        out = F.relu(out)
-                        out_dict[dst_type].append(out)
+        for edge_type, edge_index in edge_index_dict.items():
+            src_type, _, dst_type = edge_type
+            edge_type = '__'.join(edge_type)
+            x_src = x_node_dict[src_type]
+            x_dst = x_node_dict[dst_type]
+            x = (x_src, x_dst)
+            x = self.conv_layers[edge_type](x, edge_index)
+            out = F.relu(x[dst_type])
+            out_dict[dst_type].append(out)
 
         # iterate over node types:
         semantic_attn_dict = {}
@@ -227,20 +139,3 @@ class ModHANConv(MessagePassing):
             return out_dict, semantic_attn_dict
 
         return out_dict
-
-    def message(self, x_j: Tensor,
-                alpha_i: Tensor,
-                alpha_j: Tensor,
-                index: Tensor,
-                ptr: Optional[Tensor],
-                size_i: Optional[int]) -> Tensor:
-
-        alpha = alpha_j + alpha_i
-        alpha = F.leaky_relu(alpha, self.negative_slope)
-        alpha = softmax(alpha, index, ptr, size_i)
-        alpha = F.dropout(alpha, p=self.dropout, training=self.training)
-        out = x_j * alpha.view(-1, self.heads, 1)
-        return out.view(-1, self.out_channels)
-
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}({self.out_channels}, 'f'heads={self.heads})')
