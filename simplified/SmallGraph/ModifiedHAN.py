@@ -71,6 +71,13 @@ class ModHANConv(MessagePassing):
                 add_self_loops = False
                 share_weights = False
             edge_type = '__'.join(edge_type)
+            self.conv_layers[edge_type] = SAGEConv(in_channels=(-1, -1),
+                                                   out_channels=dim,
+                                                   aggr='mean',
+                                                   project=False,
+                                                   normalize=True,
+                                                   bias=True)
+            """
             self.conv_layers[edge_type] = GATv2Conv(in_channels=(-1, -1),
                                                     out_channels=dim,
                                                     heads=heads,
@@ -78,6 +85,7 @@ class ModHANConv(MessagePassing):
                                                     add_self_loops=add_self_loops,
                                                     dropout=dropout,
                                                     share_weights=share_weights)
+            """
         self.reset_parameters()
 
     def reset_parameters(self):
