@@ -32,7 +32,7 @@ def group(
         return out, attn
 
 
-class ModHANConv(torch.nn.Module):
+class ModHANConv(MessagePassing):
     def __init__(
         self,
         in_channels: Union[int, Dict[str, int]],
