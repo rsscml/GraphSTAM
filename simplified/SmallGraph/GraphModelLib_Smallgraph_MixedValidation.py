@@ -239,7 +239,7 @@ class HeteroGATv2Conv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = GATv2Conv(in_channels=in_channels,
+                conv_dict[e] = GATv2Conv(in_channels=-1,
                                          out_channels=out_channels,
                                          heads=heads,
                                          concat=False,
@@ -249,14 +249,25 @@ class HeteroGATv2Conv(torch.nn.Module):
                                          )
             else:
                 if first_layer:
-                    conv_dict[e] = GATv2Conv(in_channels=in_channels,
-                                             out_channels=out_channels,
-                                             heads=heads,
-                                             concat=False,
-                                             add_self_loops=False,
-                                             dropout=dropout,
-                                             aggr='sum'
-                                             )
+                    if e[0] == e[2]:
+                        conv_dict[e] = GATv2Conv(in_channels=-1,
+                                                 out_channels=out_channels,
+                                                 heads=heads,
+                                                 concat=False,
+                                                 add_self_loops=True,
+                                                 dropout=dropout,
+                                                 aggr='sum'
+                                                 )
+                    else:
+                        conv_dict[e] = GATv2Conv(in_channels=in_channels,
+                                                 out_channels=out_channels,
+                                                 heads=heads,
+                                                 concat=False,
+                                                 add_self_loops=False,
+                                                 dropout=dropout,
+                                                 aggr='sum'
+                                                 )
+
         self.conv = HeteroConv(conv_dict)
 
         if not is_output_layer:
@@ -299,20 +310,28 @@ class HeteroForecastSageConv(torch.nn.Module):
         conv_dict = {}
         for e in edge_types:
             if e[0] == e[2]:
-                conv_dict[e] = SAGEConv(in_channels=in_channels,
+                conv_dict[e] = SAGEConv(in_channels=-1,
                                         out_channels=out_channels,
                                         aggr='mean',
                                         project=False,
-                                        normalize=False,
+                                        normalize=True,
                                         bias=True)
             else:
                 if first_layer:
-                    conv_dict[e] = SAGEConv(in_channels=in_channels,
-                                            out_channels=out_channels,
-                                            aggr='mean',
-                                            project=False,
-                                            normalize=False,
-                                            bias=True)
+                    if e[0] == e[2]:
+                        conv_dict[e] = SAGEConv(in_channels=-1,
+                                                out_channels=out_channels,
+                                                aggr='mean',
+                                                project=False,
+                                                normalize=True,
+                                                bias=True)
+                    else:
+                        conv_dict[e] = SAGEConv(in_channels=in_channels,
+                                                out_channels=out_channels,
+                                                aggr='sum',
+                                                project=False,
+                                                normalize=True,
+                                                bias=False)
 
         self.conv = HeteroConv(conv_dict)
 
@@ -353,11 +372,12 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
-
+        """
         """
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
@@ -391,11 +411,11 @@ class HeteroGraphSAGE(torch.nn.Module):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
         """
-
+        """
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
-
+        """
         """
         if self.skip_connection:
             res_dict = x_dict
@@ -433,10 +453,12 @@ class HeteroGAT(torch.nn.Module):
         self.num_layers = num_layers
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
+        """
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -454,10 +476,11 @@ class HeteroGAT(torch.nn.Module):
             self.conv_layers.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
-
+        """
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
+        """
 
         # run convolutions
         for i, conv in enumerate(self.conv_layers):
