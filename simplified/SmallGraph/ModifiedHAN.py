@@ -114,7 +114,7 @@ class ModHANConv(MessagePassing):
 
         # Iterate over node types:
         for node_type, x in x_dict.items():
-            x_node_dict[node_type] = self.proj[node_type](x).view(-1, H, D)
+            x_node_dict[node_type] = self.proj[node_type](x)
             out_dict[node_type] = []
 
         # Iterate over edge types:
