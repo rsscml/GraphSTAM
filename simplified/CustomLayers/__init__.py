@@ -1,1 +1,1 @@
-from simplified.CustomLayers import ModifiedHAN
+from simplified.CustomLayers.ModifiedHAN import ModHANConv
