@@ -492,7 +492,7 @@ class HeteroGAT(torch.nn.Module):
         return out
 
 
-# HAN Model
+# HAN Models
 class HAN(torch.nn.Module):
     def __init__(self, in_channels, out_channels, metadata, target_node_type, node_types, edge_types, num_layers=1,
                  hidden_channels=128, heads=1, dropout=0.1):
@@ -517,16 +517,6 @@ class HAN(torch.nn.Module):
                                heads=heads,
                                dropout=dropout,
                                metadata=metadata)
-                """
-                conv = HeteroForecastSageConv(in_channels=hidden_channels,
-                                              out_channels=hidden_channels,
-                                              dropout=dropout,
-                                              node_types=[self.target_node_type],
-                                              edge_types=target_edge_types,
-                                              target_node_type=target_node_type,
-                                              first_layer=i == 0,
-                                              is_output_layer=i == num_layers - 1)
-                """
 
             self.conv_layers.append(conv)
 
@@ -537,6 +527,51 @@ class HAN(torch.nn.Module):
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
             edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
+
+        out = self.lin(x_dict[self.target_node_type])
+        return out
+
+
+class SageHAN(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, target_node_type, node_types, edge_types,
+                 hidden_channels=128, heads=1, dropout=0.1):
+        super().__init__()
+        self.target_node_type = target_node_type
+        target_edge_types = [edge_type for edge_type in edge_types if
+                             (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
+
+        # Conv Layers
+        self.conv_layers = torch.nn.ModuleList()
+        # get node embeddings from sage
+        sage_conv = HeteroForecastSageConv(in_channels=(-1, -1),
+                                           out_channels=hidden_channels,
+                                           dropout=dropout,
+                                           node_types=node_types,
+                                           edge_types=edge_types,
+                                           target_node_type=target_node_type,
+                                           first_layer=True,
+                                           is_output_layer=False)
+
+        self.conv_layers.append(sage_conv)
+
+        han_metadata = ([self.target_node_type], target_edge_types)
+
+        han_conv = HANConv(in_channels=-1,
+                           out_channels=hidden_channels,
+                           heads=heads,
+                           dropout=dropout,
+                           metadata=han_metadata)
+
+        self.conv_layers.append(han_conv)
+
+        self.lin = torch.nn.Linear(hidden_channels, out_channels)
+
+    def forward(self, x_dict, edge_index_dict):
+        for conv in self.conv_layers:
+            x_dict = conv(x_dict, edge_index_dict)
+            x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
+            edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and
+                               (key[2] == self.target_node_type)}
 
         out = self.lin(x_dict[self.target_node_type])
         return out
@@ -624,6 +659,15 @@ class STGNN(torch.nn.Module):
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
+        elif layer_type == 'SageHAN':
+            self.gnn_model = SageHAN(in_channels=-1,
+                                     out_channels=int(n_quantiles * time_steps),
+                                     target_node_type=target_node,
+                                     node_types=self.node_types,
+                                     edge_types=self.edge_types,
+                                     hidden_channels=hidden_channels,
+                                     heads=heads,
+                                     dropout=dropout)
 
         elif layer_type == 'HGT':
             self.gnn_model = HGT(in_channels=-1,
@@ -671,7 +715,7 @@ class STGNN(torch.nn.Module):
             self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
 
     def forward(self, x_dict, edge_index_dict):
-        if self.layer_type in ['HAN', 'SAGE', 'HGT', 'GAT']:
+        if self.layer_type in ['HAN', 'SAGE', 'HGT', 'GAT', 'SageHAN']:
             # gnn model
             out = self.gnn_model(x_dict, edge_index_dict)
             out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
