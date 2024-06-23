@@ -11,7 +11,6 @@ from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNor
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import simplified.CustomLayers as CustomLayers
-#from .ModifiedHAN import ModHANConv
 import gc
 
 # Data specific imports
