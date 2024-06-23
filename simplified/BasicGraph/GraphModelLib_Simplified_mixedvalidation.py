@@ -884,30 +884,55 @@ class graphmodel():
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
-                if len(tup) != 3:
+                if len(tup) >= 5:
                     raise ValueError("rolling feature tuples not defined properly.")
                 else:
                     col = tup[0]
                     stat = tup[1]
                     window_size = tup[2]
+                    if len(tup) == 4:
+                        parameter = tup[3]
                     # check
                     if col not in self.col_list:
                         raise ValueError("rolling feature window col not in columns list.")
-                    if stat not in ['mean', 'std']:
-                        raise ValueError("stat not one of ['mean','std'].")
+                    if stat not in ['mean', 'quantile', 'trend_disruption', 'std']:
+                        raise ValueError("stat not one of ['mean','quantile','trend_disruption','std'].")
                     if col != self.time_index_col:
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
-                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
-                        else:
-                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        elif stat == 'quantile':
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                        elif stat == 'std':
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}'
                         if stat == 'mean':
-                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
-                        else:
-                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                        elif stat == 'quantile':
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                        elif stat == 'std':
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                        elif stat == 'trend_disruption':
+                            # mv avg
+                            df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                            # actual/mvavg ratio
+                            df[feat_name + '_r1'] = df[self.target_col] / df[feat_name + '_mvavg']
+                            # trend disruption ratio
+                            df[feat_name + '_r2'] = df[self.target_col] / df.groupby([self.id_col])[
+                                self.target_col].shift(1)
+                            # identify only disruption points
+                            df[feat_name] = np.where((df[feat_name + '_r2'] >= 1.5) | (df[feat_name + '_r2'] <= 0.5), 1,
+                                                     0)
+
                         self.rolling_feature_cols.append(feat_name)
         return df
 
