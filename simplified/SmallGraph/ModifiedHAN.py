@@ -72,7 +72,7 @@ class ModHANConv(MessagePassing):
                 share_weights = False
             edge_type = '__'.join(edge_type)
             self.conv_layers[edge_type] = SAGEConv(in_channels=(-1, -1),
-                                                   out_channels=dim,
+                                                   out_channels=out_channels,
                                                    aggr='mean',
                                                    project=False,
                                                    normalize=True,

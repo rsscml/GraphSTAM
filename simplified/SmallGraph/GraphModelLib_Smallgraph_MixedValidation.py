@@ -511,6 +511,13 @@ class HAN(torch.nn.Module):
                                                dropout=dropout,
                                                metadata=metadata)
             elif i >= 1:
+                metadata = ([self.target_node_type], target_edge_types)
+                conv = HANConv(in_channels=in_channels,
+                               out_channels=hidden_channels,
+                               heads=heads,
+                               dropout=dropout,
+                               metadata=metadata)
+                """
                 conv = HeteroForecastSageConv(in_channels=hidden_channels,
                                               out_channels=hidden_channels,
                                               dropout=dropout,
@@ -519,6 +526,7 @@ class HAN(torch.nn.Module):
                                               target_node_type=target_node_type,
                                               first_layer=i == 0,
                                               is_output_layer=i == num_layers - 1)
+                """
 
             self.conv_layers.append(conv)
 
