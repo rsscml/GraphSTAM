@@ -657,6 +657,7 @@ class STGNN(torch.nn.Module):
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
+
         elif layer_type == 'BasicHAN':
             self.gnn_model = BasicHAN(in_channels=-1,
                                       out_channels=int(n_quantiles * time_steps),
@@ -665,6 +666,7 @@ class STGNN(torch.nn.Module):
                                       hidden_channels=hidden_channels,
                                       heads=heads,
                                       dropout=dropout)
+
         elif layer_type == 'SageHAN':
             self.gnn_model = SageHAN(in_channels=-1,
                                      out_channels=int(n_quantiles * time_steps),
