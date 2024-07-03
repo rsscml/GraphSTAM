@@ -722,17 +722,21 @@ class STGNN(torch.nn.Module):
         x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
         lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
         lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
+        print("lead tensor shape: ", lead_tensor.shape)
 
         # gnn model (encoder)
         # get embeddings from lag data only
         x_dict = {key: x_dict[key][:, :-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
 
         out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
+        print("out shape after gnn: ", out.shape)
 
         # repeat 'enc_out' embedding for time_steps
         out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
+        print("out shape after repeat: ", out.shape)
         out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = F.selu(out)
+        print("out shape after lead_tensor concat: ", out.shape)
+        #out = F.selu(out)
         out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
         out = F.selu(out)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
