@@ -1062,7 +1062,7 @@ class graphmodel:
         """
         Exclude keys which do not have at least one data point within the training cutoff period
         """
-        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
+        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.train_till]) >= self.min_history)
 
         return df
 
