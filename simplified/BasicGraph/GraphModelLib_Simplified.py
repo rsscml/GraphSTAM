@@ -651,7 +651,7 @@ class graphmodel():
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
         # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        #df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() <= self.train_till)
+        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
 
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
