@@ -317,6 +317,8 @@ class HeteroGraphSAGE(torch.nn.Module):
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=1,
                                                                       batch_first=True)
+            else:
+                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -349,6 +351,8 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
 
         if self.skip_connection:
             res_dict = x_dict
