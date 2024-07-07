@@ -377,19 +377,23 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.project_lin = Linear(hidden_channels, out_channels)
 
+        """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
-
         """
+
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
-            self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
-                                                                  hidden_size=hidden_channels,
-                                                                  num_layers=1,
-                                                                  batch_first=True)
-        """
+            if node_type == target_node_type:
+                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                      hidden_size=hidden_channels,
+                                                                      num_layers=1,
+                                                                      batch_first=True)
+            else:
+                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
+
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         for i in range(num_layers):
@@ -401,22 +405,25 @@ class HeteroGraphSAGE(torch.nn.Module):
                                           edge_types=edge_types,
                                           target_node_type=target_node_type,
                                           first_layer=i == 0,
-                                          is_output_layer=i == num_layers - 1,
-                                          )
+                                          is_output_layer=i == num_layers - 1)
 
             self.conv_layers.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
-        """
+
         # transform target node
         for node_type, x in x_dict.items():
-            o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
-            x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-        """
+            if node_type == self.target_node_type:
+                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
 
+        """
         # Linear project nodes
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
+        """
 
         """
         if self.skip_connection:
