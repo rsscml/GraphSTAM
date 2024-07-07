@@ -507,6 +507,17 @@ class BasicHAN(torch.nn.Module):
                  dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
+        node_types = metadata[0]
+
+        self.transformed_feat_dict = torch.nn.ModuleDict()
+        for node_type in node_types:
+            if node_type == target_node_type:
+                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                      hidden_size=hidden_channels,
+                                                                      num_layers=1,
+                                                                      batch_first=True)
+            else:
+                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
 
         # Conv Layer
         self.conv = HANConv(in_channels=in_channels,
@@ -518,8 +529,18 @@ class BasicHAN(torch.nn.Module):
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
+
+        # transform target node
+        for node_type, x in x_dict.items():
+            if node_type == self.target_node_type:
+                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
+
         x_dict = self.conv(x_dict, edge_index_dict)
         out = self.lin(x_dict[self.target_node_type])
+
         return out
 
 
@@ -552,6 +573,16 @@ class SageHAN(torch.nn.Module):
         target_edge_types = [edge_type for edge_type in edge_types if
                              (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
 
+        self.transformed_feat_dict = torch.nn.ModuleDict()
+        for node_type in node_types:
+            if node_type == target_node_type:
+                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                      hidden_size=hidden_channels,
+                                                                      num_layers=1,
+                                                                      batch_first=True)
+            else:
+                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
+
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
         # get node embeddings from sage
@@ -579,6 +610,15 @@ class SageHAN(torch.nn.Module):
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
+
+        # transform target node
+        for node_type, x in x_dict.items():
+            if node_type == self.target_node_type:
+                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
+
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
