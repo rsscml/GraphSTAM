@@ -1293,7 +1293,7 @@ class graphmodel():
                                 lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}'
@@ -1305,7 +1305,7 @@ class graphmodel():
                                 lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
@@ -1828,6 +1828,7 @@ class graphmodel():
         
         # merge output & base_df
         reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
+
         df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
         
         # update target for current ts with forecasts
