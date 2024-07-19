@@ -1955,7 +1955,8 @@ class graphmodel():
         time_since_improvement = 0
         train_loss_hist = []
         val_loss_hist = []
-
+        train_metric_hist = []
+        val_metric_hist = []
         # torch.amp -- for mixed precision training
         scaler = torch.cuda.amp.GradScaler()
 
@@ -2218,11 +2219,11 @@ class graphmodel():
 
             # if using one of the metrics as stop_training_criteria
             if stop_training_criteria == 'mse':
-                loss = train_mse.cpu().numpy()
-                val_loss = test_mse.cpu().numpy()
+                train_metric_hist.append(train_mse.cpu().numpy())
+                val_metric_hist.append(test_mse.cpu().numpy())
             elif stop_training_criteria == 'mae':
-                loss = train_mae.cpu().numpy()
-                val_loss = test_mae.cpu().numpy()
+                train_metric_hist.append(train_mae.cpu().numpy())
+                val_metric_hist.append(test_mae.cpu().numpy())
             else:
                 # use loss as default stopping criteria
                 pass
@@ -2242,7 +2243,10 @@ class graphmodel():
             current_min_loss = np.min(val_loss_hist)
             delta = current_min_loss - prev_min_loss
 
-            save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
+            if stop_training_criteria in ['mse', 'mae']:
+                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (val_metric_hist[epoch] == np.min(val_metric_hist)) and (-delta > min_delta)) or (epoch == 0)
+            else:
+                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
 
             print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
 
