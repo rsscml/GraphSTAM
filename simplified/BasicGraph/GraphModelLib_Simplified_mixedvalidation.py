@@ -1960,6 +1960,8 @@ class graphmodel():
             self.model.train(True)
             total_examples = 0 
             total_loss = 0
+            total_mse = 0
+            total_mae = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -1996,6 +1998,12 @@ class graphmodel():
                 
                 weighted_loss = torch.mean(loss*mask*wt*recency_wt)
 
+                # compute metric for reporting
+                if self.loss == 'Tweedie':
+                    out = torch.exp(out)
+                mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                mae_err = (out - batch[self.target_col].y).mean().data
+
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
                     weighted_loss = weighted_loss / self.accum_iter
@@ -2010,13 +2018,17 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
+                total_mae += mae_err
                 
-            return total_loss / total_examples
+            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
         
         def test_fn():
             self.model.train(False)
             total_examples = 0 
             total_loss = 0
+            total_mse = 0
+            total_mae = 0
             with torch.no_grad(): 
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -2045,17 +2057,28 @@ class graphmodel():
                         recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
-                    
+
                     weighted_loss = torch.mean(loss*mask*wt*recency_wt)
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
+
+                    # compute metric for reporting
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                    mae_err = (out - batch[self.target_col].y).mean().data
+
+                    total_mse += mse_err
+                    total_mae += mae_err
                     
-            return total_loss / total_examples
+            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
 
         def train_amp_fn():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
+            total_mae = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -2093,6 +2116,12 @@ class graphmodel():
 
                     weighted_loss = torch.mean(loss * mask * wt * recency_wt)
 
+                    # compute metric for reporting
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                    mae_err = (out - batch[self.target_col].y).mean().data
+
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
                     weighted_loss = weighted_loss / self.accum_iter
@@ -2109,13 +2138,17 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
+                total_mae += mae_err
 
-            return total_loss / total_examples
+            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
 
         def test_amp_fn():
             self.model.train(False)
             total_examples = 0
             total_loss = 0
+            total_mse = 0
+            total_mae = 0
             with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -2153,18 +2186,29 @@ class graphmodel():
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
 
-            return total_loss / total_examples
+                    # compute metric for reporting
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
+                    mae_err = (out - batch[self.target_col].y).mean().data
+
+                    total_mse += mse_err
+                    total_mae += mae_err
+
+            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
         
         for epoch in range(max_epochs):
 
             if use_amp:
-                loss = train_amp_fn()
-                val_loss = test_amp_fn()
+                loss, train_mse, train_mae = train_amp_fn()
+                val_loss, test_mse, test_mae = test_amp_fn()
             else:
-                loss = train_fn()
-                val_loss = test_fn()
+                loss, train_mse, train_mae = train_fn()
+                val_loss, test_mse, test_mae = test_fn()
             
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+            print('          Train mse: {}, Val mse: {}'.format(train_mse, test_mse))
+            print('          Train mae: {}, Val mae: {}'.format(train_mae, test_mae))
             
             if use_lr_scheduler:
                 scheduler.step(val_loss)
