@@ -2213,19 +2213,19 @@ class graphmodel():
             print('          Train mse: {}, Val mse: {}'.format(train_mse, test_mse))
             print('          Train mae: {}, Val mae: {}'.format(train_mae, test_mae))
 
+            if use_lr_scheduler:
+                scheduler.step(val_loss)
+
             # if using one of the metrics as stop_training_criteria
             if stop_training_criteria == 'mse':
-                loss = train_mse
-                val_loss = test_mse
+                loss = train_mse.cpu().numpy()
+                val_loss = test_mse.cpu().numpy()
             elif stop_training_criteria == 'mae':
-                loss = train_mae
-                val_loss = test_mae
+                loss = train_mae.cpu().numpy()
+                val_loss = test_mae.cpu().numpy()
             else:
                 # use loss as default stopping criteria
                 pass
-
-            if use_lr_scheduler:
-                scheduler.step(val_loss)
 
             train_loss_hist.append(loss)
             val_loss_hist.append(val_loss)
