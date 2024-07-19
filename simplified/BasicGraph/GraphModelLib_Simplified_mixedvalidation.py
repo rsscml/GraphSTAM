@@ -2006,8 +2006,8 @@ class graphmodel():
                 if stop_training_criteria in ['mse', 'mae']:
                     if self.loss == 'Tweedie':
                         out = torch.exp(out)
-                    mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-                    mae_err = (torch.abs(out - batch[self.target_col].y)).mean().data
+                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -2075,8 +2075,8 @@ class graphmodel():
                     if stop_training_criteria in ['mse', 'mae']:
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
-                        mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-                        mae_err = (torch.abs(out - batch[self.target_col].y)).mean().data
+                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
                         total_mse += mse_err
                         total_mae += mae_err
@@ -2130,8 +2130,8 @@ class graphmodel():
                     if stop_training_criteria in ['mse', 'mae']:
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
-                        mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-                        mae_err = (torch.abs(out - batch[self.target_col].y)).mean().data
+                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -2203,8 +2203,8 @@ class graphmodel():
                     if stop_training_criteria in ['mse', 'mae']:
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
-                        mse_err = ((out - batch[self.target_col].y) * (out - batch[self.target_col].y)).mean().data
-                        mae_err = (torch.abs(out - batch[self.target_col].y)).mean().data
+                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
                         total_mse += mse_err
                         total_mae += mae_err
