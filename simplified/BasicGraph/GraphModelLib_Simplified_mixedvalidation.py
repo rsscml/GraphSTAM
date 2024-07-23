@@ -982,8 +982,11 @@ class graphmodel():
         max_iterations = 100
 
         try:
-            endog = df[self.target_col].astype(np.float32).to_numpy()
-            exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
+            endog = df[df[self.time_index_col] <= self.test_till][self.target_col].astype(np.float32).to_numpy()
+            exog = df[df[self.time_index_col] <= self.test_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy()
+
+            # add a tiny positive value to prevent overflow
+            endog = endog + 0.01
 
             # fit glm model
             def glm_fit(endog, exog, power):
@@ -1022,7 +1025,7 @@ class graphmodel():
 
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
-            df['tweedie_p'] = 1.50
+            df['tweedie_p'] = 1.95
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
