@@ -986,7 +986,12 @@ class graphmodel():
             exog = df[df[self.time_index_col] <= self.test_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # add a tiny positive value to prevent overflow
-            endog = endog + 0.01
+            #endog = endog + 0.01
+
+            # use only positive value for p determination
+            nz_index = endog > 0
+            endog = endog[nz_index]
+            exog = exog[nz_index]
 
             # fit glm model
             def glm_fit(endog, exog, power):
@@ -1000,7 +1005,7 @@ class graphmodel():
                     return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
 
                 try:
-                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
+                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.9), method='Bounded')
                 except RuntimeWarning as e:
                     print(f'There was a RuntimeWarning: {e}')
 
@@ -1025,7 +1030,7 @@ class graphmodel():
 
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
-            df['tweedie_p'] = 1.95
+            df['tweedie_p'] = 1.9
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
