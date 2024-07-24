@@ -1963,8 +1963,8 @@ class graphmodel():
         time_since_improvement = 0
         train_loss_hist = []
         val_loss_hist = []
-        train_metric_hist = []
         val_metric_hist = []
+
         # torch.amp -- for mixed precision training
         scaler = torch.cuda.amp.GradScaler()
 
@@ -1972,8 +1972,7 @@ class graphmodel():
             self.model.train(True)
             total_examples = 0 
             total_loss = 0
-            total_mse = 0
-            total_mae = 0
+
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -2010,13 +2009,6 @@ class graphmodel():
                 
                 weighted_loss = torch.mean(loss*mask*wt*recency_wt)
 
-                # compute metric for reporting
-                if stop_training_criteria in ['mse', 'mae']:
-                    if self.loss == 'Tweedie':
-                        out = torch.exp(out)
-                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
                     weighted_loss = weighted_loss / self.accum_iter
@@ -2032,13 +2024,7 @@ class graphmodel():
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
 
-                if stop_training_criteria in ['mse', 'mae']:
-                    total_mse += mse_err
-                    total_mae += mae_err
-                else:
-                    pass
-                
-            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
+            return total_loss / total_examples
         
         def test_fn():
             self.model.train(False)
@@ -2095,8 +2081,7 @@ class graphmodel():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
-            total_mse = 0
-            total_mae = 0
+
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -2134,13 +2119,6 @@ class graphmodel():
 
                     weighted_loss = torch.mean(loss * mask * wt * recency_wt)
 
-                    # compute metric for reporting
-                    if stop_training_criteria in ['mse', 'mae']:
-                        if self.loss == 'Tweedie':
-                            out = torch.exp(out)
-                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
                     weighted_loss = weighted_loss / self.accum_iter
@@ -2158,11 +2136,7 @@ class graphmodel():
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
 
-                if stop_training_criteria in ['mse', 'mae']:
-                    total_mse += mse_err
-                    total_mae += mae_err
-
-            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
+            return total_loss / total_examples
 
         def test_amp_fn():
             self.model.train(False)
@@ -2222,26 +2196,24 @@ class graphmodel():
         for epoch in range(max_epochs):
 
             if use_amp:
-                loss, train_mse, train_mae = train_amp_fn()
+                loss = train_amp_fn()
                 val_loss, test_mse, test_mae = test_amp_fn()
             else:
-                loss, train_mse, train_mae = train_fn()
+                loss = train_fn()
                 val_loss, test_mse, test_mae = test_fn()
-            
-            print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+
             if stop_training_criteria in ['mse', 'mae']:
-                print('         Train mse: {}, Val mse: {}'.format(train_mse, test_mse))
-                print('         Train mae: {}, Val mae: {}'.format(train_mae, test_mae))
+                print('EPOCH {}: Train loss: {}, Val loss: {}, Val mse: {}, Val mae: {}'.format(epoch, loss, val_loss, test_mse, test_mae))
+            else:
+                print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
 
             if use_lr_scheduler:
                 scheduler.step(val_loss)
 
             # if using one of the metrics as stop_training_criteria
             if stop_training_criteria == 'mse':
-                train_metric_hist.append(train_mse.cpu().numpy())
                 val_metric_hist.append(test_mse.cpu().numpy())
             elif stop_training_criteria == 'mae':
-                train_metric_hist.append(train_mae.cpu().numpy())
                 val_metric_hist.append(test_mae.cpu().numpy())
             else:
                 # use loss as default stopping criteria
