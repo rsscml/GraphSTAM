@@ -2069,6 +2069,8 @@ class graphmodel():
                     if stop_training_criteria in ['mse', 'mae']:
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
+                            if self.log1p_transform:
+                                out = torch.expm1(out)
                         mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
                         mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
@@ -2185,6 +2187,8 @@ class graphmodel():
                     if stop_training_criteria in ['mse', 'mae']:
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
+                            if self.log1p_transform:
+                                out = torch.expm1(out)
                         mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
                         mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
 
