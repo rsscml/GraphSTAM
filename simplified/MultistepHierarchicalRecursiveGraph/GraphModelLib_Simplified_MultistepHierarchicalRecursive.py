@@ -2597,7 +2597,7 @@ class graphmodel():
 
             print("current lr: ", optimizer.param_groups[0]['lr'])
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
-            print('          Train mse: {}, Val mse: {}'.format(epoch, rmse, val_rmse))
+            print('          Train mse: {}, Val mse: {}'.format(rmse, val_rmse))
 
             train_loss_hist.append(loss)
             val_loss_hist.append(val_loss)
