@@ -2604,8 +2604,8 @@ class graphmodel():
 
             # if using one of the metrics as stop_training_criteria
             if stop_training_criteria == 'mse':
-                train_rmse_hist.append(rmse.cpu().numpy())
-                val_rmse_hist.append(val_rmse.cpu().numpy())
+                train_rmse_hist.append(rmse)
+                val_rmse_hist.append(val_rmse)
             else:
                 # use loss as default stopping criteria
                 pass
