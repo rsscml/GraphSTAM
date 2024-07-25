@@ -725,7 +725,7 @@ class STGNN(torch.nn.Module):
         # initialize h,c
         hc = []
         for _ in self.rnn_block:
-            h, c = torch.randn(o.shape[1]), torch.randn(o.shape[1])
+            h, c = torch.randn(o.shape[0], o.shape[1]), torch.randn(o.shape[0], o.shape[1])
             hc.append((h, c))
 
         for i in range(self.time_steps):
@@ -1092,7 +1092,8 @@ class graphmodel():
             exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # select only positive values
-            nz_index = endog[endog > 0]
+            nz_index = endog > 0
+            endog = endog[nz_index]
             exog = exog[nz_index]
 
             # fit glm model
@@ -1133,7 +1134,7 @@ class graphmodel():
             df['tweedie_p'] = round(power, 2)
 
         except:
-            print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
+            print("using default power of {} for {}".format(1.9, df[self.id_col].unique()))
             df['tweedie_p'] = 1.90
 
         # clip tweedie to within range
