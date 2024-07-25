@@ -20,7 +20,8 @@ setup(
               "probabilistic.graphstam", "probabilistic.BasicGraph", "subgraphsampling.graphstam", "subgraphsampling.BasicGraph",
               "smallgraph.graphstam", "smallgraph.BasicGraph", "hierarchical.graphstam", "hierarchical.BasicGraph",
               "simplified.graphstam", "simplified.BasicGraph", "simplified.HierarchicalGraph",
-              "simplified.MultistepHierarchicalGraph", "simplified.SmallGraph", "simplified.CustomLayers"],
+              "simplified.MultistepHierarchicalGraph", "simplified.MultistepHierarchicalRecursiveGraph",
+              "simplified.SmallGraph", "simplified.CustomLayers"],
     include_package_data=True,
     install_requires=['statsmodels', 'scipy', 'tweedie']
 )
