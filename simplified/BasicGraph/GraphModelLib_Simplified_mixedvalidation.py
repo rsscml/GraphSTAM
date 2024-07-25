@@ -1927,7 +1927,7 @@ class graphmodel():
               sample_weights=False,
               stop_training_criteria='loss'):
 
-        # stop_training_criteria: ['loss','mse','mae]
+        # stop_training_criteria: ['loss','mse','mae']
 
         self.loss = loss
 

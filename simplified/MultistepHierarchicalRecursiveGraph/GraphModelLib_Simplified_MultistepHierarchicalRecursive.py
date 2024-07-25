@@ -610,9 +610,9 @@ class STGNN(torch.nn.Module):
     def __init__(self,
                  hidden_channels,
                  num_layers,
+                 num_decoder_layers,
                  metadata,
                  target_node,
-                 leading_features,
                  time_steps=1,
                  n_quantiles=1,
                  heads=1,
@@ -624,11 +624,11 @@ class STGNN(torch.nn.Module):
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
         self.edge_types = metadata[1]
-        self.leading_features = leading_features
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
         self.tweedie_out = tweedie_out
         self.layer_type = layer_type
+        self.num_decoder_layers = num_decoder_layers
 
         if layer_type == 'SAGE':
             self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
@@ -688,22 +688,13 @@ class STGNN(torch.nn.Module):
                                        edge_types=self.edge_types,
                                        target_node_type=target_node,
                                        skip_connection=skip_connection)
-        """
-        self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
-                                         hidden_channels=hidden_channels,
-                                         num_layers=num_layers,
-                                         out_channels=int(n_quantiles * time_steps),
-                                         dropout=dropout,
-                                         node_types=self.node_types,
-                                         edge_types=self.edge_types,
-                                         target_node_type=target_node,
-                                         skip_connection=skip_connection)
-        """
 
-        self.lead_transform = Linear(-1, hidden_channels)
-        self.seq_layer = torch.nn.LSTM(input_size=int(2*hidden_channels), hidden_size=int(2*hidden_channels),
-                                       num_layers=1, batch_first=True)
-        self.out_layer = Linear(int(2*hidden_channels), int(n_quantiles))
+        self.rnn_block = torch.nn.ModuleList()
+        for i in range(self.num_decoder_layers):
+            lstm_cell = torch.nn.LSTMCell(input_size=hidden_channels, hidden_size=hidden_channels)
+            self.rnn_block.append(lstm_cell)
+
+        self.out_layer = Linear(hidden_channels, n_quantiles)
 
     def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
@@ -726,27 +717,33 @@ class STGNN(torch.nn.Module):
         del x_dict['keybom']
         del x_dict['key_aggregation_status']
 
-        # get lead vars embedding for "decoder"
-        x_dict_lead = {key: torch.reshape(x_dict[key][:, -self.time_steps:], (-1, self.time_steps, 1)) for key in self.leading_features}
-        lead_tensor = torch.concat(list(x_dict_lead.values()), dim=2)  # (num_nodes, time_steps, num_lead_features)
-        lead_tensor = self.lead_transform(lead_tensor)  # (num_nodes, time_steps, hidden_channels)
-        #print("lead tensor shape: ", lead_tensor.shape)
+        o = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
 
-        # gnn model (encoder)
-        # get embeddings from lag data only
-        x_dict = {key: x_dict[key][:, :-self.time_steps] if key in self.leading_features else x_dict[key] for key in x_dict.keys()}
+        # loop over forecast horizon
+        output = []
 
-        out = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
-        #print("out shape after gnn: ", out.shape)
+        # initialize h,c
+        hc = []
+        for _ in self.rnn_block:
+            h, c = torch.randn(o.shape[1]), torch.randn(o.shape[1])
+            hc.append((h, c))
 
-        # repeat 'enc_out' embedding for time_steps
-        out = out.unsqueeze(dim=1).repeat(1, self.time_steps, 1)  # (num_nodes, time_steps, hidden_channels)
-        #print("out shape after repeat: ", out.shape)
-        out = torch.cat([out, lead_tensor], dim=2)  # (num_nodes, time_steps, 2*hidden_channels)
-        #print("out shape after lead_tensor concat: ", out.shape)
-        #out = F.selu(out)
-        out, _ = self.seq_layer(out)  # (num_nodes, time_steps, 2*hidden_channels)
-        out = F.selu(out)
+        for i in range(self.time_steps):
+            if i == 0:
+                inp = o
+            else:
+                inp = output[i-1]
+
+            for layer, rnn in enumerate(self.rnn_block):
+                h, c = rnn(inp, hc[layer])
+                # update h,c
+                hc[layer] = (h, c)
+                # new input
+                inp = h
+                if layer == self.num_decoder_layers - 1:
+                    output.append(h)
+
+        out = torch.stack(output, dim=1)    # (num_nodes, time_steps, hidden_channels)
         out = self.out_layer(out)  # (num_nodes, time_steps, n_quantiles)
 
         # fallback to this approach (slower) in case vmap doesn't work
@@ -2217,6 +2214,7 @@ class graphmodel():
               layer_type='HAN',
               model_dim=128,
               num_layers=1,
+              num_decoder_layers=1,
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
@@ -2235,10 +2233,10 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
-                           leading_features=self.temporal_known_num_col_list + self.known_onehot_cols,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
+                           num_decoder_layers=num_decoder_layers,
                            heads=heads,
                            dropout=dropout,
                            tweedie_out=self.tweedie_out,
@@ -2276,7 +2274,10 @@ class graphmodel():
               use_amp=True,
               use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
-              sample_weights=False):
+              sample_weights=False,
+              stop_training_criteria='loss'):
+
+        # stop_training_criteria: ['loss','mse']
 
         self.loss = loss
 
@@ -2589,13 +2590,18 @@ class graphmodel():
 
             print("current lr: ", optimizer.param_groups[0]['lr'])
             print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
-            print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
+            print('          Train mse: {}, Val mse: {}'.format(epoch, rmse, val_rmse))
 
             train_loss_hist.append(loss)
             val_loss_hist.append(val_loss)
 
-            train_rmse_hist.append(rmse)
-            val_rmse_hist.append(val_rmse)
+            # if using one of the metrics as stop_training_criteria
+            if stop_training_criteria == 'mse':
+                train_rmse_hist.append(rmse.cpu().numpy())
+                val_rmse_hist.append(val_rmse.cpu().numpy())
+            else:
+                # use loss as default stopping criteria
+                pass
 
             model_path = model_prefix + '_' + str(epoch)
             model_list.append(model_path)
@@ -2609,7 +2615,10 @@ class graphmodel():
             current_min_loss = np.min(val_loss_hist)
             delta = current_min_loss - prev_min_loss
 
-            save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
+            if stop_training_criteria in ['mse']:
+                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (val_rmse_hist[epoch] == np.min(val_rmse_hist)) and (-delta > min_delta)) or (epoch == 0)
+            else:
+                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
 
             print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
 

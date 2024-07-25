@@ -12,6 +12,7 @@ import itertools
 import simplified.BasicGraph as graphmodel
 import simplified.HierarchicalGraph as hierarchical_graphmodel
 import simplified.MultistepHierarchicalGraph as multistep_hierarchical_graphmodel
+import simplified.MultistepHierarchicalRecursiveGraph as multistep_hierarchical_recursive_graphmodel
 import simplified.SmallGraph as small_graphmodel
 import inspect
 
@@ -121,6 +122,18 @@ class gml(object):
                 print(name, parameter.default, parameter.annotation, parameter.kind)
 
             self.graphobj = multistep_hierarchical_graphmodel.graphmodel_lowmem(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
+                self.infer_quantiles = [0.5]
+
+        elif self.model_type == 'MultistepHierarchicalRecursiveGraphSageLowMemory':
+            signature = inspect.signature(multistep_hierarchical_recursive_graphmodel.graphmodel.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
+            self.graphobj = multistep_hierarchical_recursive_graphmodel.graphmodel(**self.data_config)
             self.graphobj.build_dataset(data)
             self.graphobj.build(**self.model_config)
             self.infer_quantiles = self.infer_config['select_quantile']
