@@ -719,13 +719,21 @@ class STGNN(torch.nn.Module):
 
         o = self.gnn_model(x_dict, edge_index_dict)  # (num_nodes, hidden_channels)
 
+        # get device type
+        device_int = o.get_device()
+
+        if device_int == -1:
+            device = torch.device('cpu')
+        else:
+            device = torch.device('cuda')
+
         # loop over forecast horizon
         output = []
 
         # initialize h,c
         hc = []
         for _ in self.rnn_block:
-            h, c = torch.randn(o.shape[0], o.shape[1]), torch.randn(o.shape[0], o.shape[1])
+            h, c = torch.randn(o.shape[0], o.shape[1]).to(device), torch.randn(o.shape[0], o.shape[1]).to(device)
             hc.append((h, c))
 
         for i in range(self.time_steps):
@@ -754,12 +762,6 @@ class STGNN(torch.nn.Module):
         """
 
         # vectorized approach follows:
-        device_int = out.get_device()
-
-        if device_int == -1:
-            device = torch.device('cpu')
-        else:
-            device = torch.device('cuda')
 
         dummy_out = torch.zeros(1, out.shape[1], out.shape[2]).to(device)
         # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
