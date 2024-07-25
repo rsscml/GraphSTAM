@@ -1029,7 +1029,7 @@ class graphmodel():
             df['tweedie_p'] = round(power, 2)
 
         except:
-            print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
+            print("using default power of {} for {}".format(1.9, df[self.id_col].unique()))
             df['tweedie_p'] = 1.9
 
         # clip tweedie to within range

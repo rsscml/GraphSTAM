@@ -1090,8 +1090,8 @@ class graphmodel():
         max_iterations = 100
 
         try:
-            endog = df[self.target_col].astype(np.float32).to_numpy()
-            exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
+            endog = df[df[self.time_index_col] <= self.test_till][self.target_col].astype(np.float32).to_numpy()
+            exog = df[df[self.time_index_col] <= self.test_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # select only positive values
             nz_index = endog > 0
@@ -1112,7 +1112,7 @@ class graphmodel():
                     return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
 
                 try:
-                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
+                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.9), method='Bounded')
                 except RuntimeWarning as e:
                     print(f'There was a RuntimeWarning: {e}')
 
