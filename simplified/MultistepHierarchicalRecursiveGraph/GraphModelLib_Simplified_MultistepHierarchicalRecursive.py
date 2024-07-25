@@ -1091,6 +1091,10 @@ class graphmodel():
             endog = df[self.target_col].astype(np.float32).to_numpy()
             exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
+            # select only positive values
+            nz_index = endog[endog > 0]
+            exog = exog[nz_index]
+
             # fit glm model
             def glm_fit(endog, exog, power):
                 res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
@@ -1130,7 +1134,7 @@ class graphmodel():
 
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
-            df['tweedie_p'] = 1.50
+            df['tweedie_p'] = 1.90
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
@@ -1441,7 +1445,7 @@ class graphmodel():
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
-                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                            df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}'
@@ -1450,7 +1454,7 @@ class graphmodel():
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
-                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
+                            df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name+'_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
