@@ -1947,7 +1947,6 @@ class graphmodel():
             with torch.no_grad(): 
                 for i, period in enumerate(test_periods):
                     batch = create_graph(feature_df, period)
-                    batch_size = batch.num_graphs
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
@@ -1975,7 +1974,7 @@ class graphmodel():
                         recency_wt = 1
 
                     weighted_loss = torch.mean(loss*mask*wt*recency_wt)
-                    total_examples += batch_size
+                    total_examples += 1
                     total_loss += float(weighted_loss)
 
                     # compute metric for reporting
@@ -2006,7 +2005,6 @@ class graphmodel():
                     optimizer.zero_grad()
 
                 batch = batch.to(self.device)
-                batch_size = batch.num_graphs
 
                 if self.loss == 'Tweedie':
                     tvp = batch[self.target_col].tvp
@@ -2051,7 +2049,7 @@ class graphmodel():
                     scaler.step(optimizer)
                     scaler.update()
 
-                total_examples += batch_size
+                total_examples += 1
                 total_loss += float(weighted_loss)
 
                 del batch
@@ -2067,8 +2065,6 @@ class graphmodel():
             with torch.no_grad():
                 for i, period in enumerate(test_periods):
                     batch = create_graph(feature_df, period)
-
-                    batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
                     if self.loss == 'Tweedie':
@@ -2100,7 +2096,7 @@ class graphmodel():
 
                         weighted_loss = torch.mean(loss * mask * wt * recency_wt)
 
-                    total_examples += batch_size
+                    total_examples += 1
                     total_loss += float(weighted_loss)
 
                     # compute metric for reporting
