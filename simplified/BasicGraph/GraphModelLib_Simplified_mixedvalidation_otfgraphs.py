@@ -1889,7 +1889,6 @@ class graphmodel():
                     optimizer.zero_grad()
 
                 batch = batch.to(self.device)
-                batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
                 if self.loss == 'Tweedie':
@@ -1931,7 +1930,7 @@ class graphmodel():
                     weighted_loss.backward()
                     optimizer.step()
 
-                total_examples += batch_size
+                total_examples += 1
                 total_loss += float(weighted_loss)
 
                 del batch
