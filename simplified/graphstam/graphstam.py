@@ -92,6 +92,18 @@ class gml(object):
             if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
                 self.infer_quantiles = [0.5]
 
+        if self.model_type == 'SimpleGraphSageOTF':
+            signature = inspect.signature(graphmodel.graphmodel_otf.__init__).parameters
+            for name, parameter in signature.items():
+                print(name, parameter.default, parameter.annotation, parameter.kind)
+
+            self.graphobj = graphmodel.graphmodel_otf(**self.data_config)
+            self.graphobj.build_dataset(data)
+            self.graphobj.build(**self.model_config)
+            self.infer_quantiles = self.infer_config['select_quantile']
+            if (len(self.infer_quantiles) == 0) or (self.loss in ['Tweedie', 'SMAPE', 'RMSE', 'Huber', 'Poisson']):
+                self.infer_quantiles = [0.5]
+
         elif self.model_type == 'HierarchicalGraphSage':
             signature = inspect.signature(hierarchical_graphmodel.graphmodel.__init__).parameters
             for name, parameter in signature.items():
