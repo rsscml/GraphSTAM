@@ -800,8 +800,8 @@ class graphmodel():
                  max_leads,
                  train_till,
                  test_till,
-                 test_recent_percentage=0.1,
-                 test_random_percentage=0.1,
+                 test_recent_percentage=None,
+                 test_random_percentage=None,
                  autoregressive_target=True,
                  rolling_features_list=[],
                  min_history=1,
@@ -1853,7 +1853,10 @@ class graphmodel():
         # onetime prep
         self.onetime_dataprep(df)
         # build graph datasets for train/test
-        self.train_dataset, self.test_dataset = self.create_train_test_dataset(self.onetime_prep_df)
+        if self.test_recent_percentage is None:
+            self.train_dataset, self.test_dataset = self.create_train_test_dataset_orig(self.onetime_prep_df)
+        else:
+            self.train_dataset, self.test_dataset = self.create_train_test_dataset(self.onetime_prep_df)
 
     def build_infer_dataset(self, infer_till):
         # build graph datasets for infer
