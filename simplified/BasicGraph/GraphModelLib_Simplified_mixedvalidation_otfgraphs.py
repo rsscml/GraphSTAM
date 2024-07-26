@@ -1832,6 +1832,7 @@ class graphmodel():
                 print("total model params: ", pytorch_total_params)
 
             del sample_batch
+            torch.cuda.empty_cache()
             gc.collect()
 
         # init model
