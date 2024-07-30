@@ -826,6 +826,7 @@ class graphmodel():
                  interleave=1,
                  recency_weights=False,
                  recency_alpha=0,
+                 output_clipping=False,
                  PARALLEL_DATA_JOBS=4,
                  PARALLEL_DATA_JOBS_BATCHSIZE=128):
         """
@@ -886,6 +887,7 @@ class graphmodel():
         self.interleave = interleave
         self.recency_weights = recency_weights
         self.recency_alpha = recency_alpha
+        self.output_clipping = output_clipping
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
         self.pad_constant = 0
@@ -1847,7 +1849,10 @@ class graphmodel():
         df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(),
                                                df_updated[self.target_col],
                                                df_updated['forecast'])
-        
+        # output clipping
+        if self.output_clipping:
+            df_updated[self.target_col] = df_updated.groupby([self.id_col], sort=False)[self.target_col].transform(lambda x: np.clip(x, a_min=0.5*np.min(x), a_max=2.0*np.max(x)))
+
         # drop forecast column
         df_updated = df_updated.drop(columns=['forecast'])
         
