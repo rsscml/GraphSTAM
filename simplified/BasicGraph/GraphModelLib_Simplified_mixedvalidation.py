@@ -1843,16 +1843,24 @@ class graphmodel():
         # merge output & base_df
         reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
 
+        # get df max per id for optional output clipping
+        max_map = df.groupby([self.id_col])[self.target_col].max().to_dict()
+        min_map = df.groupby([self.id_col])[self.target_col].min().to_dict()
+
+        if self.output_clipping:
+            reduced_output_df['max_forecast'] = reduced_output_df[self.id_col].map(max_map)
+            reduced_output_df['max_forecast'] = 2.0 * reduced_output_df['max_forecast']
+            reduced_output_df['min_forecast'] = reduced_output_df[self.id_col].map(min_map)
+            reduced_output_df['min_forecast'] = 0.5 * np.maximum(reduced_output_df['min_forecast'], 0)
+            reduced_output_df['forecast'] = np.clip(reduced_output_df['forecast'], a_min=reduced_output_df['min_forecast'], a_max=reduced_output_df['max_forecast'])
+            reduced_output_df.drop(columns=['max_forecast', 'min_forecast'], inplace=True)
+
         df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
         
         # update target for current ts with forecasts
         df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(),
                                                df_updated[self.target_col],
                                                df_updated['forecast'])
-        # output clipping
-        if self.output_clipping:
-            df_updated[self.target_col] = df_updated.groupby([self.id_col], sort=False)[self.target_col].transform(lambda x: np.clip(x, a_min=0.5*np.min(x), a_max=2.0*np.max(x)))
-
         # drop forecast column
         df_updated = df_updated.drop(columns=['forecast'])
         
