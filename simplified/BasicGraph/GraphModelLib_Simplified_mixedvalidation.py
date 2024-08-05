@@ -123,7 +123,7 @@ class TweedieLoss:
             # reverse log of prediction y_pred
             y_pred = torch.exp(y_pred)
             # clamp predictions
-            y_pred = torch.clamp(y_pred, min=-7, max=7)
+            #y_pred = torch.clamp(y_pred, min=-7, max=7)
             # get pred
             y_pred = torch.expm1(y_pred) * scaler
             # take log of y_pred again
@@ -141,7 +141,7 @@ class TweedieLoss:
         else:
             # no log1p
             # clamp predictions
-            y_pred = torch.clamp(y_pred, min=-7, max=7)
+            #y_pred = torch.clamp(y_pred, min=-7, max=7)
             y_true = y_true * scaler
             a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
             b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
