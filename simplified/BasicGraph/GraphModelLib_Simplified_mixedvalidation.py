@@ -1844,15 +1844,18 @@ class graphmodel():
         reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
 
         # get df max per id for optional output clipping
-        max_map = df.groupby([self.id_col])[self.target_col].max().to_dict()
-        min_map = df.groupby([self.id_col])[self.target_col].min().to_dict()
+        max_map = df[df[self.time_index_col] <= self.test_till].groupby([self.id_col])[self.target_col].max().to_dict()
+        min_map = df[df[self.time_index_col] <= self.test_till].groupby([self.id_col])[self.target_col].min().to_dict()
 
         if self.output_clipping:
+            print("clipping output at: ")
             reduced_output_df['max_forecast'] = reduced_output_df[self.id_col].map(max_map)
             reduced_output_df['max_forecast'] = 2.0 * reduced_output_df['max_forecast']
             reduced_output_df['min_forecast'] = reduced_output_df[self.id_col].map(min_map)
             reduced_output_df['min_forecast'] = 0.5 * np.maximum(reduced_output_df['min_forecast'], 0)
             reduced_output_df['forecast'] = np.clip(reduced_output_df['forecast'], a_min=reduced_output_df['min_forecast'], a_max=reduced_output_df['max_forecast'])
+            print("     max: ", reduced_output_df['max_forecast'].max())
+            print("     min: ", reduced_output_df['min_forecast'].min())
             reduced_output_df.drop(columns=['max_forecast', 'min_forecast'], inplace=True)
 
         df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
