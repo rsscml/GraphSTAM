@@ -1535,7 +1535,7 @@ class graphmodel():
 
         # in case target lags are not to be used as a feature
         if not self.autoregressive_target:
-            data[self.target_col].x = torch.zeros_like(data[self.target_col].x)
+            data[self.target_col].x = torch.ones_like(data[self.target_col].x)  # alternative to zeros_like
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
