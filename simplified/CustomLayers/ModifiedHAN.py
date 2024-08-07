@@ -38,6 +38,8 @@ class ModHANConv(MessagePassing):
         in_channels: Union[int, Dict[str, int]],
         out_channels: int,
         metadata: Metadata,
+        target_node_type: str,
+        num_rnn_layers: int,
         heads: int = 1,
         negative_slope=0.2,
         dropout: float = 0.0,
@@ -52,13 +54,21 @@ class ModHANConv(MessagePassing):
         self.out_channels = out_channels
         self.negative_slope = negative_slope
         self.metadata = metadata
+        self.num_rnn_layers = num_rnn_layers
+        self.target_node_type = target_node_type
         self.dropout = dropout
         self.k_lin = nn.Linear(out_channels, out_channels)
         self.q = nn.Parameter(torch.empty(1, out_channels))
 
         self.proj = nn.ModuleDict()
         for node_type, in_channels in self.in_channels.items():
-            self.proj[node_type] = Linear(in_channels, out_channels)
+            if node_type == target_node_type:
+                self.proj[node_type] = torch.nn.LSTM(input_size=1,
+                                                     hidden_size=out_channels,
+                                                     num_layers=num_rnn_layers,
+                                                     batch_first=True)
+            else:
+                self.proj[node_type] = Linear(in_channels, out_channels)
 
         self.conv_layers = nn.ModuleDict()
         dim = out_channels // heads
@@ -122,8 +132,12 @@ class ModHANConv(MessagePassing):
 
         # Iterate over node types:
         for node_type, x in x_dict.items():
-            x_node_dict[node_type] = self.proj[node_type](x)
-            out_dict[node_type] = []
+            if node_type == self.target_node_type:
+                o, _ = self.proj[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_node_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_node_dict[node_type] = self.proj[node_type](x)
+                out_dict[node_type] = []
 
         # Iterate over edge types:
         for edge_type, edge_index in edge_index_dict.items():

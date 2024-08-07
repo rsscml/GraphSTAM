@@ -368,13 +368,14 @@ class HeteroForecastSageConv(torch.nn.Module):
 
 
 class HeteroGraphSAGE(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
+    def __init__(self, in_channels, hidden_channels, num_layers, num_rnn_layers, out_channels, dropout, node_types, edge_types,
                  target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
         self.skip_connection = skip_connection
         self.num_layers = num_layers
+        self.num_rnn_layers = num_rnn_layers
 
         if num_layers == 1:
             self.skip_connection = False
@@ -393,7 +394,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             if node_type == target_node_type:
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
-                                                                      num_layers=1,
+                                                                      num_layers=self.num_rnn_layers,
                                                                       batch_first=True)
             else:
                 self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
@@ -507,7 +508,7 @@ class HeteroGAT(torch.nn.Module):
 # HAN Models
 
 class BasicHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1,
+    def __init__(self, in_channels, out_channels, num_rnn_layers, metadata, target_node_type, hidden_channels=128, heads=1,
                  dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
@@ -518,7 +519,7 @@ class BasicHAN(torch.nn.Module):
             if node_type == target_node_type:
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
-                                                                      num_layers=1,
+                                                                      num_layers=num_rnn_layers,
                                                                       batch_first=True)
             else:
                 self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
@@ -549,7 +550,7 @@ class BasicHAN(torch.nn.Module):
 
 
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1,
+    def __init__(self, in_channels, out_channels, metadata, num_rnn_layers, target_node_type, hidden_channels=128, heads=1,
                  dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
@@ -559,7 +560,9 @@ class HAN(torch.nn.Module):
                                             out_channels=hidden_channels,
                                             heads=heads,
                                             dropout=dropout,
-                                            metadata=metadata)
+                                            metadata=metadata,
+                                            target_node_type=target_node_type,
+                                            num_rnn_layers=num_rnn_layers)
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
@@ -570,7 +573,7 @@ class HAN(torch.nn.Module):
 
 
 class SageHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, target_node_type, node_types, edge_types,
+    def __init__(self, in_channels, out_channels, num_rnn_layers, target_node_type, node_types, edge_types,
                  hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
@@ -582,7 +585,7 @@ class SageHAN(torch.nn.Module):
             if node_type == target_node_type:
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
-                                                                      num_layers=1,
+                                                                      num_layers=num_rnn_layers,
                                                                       batch_first=True)
             else:
                 self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
@@ -680,6 +683,7 @@ class STGNN(torch.nn.Module):
     def __init__(self,
                  hidden_channels,
                  num_layers,
+                 num_rnn_layers,
                  metadata,
                  target_node,
                  time_steps=1,
@@ -700,6 +704,7 @@ class STGNN(torch.nn.Module):
             self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                              hidden_channels=hidden_channels,
                                              num_layers=num_layers,
+                                             num_rnn_layers=num_rnn_layers,
                                              out_channels=int(n_quantiles * time_steps),
                                              dropout=dropout,
                                              node_types=self.node_types,
@@ -709,6 +714,7 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'HAN':
             self.gnn_model = HAN(in_channels=-1,
                                  out_channels=int(n_quantiles * time_steps),
+                                 num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
                                  hidden_channels=hidden_channels,
@@ -717,6 +723,7 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'BasicHAN':
             self.gnn_model = BasicHAN(in_channels=-1,
                                       out_channels=int(n_quantiles * time_steps),
+                                      num_rnn_layers=num_rnn_layers,
                                       metadata=metadata,
                                       target_node_type=target_node,
                                       hidden_channels=hidden_channels,
@@ -725,6 +732,7 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'SageHAN':
             self.gnn_model = SageHAN(in_channels=-1,
                                      out_channels=int(n_quantiles * time_steps),
+                                     num_rnn_layers=num_rnn_layers,
                                      target_node_type=target_node,
                                      node_types=self.node_types,
                                      edge_types=self.edge_types,
@@ -756,6 +764,7 @@ class STGNN(torch.nn.Module):
         else:
             self.han_model = HAN(in_channels=-1,
                                  out_channels=int(n_quantiles * time_steps),
+                                 num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
                                  hidden_channels=hidden_channels,
@@ -765,6 +774,7 @@ class STGNN(torch.nn.Module):
             self.sage_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                               hidden_channels=hidden_channels,
                                               num_layers=num_layers,
+                                              num_rnn_layers=num_rnn_layers,
                                               out_channels=int(n_quantiles * time_steps),
                                               dropout=dropout,
                                               node_types=self.node_types,
@@ -1539,7 +1549,7 @@ class graphmodel():
 
         # in case target lags are not to be used as a feature
         if not self.autoregressive_target:
-            data[self.target_col].x = torch.neg(torch.ones_like(data[self.target_col].x))  # alternative to zeros_like
+            data[self.target_col].x = torch.zeros_like(data[self.target_col].x)
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -1886,6 +1896,7 @@ class graphmodel():
               layer_type='HAN',
               model_dim=128,
               num_layers=1,
+              num_rnn_layers=2,
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
@@ -1907,6 +1918,7 @@ class graphmodel():
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
+                           num_rnn_layers=num_rnn_layers,
                            heads=heads,
                            dropout=dropout,
                            skip_connection=skip_connection,
