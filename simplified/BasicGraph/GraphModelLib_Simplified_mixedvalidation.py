@@ -1134,18 +1134,16 @@ class graphmodel():
             scale = 1.0
             if len(self.temporal_known_num_col_list) > 0:
                 # use max scale for known co-variates
-                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0),
-                                         1.0)
+                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
             else:
                 known_scale = 1
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
-                                           1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
             else:
                 unknown_scale = 1
-        
+
         # reset index
         gdf = gdf.reset_index(drop=True)
 
@@ -1164,7 +1162,13 @@ class graphmodel():
             gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
             gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
             gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
-        
+
+        # limits for o/p clipping
+        output_upper_limit = 1.5 * scale_gdf[self.target_col].max()
+        output_lower_limit = 0.5 * scale_gdf[self.target_col].min()
+        gdf['output_upper_limit'] = output_upper_limit
+        gdf['output_lower_limit'] = output_lower_limit
+
         # Store scaler as a column
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             gdf['scaler'] = scale
@@ -1535,7 +1539,7 @@ class graphmodel():
 
         # in case target lags are not to be used as a feature
         if not self.autoregressive_target:
-            data[self.target_col].x = torch.ones_like(data[self.target_col].x)  # alternative to zeros_like
+            data[self.target_col].x = torch.neg(torch.ones_like(data[self.target_col].x))  # alternative to zeros_like
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -1828,13 +1832,19 @@ class graphmodel():
         print(infer_df[self.time_index_col].unique().tolist())
 
         infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list +
-                            self.global_context_col_list + self.scaler_cols + self.tweedie_p_col]
+                            self.global_context_col_list + self.scaler_cols + self.tweedie_p_col +
+                            ['output_upper_limit', 'output_lower_limit']]
         
         model_output = model_output.reshape(-1, 1)
         output = pd.DataFrame(data=model_output, columns=['forecast'])
         
         # merge forecasts with infer df
-        output = pd.concat([infer_df, output], axis=1)    
+        output = pd.concat([infer_df, output], axis=1)
+
+        # if output clipping enabled
+        if self.output_clipping:
+            output['forecast'] = np.clip(output['forecast'], a_min=output['output_lower_limit'], a_max=output['output_upper_limit'])
+            output.drop(columns=['output_upper_limit', 'output_lower_limit'], inplace=True)
 
         return output
         
@@ -1842,22 +1852,6 @@ class graphmodel():
         
         # merge output & base_df
         reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
-
-        # get df max per id for optional output clipping
-        max_map = df[df[self.time_index_col] <= self.test_till].groupby([self.id_col])[self.target_col].max().to_dict()
-        min_map = df[df[self.time_index_col] <= self.test_till].groupby([self.id_col])[self.target_col].min().to_dict()
-
-        if self.output_clipping:
-            print("clipping output at: ")
-            reduced_output_df['max_forecast'] = reduced_output_df[self.id_col].map(max_map)
-            reduced_output_df['max_forecast'] = 2.0 * reduced_output_df['max_forecast']
-            reduced_output_df['min_forecast'] = reduced_output_df[self.id_col].map(min_map)
-            reduced_output_df['min_forecast'] = 0.5 * np.maximum(reduced_output_df['min_forecast'], 0)
-            reduced_output_df['forecast'] = np.clip(reduced_output_df['forecast'], a_min=reduced_output_df['min_forecast'], a_max=reduced_output_df['max_forecast'])
-            print("     max: ", reduced_output_df['max_forecast'].max())
-            print("     min: ", reduced_output_df['min_forecast'].min())
-            reduced_output_df.drop(columns=['max_forecast', 'min_forecast'], inplace=True)
-
         df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
         
         # update target for current ts with forecasts
