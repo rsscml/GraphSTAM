@@ -817,6 +817,7 @@ class graphmodel():
                  test_recent_percentage=None,
                  test_random_percentage=None,
                  autoregressive_target=True,
+                 lag_offset=0,
                  rolling_features_list=[],
                  min_history=1,
                  fh=1,
@@ -870,6 +871,9 @@ class graphmodel():
         self.max_target_lags = int(max_target_lags) if (max_target_lags is not None) and (max_target_lags > 0) else 1
         self.max_covar_lags = int(max_covar_lags) if (max_covar_lags is not None) and (max_covar_lags > 0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads > 0) else 1
+
+        # add offset to target_lags
+        self.max_target_lags = int(self.max_target_lags + lag_offset)
 
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
@@ -1298,14 +1302,15 @@ class graphmodel():
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
-                if len(tup) >= 5:
+                if len(tup) >= 6:
                     raise ValueError("rolling feature tuples not defined properly.")
                 else:
                     col = tup[0]
                     stat = tup[1]
                     window_size = tup[2]
-                    if len(tup) == 4:
-                        parameter = tup[3]
+                    offset = tup[3]
+                    if len(tup) == 5:
+                        parameter = tup[4]
                     # check
                     if col not in self.col_list:
                         raise ValueError("rolling feature window col not in columns list.")
@@ -1315,29 +1320,29 @@ class graphmodel():
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').std().fillna(0))
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
                             # actual/mvavg ratio
                             df[feat_name + '_r1'] = df[self.target_col] / df[feat_name + '_mvavg']
                             # trend disruption ratio
