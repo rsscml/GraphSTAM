@@ -873,7 +873,7 @@ class graphmodel():
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads > 0) else 1
 
         # add offset to target_lags
-        self.max_target_lags = int(self.max_target_lags + lag_offset)
+        self.lag_offset = lag_offset
 
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
@@ -1273,7 +1273,7 @@ class graphmodel():
             self.lead_lag_features_dict[col] = []
 
             if col == self.target_col:
-                for lag in range(self.max_target_lags, 0, -1):
+                for lag in range(self.max_target_lags, self.lag_offset, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
             else:
