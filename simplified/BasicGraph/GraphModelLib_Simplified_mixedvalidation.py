@@ -1320,29 +1320,29 @@ class graphmodel():
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='left').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
                             # actual/mvavg ratio
                             df[feat_name + '_r1'] = df[self.target_col] / df[feat_name + '_mvavg']
                             # trend disruption ratio
