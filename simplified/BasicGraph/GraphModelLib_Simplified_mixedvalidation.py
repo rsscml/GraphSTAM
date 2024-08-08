@@ -874,6 +874,7 @@ class graphmodel():
 
         # add offset to target_lags
         self.lag_offset = lag_offset
+        self.max_target_lags = int(self.max_target_lags + lag_offset)
 
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
