@@ -47,7 +47,7 @@ if os == 'linux':
     backend = 'loky'
     timeout = 3600
 else:
-    backend = 'loky'
+    backend = 'threading'
     timeout = 3600
 
 # set default dtype to float32
