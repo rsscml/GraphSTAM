@@ -1788,7 +1788,9 @@ class graphmodel():
         df = self.create_lead_lag_features(df)
 
         infer_df = df[df[self.time_index_col] <= infer_till]
-        gc.collect()
+        # check for nulls
+        print("checking for nulls ...")
+        print("  null cols in infer df: ", infer_df.columns[infer_df.isnull().any()])
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
