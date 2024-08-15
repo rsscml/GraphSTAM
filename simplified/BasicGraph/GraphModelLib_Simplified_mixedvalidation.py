@@ -2,7 +2,7 @@
 # coding: utf-8
 
 # Model Specific imports
-
+from __future__ import print_function
 import torch
 import copy
 import torch.nn.functional as F
@@ -42,7 +42,6 @@ import os, psutil
 import time
 
 # timeout specific imports
-from __future__ import print_function
 import sys
 import threading
 from time import sleep
