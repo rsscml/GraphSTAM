@@ -38,8 +38,46 @@ import random
 from joblib import Parallel, delayed
 from joblib.externals.loky import get_reusable_executor
 import shutil
-import sys, os, psutil
+import os, psutil
 import time
+
+# timeout specific imports
+from __future__ import print_function
+import sys
+import threading
+from time import sleep
+try:
+    import thread
+except ImportError:
+    import _thread as thread
+
+
+def quit_function(fn_name):
+    # print to stderr, unbuffered in Python 2.
+    print('{0} took too long'.format(fn_name), file=sys.stderr)
+    sys.stderr.flush() # Python 3 stderr is likely buffered.
+    thread.interrupt_main() # raises KeyboardInterrupt
+
+
+def exit_after(s):
+    '''
+    use as decorator to exit process if
+    function takes longer than s seconds
+    '''
+    def outer(fn):
+        def inner(*args, **kwargs):
+            timer = threading.Timer(s, quit_function, args=[fn.__name__])
+            timer.start()
+            try:
+                result = fn(*args, **kwargs)
+            finally:
+                timer.cancel()
+            return result
+        return inner
+    return outer
+
+
+##########################
 
 os = sys.platform
 
@@ -1015,12 +1053,14 @@ class graphmodel():
             exog = exog[nz_index]
 
             # fit glm model
+            @exit_after(60)
             def glm_fit(endog, exog, power):
                 res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
 
                 return res.mu, res.scale, res._endog
 
             # optimize 1 iter
+            @exit_after(60)
             def optimize_power(res_mu, res_scale, power, res_endog):
                 def loglike_p(power):
                     return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
@@ -1318,7 +1358,7 @@ class graphmodel():
                     if stat not in ['mean', 'quantile', 'trend_disruption', 'std']:
                         raise ValueError("stat not one of ['mean','quantile','trend_disruption','std'].")
                     if col != self.time_index_col:
-                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
+                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}_offset_{offset}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
                                 lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
@@ -1330,7 +1370,7 @@ class graphmodel():
                                 lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
-                        feat_name = f'rolling_{stat}_win_{window_size}'
+                        feat_name = f'rolling_{stat}_win_{window_size}_offset_{offset}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
                                 lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
