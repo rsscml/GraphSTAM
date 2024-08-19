@@ -2315,7 +2315,8 @@ class graphmodel():
             delta = current_min_loss - prev_min_loss
 
             if stop_training_criteria in ['mse', 'mae']:
-                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (val_metric_hist[epoch] == np.min(val_metric_hist)) and (-delta > min_delta)) or (epoch == 0)
+                #save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (val_metric_hist[epoch] == np.min(val_metric_hist)) and (-delta > min_delta)) or (epoch == 0)
+                save_condition = (val_metric_hist[epoch] == np.min(val_metric_hist)) or (epoch == 0)
             else:
                 save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
 
