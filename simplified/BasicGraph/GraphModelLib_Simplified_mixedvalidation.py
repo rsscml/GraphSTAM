@@ -1519,8 +1519,6 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            else:
-                df['tweedie_p'] = self.tweedie_variance_power
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
