@@ -2013,7 +2013,7 @@ class graphmodel():
 
         if self.loss == 'Tweedie':
             # convert tweedie_variance_power to tensors
-            self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]) for i in self.tweedie_variance_power]
+            self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]).to(self.device) for i in self.tweedie_variance_power]
             loss_fn = TweedieLoss(p_list=self.tweedie_variance_power)
         elif self.loss == 'Quantile':
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
