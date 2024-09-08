@@ -29,6 +29,7 @@ from tweedie import tweedie
 import pandas as pd
 import numpy as np
 import itertools
+from ast import literal_eval
 from sklearn import preprocessing
 import warnings
 warnings.filterwarnings("ignore")
@@ -131,14 +132,20 @@ class RMSE:
 
 
 class TweedieLoss:
-    def __init__(self):
+    def __init__(self, p_list=[]):
         super().__init__()
+        self.p_list = p_list
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p, scaler, log1p_transform):
         # convert all 2-d inputs to 3-d
         y_true = torch.unsqueeze(y_true, dim=2)
         scaler = torch.unsqueeze(scaler, dim=2)
-        p = torch.unsqueeze(p, dim=2)
+
+        if len(self.p_list) > 0:
+            pass
+        else:
+            self.p_list.append(p)
+
         """
         if log1p_transform:
             # log1p first, scale next
@@ -165,24 +172,24 @@ class TweedieLoss:
             y_pred = torch.expm1(y_pred) * scaler
             # take log of y_pred again
             y_pred = torch.log(y_pred + 1e-8)
-    
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
-            loss = -a + b
 
-            """
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
-            loss = -a + b
-            """
+            loss = 0
+            for pn in self.p_list:
+                pn = torch.unsqueeze(pn, dim=2)
+                a = y_true * torch.exp(y_pred * (1 - pn)) / (1 - pn)
+                b = torch.exp(y_pred * (2 - pn)) / (2 - pn)
+                loss += (-a + b)
         else:
             # no log1p
             # clamp predictions
             y_pred = torch.clamp(y_pred, min=-7, max=7)
             y_true = y_true * scaler
-            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
-            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
-            loss = -a + b
+            loss = 0
+            for pn in self.p_list:
+                pn = torch.unsqueeze(pn, dim=2)
+                a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - pn)) / (1 - pn)
+                b = torch.exp((y_pred + torch.log(scaler)) * (2 - pn)) / (2 - pn)
+                loss += (-a + b)
 
             """
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
@@ -865,7 +872,7 @@ class graphmodel():
                  log1p_transform=False,
                  estimate_tweedie_p=False,
                  tweedie_p_range=[1.01, 1.95],
-                 tweedie_variance_power=1.1,
+                 tweedie_variance_power=[1.1],
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -930,7 +937,7 @@ class graphmodel():
         self.log1p_transform = log1p_transform
         self.estimate_tweedie_p = estimate_tweedie_p
         self.tweedie_p_range = tweedie_p_range
-        self.tweedie_variance_power = tweedie_variance_power
+        self.tweedie_variance_power = tweedie_variance_power if isinstance(tweedie_variance_power, list) else [tweedie_variance_power]
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -1502,8 +1509,6 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            else:
-                df['tweedie_p'] = self.tweedie_variance_power
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
@@ -1602,7 +1607,8 @@ class graphmodel():
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
-        data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        if self.estimate_tweedie_p:
+            data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -1999,7 +2005,7 @@ class graphmodel():
               epsilon=0.01,  # for SMAPE
               use_amp=False,
               use_lr_scheduler=True, 
-              scheduler_params={'factor':0.5, 'patience':3, 'threshold':0.0001, 'min_lr':0.00001},
+              scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
               sample_weights=False,
               stop_training_criteria='loss'):
 
@@ -2008,7 +2014,9 @@ class graphmodel():
         self.loss = loss
 
         if self.loss == 'Tweedie':
-            loss_fn = TweedieLoss()
+            # convert tweedie_variance_power to tensors
+            self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]) for i in self.tweedie_variance_power]
+            loss_fn = TweedieLoss(p_list=self.tweedie_variance_power)
         elif self.loss == 'Quantile':
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
         elif self.loss == 'SMAPE':
@@ -2058,9 +2066,11 @@ class graphmodel():
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                if self.loss == 'Tweedie':
+                if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
+                else:
+                    tvp = []
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss == 'Tweedie':
@@ -2114,9 +2124,11 @@ class graphmodel():
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                    if self.loss == 'Tweedie':
+                    if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
+                    else:
+                        tvp = []
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss == 'Tweedie':
@@ -2168,9 +2180,11 @@ class graphmodel():
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
-                if self.loss == 'Tweedie':
+                if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
+                else:
+                    tvp = []
 
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -2227,9 +2241,11 @@ class graphmodel():
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
-                    if self.loss == 'Tweedie':
+                    if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
+                    else:
+                        tvp = []
 
                     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                         out = self.model(batch.x_dict, batch.edge_index_dict)
