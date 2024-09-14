@@ -85,7 +85,7 @@ if os == 'linux':
     backend = 'loky'
     timeout = 3600
 else:
-    backend = 'loky'
+    backend = 'threading'
     timeout = 3600
 
 # set default dtype to float32
@@ -1731,7 +1731,8 @@ class graphmodel():
         if self.interleave > 1:
             snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
-        snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+        snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
+                                 backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
         # Create dataset iterators
         num_total_snapshots = len(snapshot_list)
@@ -1799,7 +1800,8 @@ class graphmodel():
             
             print("picking {} samples for {}".format(len(snap_periods_list), df_type))
             
-            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
+                                     backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
 
             # Create a dataset iterator
             dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle) # Load full graph for each timestep
@@ -1833,7 +1835,7 @@ class graphmodel():
         infer_df = df[df[self.time_index_col] <= infer_till]
         # check for nulls
         print("checking for nulls ...")
-        print("  null cols in infer df: ", infer_df.columns[infer_df.isnull().any()])
+        # print("  null cols in infer df: ", infer_df.columns[infer_df.isnull().any()])
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -2413,7 +2415,7 @@ class graphmodel():
             # quantile selection
             min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
-            assert select_quantile >= min_qtile and select_quantile <= max_qtile, "selected quantile out of bounds!"
+            assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
             if self.loss in ['Tweedie', 'Poisson']:
                 output_arr = output_arr[:, :, 0]
