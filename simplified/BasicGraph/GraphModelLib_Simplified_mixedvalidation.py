@@ -2376,11 +2376,15 @@ class graphmodel():
         torch.backends.cudnn.enabled = False
 
     def infer(self, infer_start, infer_end, select_quantile):
-        
+
+        # Reduce dataset for inference - use history = max_target_lags + lag_offset
         base_df = self.onetime_prep_df
 
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
+
+        infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods))
+        base_df = base_df.groupby([self.id_col], sort=False).tail(infer_hist_length)
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
