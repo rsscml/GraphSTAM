@@ -1135,7 +1135,7 @@ class graphmodel():
         Scales a dataframe based on the chosen scaling method & columns specification 
         """
         # obtain scalers
-        if self.train_till >= gdf[self.time_index_col].min():
+        if self.train_till <= gdf[self.time_index_col].min():
             # this handles edge cases where very few series are too short; these series may not get as good a result as
             # others due to poor generalization, but they won't be excluded from the forecast set either.
             scale_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
