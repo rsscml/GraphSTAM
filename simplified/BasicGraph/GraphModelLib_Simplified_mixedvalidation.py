@@ -1135,6 +1135,7 @@ class graphmodel():
         Scales a dataframe based on the chosen scaling method & columns specification 
         """
         # obtain scalers
+        print("check scale cond. ", int(self.train_till <= gdf[self.time_index_col].min()))
         if self.train_till <= gdf[self.time_index_col].min():
             print("edge case short history")
             # this handles edge cases where very few series are too short; these series may not get as good a result as
