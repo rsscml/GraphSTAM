@@ -1120,7 +1120,7 @@ class graphmodel():
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
         # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
+        #df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
 
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
@@ -1135,9 +1135,7 @@ class graphmodel():
         Scales a dataframe based on the chosen scaling method & columns specification 
         """
         # obtain scalers
-        print("check scale cond. ", int(self.train_till <= gdf[self.time_index_col].min()))
         if self.train_till <= gdf[self.time_index_col].min():
-            print("edge case short history")
             # this handles edge cases where very few series are too short; these series may not get as good a result as
             # others due to poor generalization, but they won't be excluded from the forecast set either.
             scale_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
