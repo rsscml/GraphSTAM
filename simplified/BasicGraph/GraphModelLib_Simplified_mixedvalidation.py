@@ -2050,6 +2050,7 @@ class graphmodel():
         self.best_model = None
         time_since_improvement = 0
         train_loss_hist = []
+        train_metric_hist = []
         val_loss_hist = []
         val_metric_hist = []
 
@@ -2060,6 +2061,7 @@ class graphmodel():
             self.model.train(True)
             total_examples = 0 
             total_loss = 0
+            total_metric = 0
 
             for i, batch in enumerate(self.train_dataset):
 
@@ -2114,14 +2116,30 @@ class graphmodel():
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
 
-            return total_loss / total_examples
+                # compute metric for reporting
+                if stop_training_criteria == 'mse':
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                        if self.log1p_transform:
+                            out = torch.expm1(out)
+                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                    total_metric += mse_err
+                elif stop_training_criteria == 'mae':
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                        if self.log1p_transform:
+                            out = torch.expm1(out)
+                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
+                    total_metric += mae_err
+
+            return total_loss / total_examples, total_metric / total_examples
         
         def test_fn():
             self.model.train(False)
             total_examples = 0 
             total_loss = 0
-            total_mse = 0
-            total_mae = 0
+            total_metric = 0
+
             with torch.no_grad(): 
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -2158,23 +2176,29 @@ class graphmodel():
                     total_loss += float(weighted_loss)
 
                     # compute metric for reporting
-                    if stop_training_criteria in ['mse', 'mae']:
+                    if stop_training_criteria == 'mse':
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
                             if self.log1p_transform:
                                 out = torch.expm1(out)
                         mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-
-                        total_mse += mse_err
-                        total_mae += mae_err
+                        total_metric += mse_err
+                    elif stop_training_criteria == 'mae':
+                        if self.loss == 'Tweedie':
+                            out = torch.exp(out)
+                            if self.log1p_transform:
+                                out = torch.expm1(out)
+                        mae_err = (
+                            torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
+                        total_metric += mae_err
                     
-            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
+            return total_loss / total_examples, total_metric / total_examples
 
         def train_amp_fn():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
+            total_metric = 0
 
             for i, batch in enumerate(self.train_dataset):
 
@@ -2232,14 +2256,30 @@ class graphmodel():
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
 
-            return total_loss / total_examples
+                # compute metric for reporting
+                if stop_training_criteria == 'mse':
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                        if self.log1p_transform:
+                            out = torch.expm1(out)
+                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
+                    total_metric += mse_err
+                elif stop_training_criteria == 'mae':
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out)
+                        if self.log1p_transform:
+                            out = torch.expm1(out)
+                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
+                    total_metric += mae_err
+
+            return total_loss / total_examples, total_metric / total_examples
 
         def test_amp_fn():
             self.model.train(False)
             total_examples = 0
             total_loss = 0
-            total_mse = 0
-            total_mae = 0
+            total_metric = 0
+
             with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -2280,30 +2320,39 @@ class graphmodel():
                     total_loss += float(weighted_loss)
 
                     # compute metric for reporting
-                    if stop_training_criteria in ['mse', 'mae']:
+                    if stop_training_criteria == 'mse':
                         if self.loss == 'Tweedie':
                             out = torch.exp(out)
                             if self.log1p_transform:
                                 out = torch.expm1(out)
                         mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                        mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
+                        total_metric += mse_err
+                    elif stop_training_criteria == 'mae':
+                        if self.loss == 'Tweedie':
+                            out = torch.exp(out)
+                            if self.log1p_transform:
+                                out = torch.expm1(out)
+                        mae_err = (
+                            torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
+                        total_metric += mae_err
 
-                        total_mse += mse_err
-                        total_mae += mae_err
-
-            return total_loss / total_examples, total_mse / total_examples, total_mae / total_examples
+            return total_loss / total_examples, total_metric / total_examples
         
         for epoch in range(max_epochs):
 
             if use_amp:
-                loss = train_amp_fn()
-                val_loss, test_mse, test_mae = test_amp_fn()
+                loss, metric = train_amp_fn()
+                val_loss, val_metric = test_amp_fn()
             else:
-                loss = train_fn()
-                val_loss, test_mse, test_mae = test_fn()
+                loss, metric = train_fn()
+                val_loss, val_metric = test_fn()
 
             if stop_training_criteria in ['mse', 'mae']:
-                print('EPOCH {}: Train loss: {}, Val loss: {}, Val mse: {}, Val mae: {}'.format(epoch, loss, val_loss, test_mse, test_mae))
+                print('EPOCH {}: Train loss: {}, Train metric: {}, Val loss: {}, Val metric: {}'.format(epoch,
+                                                                                                        loss,
+                                                                                                        metric,
+                                                                                                        val_loss,
+                                                                                                        val_metric))
             else:
                 print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
 
@@ -2311,39 +2360,50 @@ class graphmodel():
                 scheduler.step(val_loss)
 
             # if using one of the metrics as stop_training_criteria
-            if stop_training_criteria == 'mse':
-                val_metric_hist.append(test_mse.cpu().numpy())
-            elif stop_training_criteria == 'mae':
-                val_metric_hist.append(test_mae.cpu().numpy())
+            if stop_training_criteria in ['mse', 'mae']:
+                train_metric_hist.append(metric.cpu().numpy())
+                val_metric_hist.append(val_metric.cpu().numpy())
+                train_loss_hist.append(loss)
+                val_loss_hist.append(val_loss)
             else:
-                # use loss as default stopping criteria
-                pass
+                train_loss_hist.append(loss)
+                val_loss_hist.append(val_loss)
 
-            train_loss_hist.append(loss)
-            val_loss_hist.append(val_loss)
-
+            # append model path
             model_path = model_prefix + '_' + str(epoch) 
             model_list.append(model_path)
             
             # compare loss
             if epoch == 0:
-                prev_min_loss = np.min(val_loss_hist)
+                prev_min_train_loss = np.min(train_loss_hist)
+                prev_min_val_loss = np.min(val_loss_hist)
             else:
-                prev_min_loss = np.min(val_loss_hist[:-1])
+                prev_min_train_loss = np.min(train_loss_hist[:-1])
+                prev_min_val_loss = np.min(val_loss_hist[:-1])
 
-            current_min_loss = np.min(val_loss_hist)
-            delta = current_min_loss - prev_min_loss
+            # compare metric
+            if stop_training_criteria in ['mse', 'mae']:
+                if epoch == 0:
+                    prev_min_train_metric = np.min(train_metric_hist)
+                    prev_min_val_metric = np.min(val_metric_hist)
+                else:
+                    prev_min_train_metric = np.min(train_metric_hist[:-1])
+                    prev_min_val_metric = np.min(val_metric_hist[:-1])
+
+            # loss delta
+            current_min_train_loss = np.min(train_loss_hist)
+            train_loss_delta = current_min_train_loss - prev_min_train_loss
+
+            # metric delta
+            current_min_train_metric = np.min(train_metric_hist)
+            train_metric_delta = current_min_train_metric - prev_min_train_metric
 
             if stop_training_criteria in ['mse', 'mae']:
-                #save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (val_metric_hist[epoch] == np.min(val_metric_hist)) and (-delta > min_delta)) or (epoch == 0)
-                save_condition = (val_metric_hist[epoch] == np.min(val_metric_hist)) or (epoch == 0)
+                save_condition = ((val_metric_hist[epoch] == np.min(val_metric_hist)) and (-train_metric_delta > min_delta)) or (epoch == 0)
             else:
-                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
+                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-train_loss_delta > min_delta)) or (epoch == 0)
 
             print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
-
-            # freeze before saving
-            self.model.eval()
 
             # track & save best model
             if save_condition:
@@ -2354,9 +2414,6 @@ class graphmodel():
                 time_since_improvement = 0
             else:
                 time_since_improvement += 1
-
-            # unfreeze after saving
-            self.model.train(True)
 
             # remove older models
             if len(model_list) > patience:
@@ -2399,7 +2456,6 @@ class graphmodel():
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path), strict=True)
             model.eval()
-            model.train(False)
             output = []
             with torch.no_grad(): 
                 for i, batch in enumerate(infer_dataset):
@@ -2481,7 +2537,6 @@ class graphmodel():
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
-            model.train(False)
             output = []
             with torch.no_grad():
                 for _, batch in enumerate(infer_dataset):
