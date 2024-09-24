@@ -2397,10 +2397,11 @@ class graphmodel():
             val_loss_delta = current_min_val_loss - prev_min_val_loss
 
             # metric delta
-            current_min_train_metric = np.min(train_metric_hist)
-            train_metric_delta = current_min_train_metric - prev_min_train_metric
-            current_min_val_metric = np.min(val_metric_hist)
-            val_metric_delta = current_min_val_metric - prev_min_val_metric
+            if stop_training_criteria in ['mse', 'mae']:
+                current_min_train_metric = np.min(train_metric_hist)
+                train_metric_delta = current_min_train_metric - prev_min_train_metric
+                current_min_val_metric = np.min(val_metric_hist)
+                val_metric_delta = current_min_val_metric - prev_min_val_metric
 
             if stop_training_criteria in ['mse', 'mae']:
                 save_condition = ((val_metric_hist[epoch] == np.min(val_metric_hist)) and (val_loss_hist[epoch] == np.min(val_loss_hist)) and (-val_loss_delta > min_delta)) or (epoch == 0)
