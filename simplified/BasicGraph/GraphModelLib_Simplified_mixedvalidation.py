@@ -2393,17 +2393,23 @@ class graphmodel():
             # loss delta
             current_min_train_loss = np.min(train_loss_hist)
             train_loss_delta = current_min_train_loss - prev_min_train_loss
+            current_min_val_loss = np.min(val_loss_hist)
+            val_loss_delta = current_min_val_loss - prev_min_val_loss
 
             # metric delta
             current_min_train_metric = np.min(train_metric_hist)
             train_metric_delta = current_min_train_metric - prev_min_train_metric
+            current_min_val_metric = np.min(val_metric_hist)
+            val_metric_delta = current_min_val_metric - prev_min_val_metric
 
             if stop_training_criteria in ['mse', 'mae']:
-                save_condition = ((val_metric_hist[epoch] == np.min(val_metric_hist)) and (-train_metric_delta > min_delta)) or (epoch == 0)
+                #save_condition = ((val_metric_hist[epoch] == np.min(val_metric_hist)) and (val_loss_hist[epoch] == np.min(val_loss_hist)) and (-train_loss_delta > min_delta)) or (epoch == 0)
+                save_condition = ((-val_loss_delta > min_delta) and (-val_metric_delta > 0) and (-train_loss_delta > min_delta)) or (epoch == 0)
+                print("Improvement delta (min_delta {}):  {}, {}".format(min_delta, train_loss_delta, val_loss_delta))
             else:
-                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-train_loss_delta > min_delta)) or (epoch == 0)
-
-            print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
+                #save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-train_loss_delta > min_delta)) or (epoch == 0)
+                save_condition = ((-val_loss_delta > min_delta) and (-train_loss_delta > min_delta)) or (epoch == 0)
+                print("Improvement delta (min_delta {}):  {}, {}".format(min_delta, train_loss_delta, val_loss_delta))
 
             # track & save best model
             if save_condition:
