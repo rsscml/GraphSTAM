@@ -384,7 +384,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                                                 aggr='sum',
                                                 project=False,
                                                 normalize=False,
-                                                bias=False)
+                                                bias=True)
 
         self.conv = HeteroConv(conv_dict)
 
@@ -1096,8 +1096,8 @@ class graphmodel():
             df['tweedie_p'] = round(power, 2)
 
         except:
-            print("using default power of {} for {}".format(1.9, df[self.id_col].unique()))
-            df['tweedie_p'] = 1.9
+            print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
+            df['tweedie_p'] = 1.5
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
@@ -1149,8 +1149,13 @@ class graphmodel():
             scale = np.divide(target_sum, target_nz_count) + 1.0
 
             if len(self.temporal_known_num_col_list) > 0:
+                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
+                known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
                 # use max scale for known co-variates
-                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                #known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                """
             else:
                 known_scale = 1
 
@@ -1166,8 +1171,13 @@ class graphmodel():
             scale = [scale_mu, scale_std]
 
             if len(self.temporal_known_num_col_list) > 0:
+                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
+                known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                """
             else:
                 known_scale = 1
 
@@ -1184,8 +1194,13 @@ class graphmodel():
             scale = [med, np.maximum(iqr, 1.0)]
 
             if len(self.temporal_known_num_col_list) > 0:
+                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
+                known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                """
                 # use max scale for known co-variates
                 known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                """
             else:
                 known_scale = 1
 
@@ -1953,7 +1968,7 @@ class graphmodel():
               layer_type='HAN',
               model_dim=128,
               num_layers=1,
-              num_rnn_layers=2,
+              num_rnn_layers=1,
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,

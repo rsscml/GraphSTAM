@@ -133,70 +133,54 @@ class RMSE:
 
 
 class TweedieLoss:
-    def __init__(self, p_list=[]):
+    def __init__(self):
         super().__init__()
-        self.p_list = p_list
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p, scaler, log1p_transform):
-        # convert all 2-d inputs to 3-d
-        y_true = torch.unsqueeze(y_true, dim=2)
-        scaler = torch.unsqueeze(scaler, dim=2)
-
-        if len(self.p_list) > 0:
-            pass
-        else:
-            self.p_list.append(p)
-
+    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor, p: torch.Tensor, scaler, log1p_transform):
         """
         if log1p_transform:
             # log1p first, scale next
-            # reverse process actual
-            y_true = torch.expm1(y_true * scaler)
-            # reverse proceess y_pred
-            y_pred = torch.expm1(torch.exp(y_pred) * scaler)
+            y_true = y_true * scaler
+            y_pred = torch.squeeze(y_pred, dim=2)
+            # reverse log of prediction y_pred
+            #y_pred = torch.exp(y_pred)
+            # rescale
+            #y_pred = y_pred * scaler
+            # get pred
+            #y_pred = torch.expm1(y_pred)
             # take log of y_pred again
-            y_pred = torch.log(y_pred + 1e-8)
+            #y_pred = torch.log(y_pred + 1e-8)
 
-            a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
-            b = torch.exp(y_pred * (2 - p)) / (2 - p)
+            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
             loss = -a + b
-
         """
+        # convert all 2-d inputs to 3-d
+        y_true = torch.unsqueeze(y_true, dim=2)
+        scaler = torch.unsqueeze(scaler, dim=2)
+        p = torch.unsqueeze(p, dim=2)
+
         if log1p_transform:
             # scale first, log1p after
             y_true = torch.expm1(y_true) * scaler
             # reverse log of prediction y_pred
             y_pred = torch.exp(y_pred)
-            # clamp predictions
-            y_pred = torch.clamp(y_pred, min=-7, max=7)
             # get pred
-            y_pred = torch.expm1(y_pred) * scaler
+            y_pred = torch.expm1(y_pred)
             # take log of y_pred again
+            y_pred = y_pred * scaler
             y_pred = torch.log(y_pred + 1e-8)
 
-            loss = 0
-            for pn in self.p_list:
-                pn = torch.unsqueeze(pn, dim=2)
-                a = y_true * torch.exp(y_pred * (1 - pn)) / (1 - pn)
-                b = torch.exp(y_pred * (2 - pn)) / (2 - pn)
-                loss += (-a + b)
-        else:
-            # no log1p
-            # clamp predictions
-            y_pred = torch.clamp(y_pred, min=-7, max=7)
-            y_true = y_true * scaler
-            loss = 0
-            for pn in self.p_list:
-                pn = torch.unsqueeze(pn, dim=2)
-                a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - pn)) / (1 - pn)
-                b = torch.exp((y_pred + torch.log(scaler)) * (2 - pn)) / (2 - pn)
-                loss += (-a + b)
-
-            """
             a = y_true * torch.exp(y_pred * (1 - p)) / (1 - p)
             b = torch.exp(y_pred * (2 - p)) / (2 - p)
             loss = -a + b
-            """
+        else:
+            # no log1p
+            y_true = y_true * scaler
+            a = y_true * torch.exp((y_pred + torch.log(scaler)) * (1 - p)) / (1 - p)
+            b = torch.exp((y_pred + torch.log(scaler)) * (2 - p)) / (2 - p)
+            loss = -a + b
+
         return loss
 
 
@@ -240,16 +224,6 @@ class SMAPE:
         denominator = torch.clamp(torch.abs(y_pred) + torch.abs(y_true), min=self.epsilon)
         loss = 2.0 * (numerator / denominator)
 
-        return loss
-
-
-class Huber:
-    def __init__(self, delta=1.0):
-        super().__init__()
-        self.delta = delta
-
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        loss = torch.nn.functional.huber_loss(input=y_pred, target=y_true, reduction='none', delta=self.delta)
         return loss
 
 
@@ -368,7 +342,7 @@ class HeteroForecastSageConv(torch.nn.Module):
                                         out_channels=out_channels,
                                         aggr='mean',
                                         project=False,
-                                        normalize=False,
+                                        normalize=True,
                                         bias=True)
             else:
                 if first_layer:
@@ -377,15 +351,15 @@ class HeteroForecastSageConv(torch.nn.Module):
                                                 out_channels=out_channels,
                                                 aggr='mean',
                                                 project=False,
-                                                normalize=False,
+                                                normalize=True,
                                                 bias=True)
                     else:
                         conv_dict[e] = SAGEConv(in_channels=in_channels,
                                                 out_channels=out_channels,
                                                 aggr='sum',
                                                 project=False,
-                                                normalize=False,
-                                                bias=True)
+                                                normalize=True,
+                                                bias=False)
 
         self.conv = HeteroConv(conv_dict)
 
@@ -413,14 +387,13 @@ class HeteroForecastSageConv(torch.nn.Module):
 
 
 class HeteroGraphSAGE(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_layers, num_rnn_layers, out_channels, dropout, node_types, edge_types,
+    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, node_types, edge_types,
                  target_node_type, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
         self.skip_connection = skip_connection
         self.num_layers = num_layers
-        self.num_rnn_layers = num_rnn_layers
 
         if num_layers == 1:
             self.skip_connection = False
@@ -433,16 +406,15 @@ class HeteroGraphSAGE(torch.nn.Module):
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
         """
-
+        """
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
             if node_type == target_node_type:
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
-                                                                      num_layers=self.num_rnn_layers,
+                                                                      num_layers=1,
                                                                       batch_first=True)
-            else:
-                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
+        """
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -461,15 +433,13 @@ class HeteroGraphSAGE(torch.nn.Module):
             self.conv_layers.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
-
+        """
         # transform target node
         for node_type, x in x_dict.items():
             if node_type == self.target_node_type:
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-            else:
-                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
-
+        """
         """
         # Linear project nodes
         for node_type, x in x_dict.items():
@@ -551,22 +521,12 @@ class HeteroGAT(torch.nn.Module):
 
 
 # HAN Models
+
 class BasicHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, num_rnn_layers, metadata, target_node_type, hidden_channels=128, heads=1,
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1,
                  dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
-        node_types = metadata[0]
-
-        self.transformed_feat_dict = torch.nn.ModuleDict()
-        for node_type in node_types:
-            if node_type == target_node_type:
-                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
-                                                                      hidden_size=hidden_channels,
-                                                                      num_layers=num_rnn_layers,
-                                                                      batch_first=True)
-            else:
-                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
 
         # Conv Layer
         self.conv = HANConv(in_channels=in_channels,
@@ -578,23 +538,13 @@ class BasicHAN(torch.nn.Module):
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-
-        # transform target node
-        for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
-                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
-                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-            else:
-                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
-
         x_dict = self.conv(x_dict, edge_index_dict)
         out = self.lin(x_dict[self.target_node_type])
-
         return out
 
 
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, num_rnn_layers, target_node_type, hidden_channels=128, heads=1,
+    def __init__(self, in_channels, out_channels, metadata, target_node_type, hidden_channels=128, heads=1,
                  dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
@@ -604,9 +554,7 @@ class HAN(torch.nn.Module):
                                             out_channels=hidden_channels,
                                             heads=heads,
                                             dropout=dropout,
-                                            metadata=metadata,
-                                            target_node_type=target_node_type,
-                                            num_rnn_layers=num_rnn_layers)
+                                            metadata=metadata)
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
@@ -617,22 +565,12 @@ class HAN(torch.nn.Module):
 
 
 class SageHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, num_rnn_layers, target_node_type, node_types, edge_types,
+    def __init__(self, in_channels, out_channels, target_node_type, node_types, edge_types,
                  hidden_channels=128, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
         target_edge_types = [edge_type for edge_type in edge_types if
                              (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
-
-        self.transformed_feat_dict = torch.nn.ModuleDict()
-        for node_type in node_types:
-            if node_type == target_node_type:
-                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
-                                                                      hidden_size=hidden_channels,
-                                                                      num_layers=num_rnn_layers,
-                                                                      batch_first=True)
-            else:
-                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -661,15 +599,6 @@ class SageHAN(torch.nn.Module):
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
 
     def forward(self, x_dict, edge_index_dict):
-
-        # transform target node
-        for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
-                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
-                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
-            else:
-                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
-
         for conv in self.conv_layers:
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x for key, x in x_dict.items() if key == self.target_node_type}
@@ -728,7 +657,6 @@ class STGNN(torch.nn.Module):
     def __init__(self,
                  hidden_channels,
                  num_layers,
-                 num_rnn_layers,
                  metadata,
                  target_node,
                  time_steps=1,
@@ -751,7 +679,6 @@ class STGNN(torch.nn.Module):
             self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                              hidden_channels=hidden_channels,
                                              num_layers=num_layers,
-                                             num_rnn_layers=num_rnn_layers,
                                              out_channels=int(n_quantiles * time_steps),
                                              dropout=dropout,
                                              node_types=self.node_types,
@@ -761,7 +688,6 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'HAN':
             self.gnn_model = HAN(in_channels=-1,
                                  out_channels=int(n_quantiles * time_steps),
-                                 num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
                                  hidden_channels=hidden_channels,
@@ -770,7 +696,6 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'BasicHAN':
             self.gnn_model = BasicHAN(in_channels=-1,
                                       out_channels=int(n_quantiles * time_steps),
-                                      num_rnn_layers=num_rnn_layers,
                                       metadata=metadata,
                                       target_node_type=target_node,
                                       hidden_channels=hidden_channels,
@@ -779,7 +704,6 @@ class STGNN(torch.nn.Module):
         elif layer_type == 'SageHAN':
             self.gnn_model = SageHAN(in_channels=-1,
                                      out_channels=int(n_quantiles * time_steps),
-                                     num_rnn_layers=num_rnn_layers,
                                      target_node_type=target_node,
                                      node_types=self.node_types,
                                      edge_types=self.edge_types,
@@ -889,10 +813,9 @@ class graphmodel:
                  max_leads,
                  train_till,
                  test_till,
-                 test_recent_percentage=None,
-                 test_random_percentage=None,
+                 test_recent_percentage=0.1,
+                 test_random_percentage=0.1,
                  autoregressive_target=True,
-                 lag_offset=0,
                  rolling_features_list=[],
                  min_history=1,
                  fh=1,
@@ -913,7 +836,6 @@ class graphmodel:
                  interleave=1,
                  recency_weights=False,
                  recency_alpha=0,
-                 output_clipping=False,
                  PARALLEL_DATA_JOBS=4,
                  PARALLEL_DATA_JOBS_BATCHSIZE=128):
         """
@@ -954,10 +876,6 @@ class graphmodel:
         self.max_covar_lags = int(max_covar_lags) if (max_covar_lags is not None) and (max_covar_lags > 0) else 1
         self.max_leads = int(max_leads) if (max_leads is not None) and (max_leads > 0) else 1
 
-        # add offset to target_lags
-        self.lag_offset = lag_offset
-        self.max_target_lags = int(self.max_target_lags + lag_offset)
-
         assert self.max_leads >= self.fh, "max_leads must be >= fh"
         
         # adjust train_till/test_till for delta|max_leads - fh| in split_* methods
@@ -976,7 +894,7 @@ class graphmodel:
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.tweedie_p_range = tweedie_p_range
-        self.tweedie_variance_power = tweedie_variance_power if isinstance(tweedie_variance_power, list) else [tweedie_variance_power]
+        self.tweedie_variance_power = tweedie_variance_power
         self.iqr_high = iqr_high
         self.iqr_low = iqr_low
         self.categorical_onehot_encoding = categorical_onehot_encoding
@@ -985,9 +903,9 @@ class graphmodel:
         self.interleave = interleave
         self.recency_weights = recency_weights
         self.recency_alpha = recency_alpha
-        self.output_clipping = output_clipping
         self.PARALLEL_DATA_JOBS = PARALLEL_DATA_JOBS
         self.PARALLEL_DATA_JOBS_BATCHSIZE = PARALLEL_DATA_JOBS_BATCHSIZE
+        
         self.pad_constant = 0
 
         # extract column sets from col_dict
@@ -1181,7 +1099,7 @@ class graphmodel:
         """
         Exclude keys which do not have at least one data point within the training cutoff period
         """
-        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
+        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.train_till]) >= self.min_history)
 
         return df
 
@@ -1195,14 +1113,12 @@ class graphmodel:
             exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # fit glm model
-            @exit_after(60)
             def glm_fit(endog, exog, power):
                 res = sm.GLM(endog, exog,
                              family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
                 return res.mu, res.scale, res._endog
 
             # optimize 1 iter
-            @exit_after(60)
             def optimize_power(res_mu, res_scale, power, res_endog):
                 """
                 returns optimized power as opt.x
@@ -1237,7 +1153,7 @@ class graphmodel:
 
         except:
             print("using default power of {} for {}".format(1.5, df[self.id_col].unique()))
-            df['tweedie_p'] = 1.5
+            df['tweedie_p'] = 1.50
 
         # clip tweedie to within range
         df['tweedie_p'] = df['tweedie_p'].clip(lower=self.tweedie_p_range[0], upper=self.tweedie_p_range[1])
@@ -1302,13 +1218,13 @@ class graphmodel:
             if self.scaling_method == 'mean_scaling':
 
                 if len(self.temporal_known_num_col_list) > 0:
+                    """
                     known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                     known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
                     """
                     # use max scale for known co-variates
                     known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                    """
                 else:
                     known_scale = 1.0
 
@@ -1414,7 +1330,7 @@ class graphmodel:
             self.lead_lag_features_dict[col] = []
 
             if col == self.target_col:
-                for lag in range(self.max_target_lags, self.lag_offset, -1):
+                for lag in range(self.max_target_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
             else:
@@ -1443,54 +1359,46 @@ class graphmodel:
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
-                if len(tup) >= 6:
+                if len(tup) >= 5:
                     raise ValueError("rolling feature tuples not defined properly.")
                 else:
                     col = tup[0]
                     stat = tup[1]
                     window_size = tup[2]
-                    offset = tup[3]
-                    if len(tup) == 5:
-                        parameter = tup[4]
+                    if len(tup) == 4:
+                        parameter = tup[3]
                     # check
                     if col not in self.col_list:
                         raise ValueError("rolling feature window col not in columns list.")
                     if stat not in ['mean', 'quantile', 'trend_disruption', 'std']:
                         raise ValueError("stat not one of ['mean','quantile','trend_disruption','std'].")
                     if col != self.time_index_col:
-                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}_offset_{offset}'
+                        feat_name = f'rolling_{stat}_by_{col}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').mean())
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').quantile(parameter))
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').std().fillna(0))
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         self.rolling_feature_cols.append(feat_name)
                     else:
-                        feat_name = f'rolling_{stat}_win_{window_size}_offset_{offset}'
+                        feat_name = f'rolling_{stat}_win_{window_size}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').mean())
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').quantile(parameter))
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').std().fillna(0))
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').std())
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
-                                                                          closed='right').mean())
+                                lambda x: x.rolling(window_size, min_periods=1, closed='right').mean())
                             # actual/mvavg ratio
                             df[feat_name + '_r1'] = df[self.target_col] / df[feat_name + '_mvavg']
                             # trend disruption ratio
@@ -1626,6 +1534,8 @@ class graphmodel:
                 # apply power correction if required
                 print("   applying tweedie p correction for continuous ts, if applicable ...")
                 df = self.apply_agg_power_correction(df)
+            else:
+                df['tweedie_p'] = self.tweedie_variance_power
             # scale dataset
             print("   preprocessing dataframe - scale target...")
             df = self.scale_target(df)
@@ -1646,6 +1556,8 @@ class graphmodel:
                 # apply power correction if required
                 print("   applying tweedie p correction for continuous ts, if applicable ...")
                 df = self.apply_agg_power_correction(df)
+            else:
+                df['tweedie_p'] = self.tweedie_variance_power
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1733,8 +1645,7 @@ class graphmodel:
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
-        if self.estimate_tweedie_p:
-            data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].tvp = torch.tensor(df_snap['tweedie_p'].to_numpy().reshape(-1, 1), dtype=torch.float)
 
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -1866,8 +1777,8 @@ class graphmodel:
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
 
         # validate dataset
-        #print("validate snapshot graph ...")
-        #data.validate(raise_on_error=True)
+        print("validate snapshot graph ...")    
+        data.validate(raise_on_error=True)
         
         return data
 
@@ -2100,6 +2011,8 @@ class graphmodel:
 
     def create_infer_dataset(self, df, infer_till):
 
+        self.infer_till = infer_till
+
         # drop lead/lag features if present
         try:
             df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols, inplace=True)
@@ -2114,7 +2027,7 @@ class graphmodel:
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
 
-        infer_df = df[df[self.time_index_col] <= infer_till]
+        infer_df = df[df[self.time_index_col] <= self.infer_till]
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -2205,10 +2118,7 @@ class graphmodel:
         # onetime prep
         self.onetime_dataprep(df)
         # build graph datasets for train/test
-        if self.test_recent_percentage is None:
-            self.train_dataset, self.test_dataset = self.create_train_test_dataset_orig(self.onetime_prep_df)
-        else:
-            self.train_dataset, self.test_dataset = self.create_train_test_dataset(self.onetime_prep_df)
+        self.train_dataset, self.test_dataset = self.create_train_test_dataset(self.onetime_prep_df)
 
     def build_infer_dataset(self, infer_till):
         # build graph datasets for infer
@@ -2224,7 +2134,6 @@ class graphmodel:
               layer_type='HAN',
               model_dim=128,
               num_layers=1,
-              num_rnn_layers=1,
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
@@ -2246,7 +2155,6 @@ class graphmodel:
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
-                           num_rnn_layers=num_rnn_layers,
                            heads=heads,
                            dropout=dropout,
                            tweedie_out=self.tweedie_out,
@@ -2281,18 +2189,15 @@ class graphmodel:
               loss='Quantile',  # 'Tweedie','SMAPE','RMSE'
               delta=1.0,  # for Huber
               epsilon=0.01,  # for SMAPE
-              use_amp=False,
+              use_amp=True,
               use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
-              sample_weights=False,
-              stop_training_criteria='loss'):
+              sample_weights=False):
 
         self.loss = loss
 
         if self.loss == 'Tweedie':
-            # convert tweedie_variance_power to tensors
-            self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]).to(self.device) for i in self.tweedie_variance_power]
-            loss_fn = TweedieLoss(p_list=self.tweedie_variance_power)
+            loss_fn = TweedieLoss()
         elif self.loss == 'Quantile':
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)
         elif self.loss == 'SMAPE':
@@ -2345,14 +2250,10 @@ class graphmodel:
                 if self.loss == 'Tweedie':
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
-                else:
-                    tvp = []
 
                 # compute loss masking out N/A targets -- last snapshot
                 if self.loss == 'Tweedie':
-                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                        scaler=batch[self.target_col].scaler,
-                                        log1p_transform=self.log1p_transform)
+                    loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
                 else:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -2416,14 +2317,10 @@ class graphmodel:
                     if self.loss == 'Tweedie':
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
-                    else:
-                        tvp = []
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss == 'Tweedie':
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
-                                            scaler=batch[self.target_col].scaler,
-                                            log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -2475,8 +2372,6 @@ class graphmodel:
                 if self.loss == 'Tweedie':
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
-                else:
-                    tvp = []
 
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -2548,8 +2443,6 @@ class graphmodel:
                     if self.loss == 'Tweedie':
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
-                    else:
-                        tvp = []
 
                     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                         out = self.model(batch.x_dict, batch.edge_index_dict)
@@ -2667,8 +2560,6 @@ class graphmodel:
         infer_periods = sorted(
             base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][
                 self.time_index_col].unique().tolist())
-        infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods))
-        base_df = base_df.groupby([self.id_col], sort=False).tail(infer_hist_length)
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
@@ -2679,6 +2570,7 @@ class graphmodel:
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
+            model.train(False)
             output = []
             with torch.no_grad():
                 for i, batch in enumerate(infer_dataset):
