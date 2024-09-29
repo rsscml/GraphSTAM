@@ -1624,8 +1624,8 @@ class graphmodel:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
                 # apply power correction if required
-                print("   applying tweedie p correction for continuous ts, if applicable ...")
-                df = self.apply_agg_power_correction(df)
+                # print("   applying tweedie p correction for continuous ts, if applicable ...")
+                # df = self.apply_agg_power_correction(df)
             # scale dataset
             print("   preprocessing dataframe - scale target...")
             df = self.scale_target(df)
@@ -1644,8 +1644,8 @@ class graphmodel:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
                 # apply power correction if required
-                print("   applying tweedie p correction for continuous ts, if applicable ...")
-                df = self.apply_agg_power_correction(df)
+                # print("   applying tweedie p correction for continuous ts, if applicable ...")
+                # df = self.apply_agg_power_correction(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1670,15 +1670,14 @@ class graphmodel:
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.unknown_onehot_cols += onehot_col_features
 
-        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
-        print("\n")
-        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
-        print("\n")
-        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
-        print("\n")
-        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
-        print("\n")
-        print("   preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
+        print("\npreprocessed known_onehot_cols: ", self.known_onehot_cols)
+        print("\npreprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
+        print("\npreprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
+        print("\npreprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
+        print("\npreprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
+        print("\nTotal Keys across hierarchy: ", df[self.id_col].nunique())
+        for k in df['key_level'].unique().tolist():
+            print("Total Keys for level {}: {}".format(k, df[df['key_level'] == k][self.id_col].nunique()))
 
         return df
     
@@ -2342,7 +2341,7 @@ class graphmodel:
                 batch_size = batch.num_graphs
                 out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                if self.loss == 'Tweedie':
+                if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
                 else:
@@ -2413,7 +2412,7 @@ class graphmodel:
                     batch = batch.to(self.device)
                     out = self.model(batch.x_dict, batch.edge_index_dict)
 
-                    if self.loss == 'Tweedie':
+                    if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
                     else:
@@ -2472,7 +2471,7 @@ class graphmodel:
                 batch = batch.to(self.device)
                 batch_size = batch.num_graphs
 
-                if self.loss == 'Tweedie':
+                if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                     tvp = batch[self.target_col].tvp
                     tvp = torch.reshape(tvp, (-1, 1))
                 else:
@@ -2545,7 +2544,7 @@ class graphmodel:
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
 
-                    if self.loss == 'Tweedie':
+                    if self.loss == 'Tweedie' and self.estimate_tweedie_p:
                         tvp = batch[self.target_col].tvp
                         tvp = torch.reshape(tvp, (-1, 1))
                     else:
