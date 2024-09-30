@@ -1175,6 +1175,7 @@ class graphmodel:
             key_levels_weight_dict[k] = total_keys / df[df['key_level'] == k][self.id_col].nunique()
 
         df['Key_Level_Weight'] = df['key_level'].map(key_levels_weight_dict)
+        print("Derived key_level weights: \n", key_levels_weight_dict)
 
         """
         # user assigned
