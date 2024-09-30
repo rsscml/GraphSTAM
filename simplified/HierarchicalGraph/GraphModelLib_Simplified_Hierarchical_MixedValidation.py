@@ -1167,7 +1167,19 @@ class graphmodel:
         # replace df with stacked dataframe
         df = pd.concat(df_stack_list, axis=0, ignore_index=True)
         # Add 'Key_Level_Weight' col
+
+        # normalized key level weight by key count
+        key_levels_weight_dict = {}
+        total_keys = df[self.id_col].nunique()
+        for k in df['key_level'].unique().tolist():
+            key_levels_weight_dict[k] = total_keys / df[df['key_level'] == k].nunique()
+
+        df['Key_Level_Weight'] = df['key_level'].map(key_levels_weight_dict)
+
+        """
+        # user assigned
         df['Key_Level_Weight'] = df['key_level'].map(self.key_levels_weight_dict)
+        """
         # Add 'Key_Weight' col
         if self.wt_col is None:
             df['Key_Weight'] = 1
