@@ -1172,7 +1172,7 @@ class graphmodel:
         key_levels_weight_dict = {}
         total_keys = df[self.id_col].nunique()
         for k in df['key_level'].unique().tolist():
-            key_levels_weight_dict[k] = total_keys / df[df['key_level'] == k].nunique()
+            key_levels_weight_dict[k] = total_keys / df[df['key_level'] == k][self.id_col].nunique()
 
         df['Key_Level_Weight'] = df['key_level'].map(key_levels_weight_dict)
 
