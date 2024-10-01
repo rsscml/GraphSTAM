@@ -808,23 +808,18 @@ class STGNN(torch.nn.Module):
                                        target_node_type=target_node,
                                        skip_connection=skip_connection)
 
-    def sum_over_index(self, x,  x_wt, x_index):
-        # re-scale outputs
-        x = torch.mul(x, x_wt)
+    def sum_over_index(self, x, x_index):
         return torch.index_select(x, 0, x_index).sum(dim=0)
 
-    def log_transformed_sum_over_index(self, x, x_wt, x_index):
+    def log_transformed_sum_over_index(self, x, x_index):
         """
-        For tweedie, the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
+        the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
         """
-        x = torch.exp(x)
-        x = torch.mul(x, x_wt)
-        return torch.index_select(x, 0, x_index).sum(dim=0)
+        return torch.exp(torch.index_select(x, 0, x_index)).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
         # get keybom
         keybom = x_dict['keybom']
-        scaler = x_dict['scaler']
 
         # get key_aggregation_status
         key_agg_status = x_dict['key_aggregation_status']
@@ -833,7 +828,6 @@ class STGNN(torch.nn.Module):
         # del keybom from x_dict
         del x_dict['keybom']
         del x_dict['key_aggregation_status']
-        del x_dict['scaler']
 
         # gnn model
         out = self.gnn_model(x_dict, edge_index_dict)
@@ -859,11 +853,6 @@ class STGNN(torch.nn.Module):
         # nested/dynamic shape tensors
         out = torch.cat([out, dummy_out], dim=0)
 
-        # add dummy scale for last row in out
-        scaler = torch.unsqueeze(scaler, 2)
-        dummy_scaler = torch.ones(1, scaler.shape[1], scaler.shape[2])
-        scaler = torch.cat([scaler, dummy_scaler], dim=0)
-
         # replace -1 from key bom with last dim in out
         #keybom[keybom == -1] = int(out.shape[0] - 1)
 
@@ -877,17 +866,13 @@ class STGNN(torch.nn.Module):
 
         # call vmap on sum_over_index function
         if self.tweedie_out:
-            batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, None, 0), randomness='error')
-            out = batched_sum_over_index(out, scaler, keybom)
-            # scale back
-            out = out / scaler[:-1]
+            batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, 0), randomness='error')
+            out = batched_sum_over_index(out, keybom)
             # again do the log_transform on the aggregates
             out = torch.log(out)
         else:
-            batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, None, 0), randomness='error')
-            out = batched_sum_over_index(out, scaler, keybom)
-            # scale back
-            out = out / scaler[:-1]
+            batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, 0), randomness='error')
+            out = batched_sum_over_index(out, keybom)
 
         # returned shape of out should be same as that before cat with dummy_out
 
@@ -1114,14 +1099,6 @@ class graphmodel:
                         start_mem - end_mem) / start_mem))
         return df
 
-    def check_data_sufficiency(self, df):
-        """
-        Exclude keys which do not have at least one data point within the training cutoff period
-        """
-        df = df.groupby(self.id_col).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
-
-        return df
-
     def create_new_keys(self, df):
         for i, k in enumerate(self.key_combinations):
             key = "key_" + "_".join(k)
@@ -1213,6 +1190,14 @@ class graphmodel:
         self.col_list = df.columns.tolist()
         return df
 
+    def check_data_sufficiency(self, df):
+        """
+        Exclude keys which do not have at least one data point within the training cutoff period
+        """
+        df = df.groupby(list(self.lowest_key_combination)).filter(lambda x: len(x[x[self.time_index_col] <= self.test_till]) >= self.min_history)
+
+        return df
+
     def power_optimization_loop(self, df):
         # initialization constants
         init_power = 1.01
@@ -1284,10 +1269,10 @@ class graphmodel:
         get_reusable_executor().shutdown(wait=True)
         return gdf
 
-    """ 
     def scale_target(self, df):
-        #Scale using scalers for the highest key combination in the hierarchy
-        
+        """
+        Scale using scalers for the highest key combination in the hierarchy
+        """
         if self.scaling_method == 'mean_scaling':
             # the global scaler is used for scaling keys which do not have an observation within the training period
             # high quantiles 0.8, 0.9 etc. can also be a good substitute
@@ -1305,8 +1290,9 @@ class graphmodel:
         return df
 
     def scale_covariates(self, df):
-        #Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
-        
+        """
+        Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
+        """
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
         gdf = pd.concat(scaled_gdfs, axis=0)
@@ -1316,8 +1302,9 @@ class graphmodel:
         return gdf
 
     def df_scaler(self, gdf):
-        #Scale co-variates for lowest_key_level only
-
+        """
+        Scale co-variates for lowest_key_level only
+        """
         # obtain scalers
         
         scale_gdf = gdf.reset_index(drop=True)
@@ -1331,8 +1318,10 @@ class graphmodel:
                     known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                     known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
                     known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                    """
                     # use max scale for known co-variates
-                    #known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    """
                 else:
                     known_scale = 1.0
 
@@ -1349,160 +1338,6 @@ class graphmodel:
             # scale each feature independently
             if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
                 gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
-
-        return gdf
-    """
-
-    def scale_dataset(self, df):
-        """
-        Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
-        """
-        # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        # df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
-
-        groups = df.groupby([self.id_col])
-        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
-                               backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
-        gdf = pd.concat(scaled_gdfs, axis=0)
-        gdf = gdf.reset_index(drop=True)
-        get_reusable_executor().shutdown(wait=True)
-        return gdf
-
-    def df_scaler(self, gdf):
-        """
-        Scales a dataframe based on the chosen scaling method & columns specification
-        """
-        # obtain scalers
-        if self.train_till <= gdf[self.time_index_col].min():
-            # this handles edge cases where very few series are too short; these series may not get as good a result as
-            # others due to poor generalization, but they won't be excluded from the forecast set either.
-            scale_gdf = gdf[gdf[self.time_index_col] <= self.test_till].reset_index(drop=True)
-        else:
-            scale_gdf = gdf[gdf[self.time_index_col] <= self.train_till].reset_index(drop=True)
-        covar_gdf = gdf.reset_index(drop=True)
-
-        if self.scaling_method == 'mean_scaling':
-            target_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.target_col])), 1.0)
-            target_sum = np.sum(np.abs(scale_gdf[self.target_col]))
-            scale = np.divide(target_sum, target_nz_count) + 1.0
-
-            if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(
-                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
-                known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                """
-                # use max scale for known co-variates
-                #known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                """
-            else:
-                known_scale = 1
-
-            if len(self.temporal_unknown_num_col_list) > 0:
-                # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
-                                           1.0)
-            else:
-                unknown_scale = 1
-
-        elif self.scaling_method == 'standard_scaling':
-            scale_mu = scale_gdf[self.target_col].mean()
-            scale_std = np.maximum(scale_gdf[self.target_col].std(), 0.0001)
-            scale = [scale_mu, scale_std]
-
-            if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(
-                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
-                known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                """
-                # use max scale for known co-variates
-                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                """
-            else:
-                known_scale = 1
-
-            if len(self.temporal_unknown_num_col_list) > 0:
-                # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
-                                           1.0)
-            else:
-                unknown_scale = 1
-
-        # new in 1.2
-        elif self.scaling_method == 'quantile_scaling':
-            med = scale_gdf[self.target_col].quantile(q=0.5)
-            iqr = scale_gdf[self.target_col].quantile(q=self.iqr_high) - scale_gdf[self.target_col].quantile(q=self.iqr_low)
-            scale = [med, np.maximum(iqr, 1.0)]
-
-            if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(
-                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
-                known_scale = np.divide(known_sum, known_nz_count) + 1.0
-                """
-                # use max scale for known co-variates
-                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-                """
-            else:
-                known_scale = 1
-
-            if len(self.temporal_unknown_num_col_list) > 0:
-                # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
-                                           1.0)
-            else:
-                unknown_scale = 1
-
-        elif self.scaling_method == 'no_scaling':
-            scale = 1.0
-            if len(self.temporal_known_num_col_list) > 0:
-                # use max scale for known co-variates
-                known_scale = np.maximum(np.max(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
-            else:
-                known_scale = 1
-
-            if len(self.temporal_unknown_num_col_list) > 0:
-                # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
-                                           1.0)
-            else:
-                unknown_scale = 1
-
-        # reset index
-        gdf = gdf.reset_index(drop=True)
-
-        # scale each feature independently
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            gdf[self.target_col] = gdf[self.target_col] / scale
-            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
-            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
-
-        elif self.scaling_method == 'quantile_scaling':
-            gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
-            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
-            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
-
-        elif self.scaling_method == 'standard_scaling':
-            gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
-            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
-            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
-
-        # limits for o/p clipping
-        output_upper_limit = 1.5 * scale_gdf[self.target_col].max()
-        output_lower_limit = 0.5 * scale_gdf[self.target_col].min()
-        gdf['output_upper_limit'] = output_upper_limit
-        gdf['output_lower_limit'] = output_lower_limit
-
-        # Store scaler as a column
-        if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            gdf['scaler'] = scale
-        elif self.scaling_method == 'quantile_scaling':
-            gdf['scaler_median'] = scale[0]
-            gdf['scaler_iqr'] = scale[1]
-        elif self.scaling_method == 'standard_scaling':
-            gdf['scaler_mu'] = scale[0]
-            gdf['scaler_std'] = scale[1]
 
         return gdf
 
@@ -1792,10 +1627,6 @@ class graphmodel:
         print("   preprocessing dataframe - consolidating all keys into one df...")
         df = self.stack_key_level_dataframes(df, df_keybom)
 
-        # del keybom
-        del df_keybom
-        gc.collect()
-
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
@@ -1809,11 +1640,18 @@ class graphmodel:
                 # print("   applying tweedie p correction for continuous ts, if applicable ...")
                 # df = self.apply_agg_power_correction(df)
             # scale dataset
-            print("   preprocessing dataframe - scale numeric cols...")
-            df = self.scale_dataset(df)
+            print("   preprocessing dataframe - scale target...")
+            df = self.scale_target(df)
+            print("   preprocessing dataframe - scale numeric known cols...")
+            df = self.scale_covariates(df)
             # apply log1p transform
             df = self.log1p_transform_target(df)
         else:
+            # scale dataset
+            print("   preprocessing dataframe - scale target...")
+            df = self.scale_target(df)
+            print("   preprocessing dataframe - scale numeric known cols...")
+            df = self.scale_covariates(df)
             # estimate tweedie p
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
@@ -1821,8 +1659,6 @@ class graphmodel:
                 # apply power correction if required
                 # print("   applying tweedie p correction for continuous ts, if applicable ...")
                 # df = self.apply_agg_power_correction(df)
-            print("   preprocessing dataframe - scale numeric cols...")
-            df = self.scale_dataset(df)
 
         # onehot encode
         print("   preprocessing dataframe - onehot encode categorical columns...")
@@ -1905,10 +1741,8 @@ class graphmodel:
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
-            data['scaler'].x = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
         else:
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
-            data['scaler'].x = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
         if self.estimate_tweedie_p:
