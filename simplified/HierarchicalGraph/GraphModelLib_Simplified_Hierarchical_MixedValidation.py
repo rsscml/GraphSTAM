@@ -861,7 +861,7 @@ class STGNN(torch.nn.Module):
 
         # add dummy scale for last row in out
         scaler = torch.unsqueeze(scaler, 2)
-        dummy_scaler = torch.ones(1, scaler.shape[1], scaler.shape[2])
+        dummy_scaler = torch.ones(1, scaler.shape[1], scaler.shape[2]).to(device)
         scaler = torch.cat([scaler, dummy_scaler], dim=0)
 
         # replace -1 from key bom with last dim in out
