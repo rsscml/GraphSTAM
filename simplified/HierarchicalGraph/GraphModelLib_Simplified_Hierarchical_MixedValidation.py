@@ -1191,7 +1191,6 @@ class graphmodel:
         df = pd.concat(df_stack_list, axis=0, ignore_index=True)
         # Add 'Key_Level_Weight' col
 
-        """
         # normalized key level weight by key count
         key_levels_weight_dict = {}
         total_keys = df[self.id_col].nunique()
@@ -1200,16 +1199,18 @@ class graphmodel:
 
         df['Key_Level_Weight'] = df['key_level'].map(key_levels_weight_dict)
         print("Derived key_level weights: \n", key_levels_weight_dict)
-        """
 
+        """
         # user assigned
         df['Key_Level_Weight'] = df['key_level'].map(self.key_levels_weight_dict)
+        """
 
         # Add 'Key_Weight' col
         if self.wt_col is None:
             df['Key_Weight'] = 1
         else:
-            df['Key_Weight'] = np.where(df[self.wt_col].isnull(), 1, df[self.wt_col])
+            df['Key_Weight'] = np.where(df[df['key_level'] == self.covar_key_level], df[self.wt_col], 1)
+            # df['Key_Weight'] = np.where(df[self.wt_col].isnull(), 1, df[self.wt_col])
         # new col list
         self.col_list = df.columns.tolist()
         return df
