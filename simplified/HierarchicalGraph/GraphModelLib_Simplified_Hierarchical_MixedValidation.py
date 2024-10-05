@@ -79,9 +79,11 @@ def exit_after(s):
 
 ########################
 
-os = sys.platform
 
-if os == 'linux':
+os_type = sys.platform
+
+
+if os_type == 'linux':
     backend = 'loky'
     timeout = 3600
 else:
@@ -1009,6 +1011,7 @@ class graphmodel:
         # hierarchy specific keys
         self.id_col = self.col_dict.get('id_col')
         self.key_combinations = self.col_dict.get('key_combinations')
+        self.key_hierarchy = self.col_dict.get('key_hierarchy', None)
         self.key_combination_weights = self.col_dict.get('key_combination_weights', None)
         self.lowest_key_combination = self.col_dict.get('lowest_key_combination')
         self.highest_key_combination = self.col_dict.get('highest_key_combination')
@@ -1157,6 +1160,22 @@ class graphmodel:
         keybom_list = []
         for key in self.new_key_cols:
             df_key_map = df.groupby([key, self.time_index_col])[self.covar_key_level].apply(lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={key: self.id_col})
+            keybom_list.append(df_key_map)
+        df_keybom = pd.concat(keybom_list, axis=0)
+        df_keybom = df_keybom.reset_index(drop=True)
+
+        return df_keybom
+
+    def get_keybom_hierarchy(self, df):
+        """
+        For given hierarchy of key combinations, obtain list of constituent keys as keys in the level below
+        """
+        keybom_list = []
+        for l1_key, l2_key in self.key_hierarchy.items():
+            base_key = "key_" + "_".join(l1_key)
+            agg_key = "key_" + "_".join(l2_key)
+            df_key_map = df.groupby([agg_key, self.time_index_col])[base_key].apply(
+                lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={key: self.id_col})
             keybom_list.append(df_key_map)
         df_keybom = pd.concat(keybom_list, axis=0)
         df_keybom = df_keybom.reset_index(drop=True)
@@ -1788,7 +1807,10 @@ class graphmodel:
 
         # create keybom
         print("   preprocessing dataframe - creating key bom...")
-        df_keybom = self.get_keybom(df)
+        if self.key_hierarchy is None:
+            df_keybom = self.get_keybom(df)
+        else:
+            df_keybom = self.get_keybom_hierarchy(df)
 
         # stack subkey level dfs into one df
         print("   preprocessing dataframe - consolidating all keys into one df...")
