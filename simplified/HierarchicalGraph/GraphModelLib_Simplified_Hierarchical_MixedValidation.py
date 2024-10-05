@@ -1209,7 +1209,7 @@ class graphmodel:
         if self.wt_col is None:
             df['Key_Weight'] = 1
         else:
-            df['Key_Weight'] = np.where(df[df['key_level'] == self.covar_key_level], df[self.wt_col], 1)
+            df['Key_Weight'] = np.where(df['key_level'] == self.covar_key_level, df[self.wt_col], 1)
             # df['Key_Weight'] = np.where(df[self.wt_col].isnull(), 1, df[self.wt_col])
         # new col list
         self.col_list = df.columns.tolist()
