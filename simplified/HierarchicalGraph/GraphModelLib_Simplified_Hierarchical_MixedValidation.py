@@ -826,6 +826,7 @@ class STGNN(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         # get keybom
         keybom = x_dict['keybom']
+        keybom = keybom.type(torch.int64)
         scaler = x_dict['scaler']
 
         # get key_aggregation_status
