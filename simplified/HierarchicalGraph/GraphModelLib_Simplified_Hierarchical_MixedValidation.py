@@ -1888,7 +1888,7 @@ class graphmodel:
         # convert 'key_list' to key indices
         df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in literal_eval(row) if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
         df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
-        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int64, requires_grad=False)
+        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int16, requires_grad=False)
         keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
 
         # Create HeteroData Object
@@ -2060,6 +2060,7 @@ class graphmodel:
 
         print("total graph attribute memory usage: ", target_tensor_size+input_tensor_size+mask_tensor_size+weight_tensor_size+key_level_tensor_size+keybom_tensor_size+scaler_tensor_size)
         print("keybom tensor size: ", keybom_tensor_size)
+        print("keybom shape: ", data['keybom'].x.shape)
 
         return data
 
