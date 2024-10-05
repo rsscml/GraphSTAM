@@ -2048,7 +2048,19 @@ class graphmodel:
         # validate dataset
         #print("validate snapshot graph ...")
         #data.validate(raise_on_error=True)
-        
+
+        # get memory consumption
+        target_tensor_size = (data[self.target_col].y.element_size() * data[self.target_col].y.nelement())
+        input_tensor_size = (data[self.target_col].x.element_size() * data[self.target_col].x.nelement())
+        mask_tensor_size = (data[self.target_col].y_mask.element_size() * data[self.target_col].y_mask.nelement())
+        weight_tensor_size = (data[self.target_col].y_weight.element_size() * data[self.target_col].y_weight.nelement())
+        keybom_tensor_size = (data['keybom'].x.element_size() * data['keybom'].x.nelement())
+        scaler_tensor_size = (data['scaler'].x.element_size() * data['scaler'].x.nelement())
+        key_level_tensor_size = (data[self.target_col].y_level_weight.element_size() * data[self.target_col].y_level_weight.nelement())
+
+        print("total graph attribute memory usage: ", target_tensor_size+input_tensor_size+mask_tensor_size+weight_tensor_size+key_level_tensor_size+keybom_tensor_size+scaler_tensor_size)
+        print("keybom tensor size: ", keybom_tensor_size)
+
         return data
 
     def onetime_dataprep(self, df):
