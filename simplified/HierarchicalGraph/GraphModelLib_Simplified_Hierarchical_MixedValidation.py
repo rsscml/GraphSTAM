@@ -1175,7 +1175,7 @@ class graphmodel:
             base_key = "key_" + "_".join(l1_key)
             agg_key = "key_" + "_".join(l2_key)
             df_key_map = df.groupby([agg_key, self.time_index_col])[base_key].apply(
-                lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={key: self.id_col})
+                lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={agg_key: self.id_col})
             keybom_list.append(df_key_map)
         df_keybom = pd.concat(keybom_list, axis=0)
         df_keybom = df_keybom.reset_index(drop=True)
