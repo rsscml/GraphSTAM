@@ -16,6 +16,7 @@ import simplified.MultistepHierarchicalRecursiveGraph as multistep_hierarchical_
 import simplified.SmallGraph as small_graphmodel
 import inspect
 
+
 class gml(object):
     def __init__(self, model_type, config):
         self.model_type = model_type
