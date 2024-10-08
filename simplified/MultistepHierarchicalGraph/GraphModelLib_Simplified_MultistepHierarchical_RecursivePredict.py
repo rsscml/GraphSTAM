@@ -837,9 +837,10 @@ class STGNN(torch.nn.Module):
         # loop over rest of time steps
         inp = gnn_embedding
         out_list = []
-        h, c = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
+        h = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
+        c = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
         for _ in range(self.time_steps):
-            o, (h, c) = self.sequence_layer(input=torch.unsqueeze(inp, dim=1), h_0=h, c_0=c)
+            o, (h, c) = self.sequence_layer(torch.unsqueeze(inp, dim=1), (h, c))
             out_list.append(o[:, -1, :])
             inp = torch.add(inp, o[:, -1, :])
 
