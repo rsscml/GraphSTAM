@@ -2126,16 +2126,22 @@ class graphmodel:
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
             return snapshot_graph
 
-        # get train/test snapshots list
-        snap_periods_list = sorted(df[df[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)
+        print("create train/test cutoffs ...")
+        train_cutoff, test_cutoff = self.split_train_test(df)
 
-        # for each split create graph dataset iterator
-        print("gather snapshot graphs...")
+        # get train/test snapshots list
+        snap_periods_list = sorted(df[df[self.time_index_col] <= test_cutoff][self.time_index_col].unique(), reverse=False)
+
         # restrict samples for very large datasets based on interleaving
         snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
 
         if self.interleave > 1:
             snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
+
+        print("snap_periods_list: {}".format(snap_periods_list))
+
+        # for each split create graph dataset iterator
+        print("gather snapshot graphs...")
 
         if self.subgraph_sample_col is not None:
             all_subgraph_col_values = df[self.subgraph_sample_col].unique().tolist()
@@ -2243,11 +2249,13 @@ class graphmodel:
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
 
-
         # split into train,test,infer
-        print("splitting dataframe for training & testing...")
-        train_df = df[df[self.time_index_col] <= self.train_till]
-        test_df = df[(df[self.time_index_col] > self.train_till) & (df[self.time_index_col] <= self.test_till)]
+        print("get cutoffs for training & testing periods ...")
+        train_cutoff, test_cutoff = self.split_train_test(df)
+
+        print("splitting dataframe for training & testing ...")
+        train_df = df[df[self.time_index_col] <= train_cutoff]
+        test_df = df[(df[self.time_index_col] > self.train_till) & (df[self.time_index_col] <= test_cutoff)]
         df_dict = {'train': train_df, 'test': test_df}
         
         def parallel_snapshot_graphs(df, period):
@@ -2369,6 +2377,14 @@ class graphmodel:
         infer_dataset = datasets.get('infer')
 
         return infer_df, infer_dataset
+
+    def split_train_test(self, data):
+        # multistep adjusted train/test cutoff
+        train_cutoff = sorted(data[data[self.time_index_col] <= self.train_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
+        test_cutoff = sorted(data[data[self.time_index_col] <= self.test_till][self.time_index_col].unique(), reverse=False)[-int(self.fh)]
+
+        print("train & test multistep cutoffs: ", train_cutoff, test_cutoff)
+        return train_cutoff, test_cutoff
 
     def get_metadata(self, dataset):
         
