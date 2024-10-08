@@ -1061,6 +1061,7 @@ class graphmodel:
 
         self.multistep_target = []
         self.multistep_mask = []
+        self.forecast_periods = []
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
@@ -1605,7 +1606,7 @@ class graphmodel:
 
     def create_lead_lag_features(self, df):
 
-        for col in [self.target_col, 'y_mask'] + \
+        for col in [self.target_col, self.time_index_col, 'y_mask'] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -1626,6 +1627,10 @@ class graphmodel:
                 for lead in range(0, self.fh):
                     df[f'{col}_fh_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
                     self.multistep_mask.append(f'{col}_fh_{lead}')
+            elif col == self.time_index_col:
+                for lead in range(0, self.fh):
+                    df[f'{col}_fh_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
+                    self.forecast_periods.append(f'{col}_fh_{lead}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
@@ -2417,8 +2422,8 @@ class graphmodel:
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
         print(infer_df[self.time_index_col].unique().tolist())
 
-        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] +
-                            self.static_cat_col_list + self.global_context_col_list +
+        infer_df = infer_df[[self.id_col, 'key_level', self.time_index_col] + self.multistep_target +
+                            self.static_cat_col_list + self.global_context_col_list + self.forecast_periods +
                             self.scaler_cols + self.tweedie_p_col]
         
         model_output = model_output.reshape(-1, self.fh)
