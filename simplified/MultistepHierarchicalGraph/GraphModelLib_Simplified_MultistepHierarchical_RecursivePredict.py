@@ -2283,6 +2283,8 @@ class graphmodel:
                 if (self.interleave > 1) and (df_type == 'train'):
                     snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
+                print("snap_periods_list: {}".format(snap_periods_list))
+
                 if self.subgraph_sample_size > 0:
                     for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
                         df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i+self.subgraph_sample_size])]
@@ -2313,6 +2315,7 @@ class graphmodel:
                 if (self.interleave > 1) and (df_type == 'train'):
                     snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
+                print("snap_periods_list: {}".format(snap_periods_list))
                 print("picking {} samples for {}".format(len(snap_periods_list), df_type))
 
                 # sample snapshot graphs
