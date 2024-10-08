@@ -2464,8 +2464,8 @@ class graphmodel():
         # get list of infer periods
         infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
 
-        infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods))
-        base_df = base_df.groupby([self.id_col], sort=False).tail(infer_hist_length)
+        infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods) + self.max_leads)
+        base_df = base_df[base_df[self.time_index_col] <= infer_end].groupby([self.id_col], sort=False).tail(infer_hist_length)
 
         print("min, max periods in onetime_prep_df: ", self.onetime_prep_df[self.time_index_col].min(), self.onetime_prep_df[self.time_index_col].max())
         print("min, max periods in base_df: ", base_df[self.time_index_col].min(), base_df[self.time_index_col].max())
