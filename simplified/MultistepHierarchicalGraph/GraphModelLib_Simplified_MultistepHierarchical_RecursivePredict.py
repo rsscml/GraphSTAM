@@ -2343,7 +2343,7 @@ class graphmodel:
 
         # drop lead/lag features if present
         try:
-            df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols, inplace=True)
+            df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols+self.multistep_target+self.forecast_periods, inplace=True)
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_feature_cols))
         except:
             pass
@@ -2974,9 +2974,8 @@ class graphmodel:
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            print("forecast dtypes: ", forecast_df.dtypes)
             for col in self.multistep_target:
-                forecast_df[col] = forecast_df[col].astype('float') * forecast_df['scaler']
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
