@@ -2974,8 +2974,8 @@ class graphmodel:
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+            print("forecast dtypes: ", forecast_df.dtypes)
             for col in self.multistep_target:
-                print("target col dtype: ", col, forecast_df[col].dtype)
                 forecast_df[col] = forecast_df[col].astype('float') * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
