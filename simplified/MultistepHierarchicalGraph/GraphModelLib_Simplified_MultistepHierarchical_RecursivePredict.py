@@ -2962,24 +2962,24 @@ class graphmodel:
         if self.log1p_transform:
             for col in forecast_cols:
                 forecast_df[col] = np.expm1(forecast_df[col])
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = np.expm1(forecast_df[col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         return forecast_df, forecast_cols
@@ -3041,24 +3041,24 @@ class graphmodel:
         if self.log1p_transform:
             for col in forecast_cols:
                 forecast_df[col] = np.expm1(forecast_df[col])
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = np.expm1(forecast_df[col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            for col in self.multistep_targets:
+            for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         return forecast_df, forecast_cols
