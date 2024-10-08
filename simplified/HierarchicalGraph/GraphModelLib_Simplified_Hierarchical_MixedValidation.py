@@ -2886,6 +2886,10 @@ class graphmodel:
         infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods))
         base_df = base_df.groupby([self.id_col], sort=False).tail(infer_hist_length)
 
+        print("min, max periods in onetime_prep_df: ", self.onetime_prep_df[self.time_index_col].min(),
+              self.onetime_prep_df[self.time_index_col].max())
+        print("min, max periods in base_df: ", base_df[self.time_index_col].min(), base_df[self.time_index_col].max())
+
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
 

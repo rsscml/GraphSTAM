@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
+import random
 
 # Model Specific imports
-from __future__ import print_function
 import torch
 import copy
 import torch.nn.functional as F
@@ -12,6 +12,7 @@ from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import simplified.CustomLayers as CustomLayers
 import gc
+import math
 
 # Data specific imports
 from torch_geometric.data import HeteroData, Data
@@ -29,13 +30,12 @@ from tweedie import tweedie
 import pandas as pd
 import numpy as np
 import itertools
-from ast import literal_eval
 from sklearn import preprocessing
 import warnings
 warnings.filterwarnings("ignore")
 
 # utilities imports
-import random
+from ast import literal_eval
 from joblib import Parallel, delayed
 from joblib.externals.loky import get_reusable_executor
 import shutil
@@ -46,6 +46,7 @@ import time
 import sys
 import threading
 from time import sleep
+
 try:
     import thread
 except ImportError:
@@ -76,12 +77,13 @@ def exit_after(s):
         return inner
     return outer
 
+########################
 
-##########################
 
-os = sys.platform
+os_type = sys.platform
 
-if os == 'linux':
+
+if os_type == 'linux':
     backend = 'loky'
     timeout = 3600
 else:
@@ -91,7 +93,8 @@ else:
 # set default dtype to float32
 torch.set_default_dtype(torch.float32)
 
-# #### Models & Utils
+
+# Models & Utils
 
 # loss function
 
@@ -424,8 +427,6 @@ class HeteroGraphSAGE(torch.nn.Module):
         if num_layers == 1:
             self.skip_connection = False
 
-        self.project_lin = Linear(hidden_channels, out_channels)
-
         """
         # linear projection
         self.node_proj = torch.nn.ModuleDict()
@@ -448,13 +449,13 @@ class HeteroGraphSAGE(torch.nn.Module):
         for i in range(num_layers):
             conv = HeteroForecastSageConv(in_channels=in_channels if i == 0 else hidden_channels,
                                           out_channels=hidden_channels,
-                                          # out_channels if i == num_layers - 1 else hidden_channels,
                                           dropout=dropout,
                                           node_types=node_types,
                                           edge_types=edge_types,
                                           target_node_type=target_node_type,
                                           first_layer=i == 0,
-                                          is_output_layer=i == num_layers - 1)
+                                          is_output_layer=i == num_layers - 1,
+                                          )
 
             self.conv_layers.append(conv)
 
@@ -473,7 +474,6 @@ class HeteroGraphSAGE(torch.nn.Module):
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.node_proj[node_type](x).relu()
         """
-
         """
         if self.skip_connection:
             res_dict = x_dict
@@ -496,9 +496,7 @@ class HeteroGraphSAGE(torch.nn.Module):
             x_dict = {key: x.relu() for key, x in x_dict.items()}
             """
 
-        out = self.project_lin(x_dict[self.target_node_type])
-
-        return out
+        return x_dict[self.target_node_type]
 
 
 class HeteroGAT(torch.nn.Module):
@@ -509,7 +507,6 @@ class HeteroGAT(torch.nn.Module):
         self.target_node_type = target_node_type
         self.skip_connection = skip_connection
         self.num_layers = num_layers
-        self.project_lin = Linear(hidden_channels, out_channels)
 
         """
         # linear projection
@@ -544,13 +541,10 @@ class HeteroGAT(torch.nn.Module):
         for i, conv in enumerate(self.conv_layers):
             x_dict = conv(x_dict, edge_index_dict)
 
-        out = self.project_lin(x_dict[self.target_node_type])
-
-        return out
+        return x_dict[self.target_node_type]
 
 
 # HAN Models
-
 class BasicHAN(torch.nn.Module):
     def __init__(self, in_channels, out_channels, num_rnn_layers, metadata, target_node_type, hidden_channels=128, heads=1,
                  dropout=0.1):
@@ -575,8 +569,6 @@ class BasicHAN(torch.nn.Module):
                             dropout=dropout,
                             metadata=metadata)
 
-        self.lin = torch.nn.Linear(hidden_channels, out_channels)
-
     def forward(self, x_dict, edge_index_dict):
 
         # transform target node
@@ -588,9 +580,8 @@ class BasicHAN(torch.nn.Module):
                 x_dict[node_type] = self.transformed_feat_dict[node_type](x)
 
         x_dict = self.conv(x_dict, edge_index_dict)
-        out = self.lin(x_dict[self.target_node_type])
 
-        return out
+        return x_dict[self.target_node_type]
 
 
 class HAN(torch.nn.Module):
@@ -608,12 +599,10 @@ class HAN(torch.nn.Module):
                                             target_node_type=target_node_type,
                                             num_rnn_layers=num_rnn_layers)
 
-        self.lin = torch.nn.Linear(hidden_channels, out_channels)
-
     def forward(self, x_dict, edge_index_dict):
         x_dict = self.conv(x_dict, edge_index_dict)
-        out = self.lin(x_dict[self.target_node_type])
-        return out
+
+        return x_dict[self.target_node_type]
 
 
 class SageHAN(torch.nn.Module):
@@ -658,8 +647,6 @@ class SageHAN(torch.nn.Module):
 
         self.conv_layers.append(han_conv)
 
-        self.lin = torch.nn.Linear(hidden_channels, out_channels)
-
     def forward(self, x_dict, edge_index_dict):
 
         # transform target node
@@ -676,8 +663,7 @@ class SageHAN(torch.nn.Module):
             edge_index_dict = {key: x for key, x in edge_index_dict.items() if (key[0] == self.target_node_type) and
                                (key[2] == self.target_node_type)}
 
-        out = self.lin(x_dict[self.target_node_type])
-        return out
+        return x_dict[self.target_node_type]
 
 
 class HGT(torch.nn.Module):
@@ -705,8 +691,6 @@ class HGT(torch.nn.Module):
 
             self.conv_layers.append(conv)
 
-        self.lin = Linear(hidden_channels, out_channels)
-
     def forward(self, x_dict, edge_index_dict):
 
         x_dict = {node_type: self.lin_dict[node_type](x).relu() for node_type, x in x_dict.items()}
@@ -717,12 +701,11 @@ class HGT(torch.nn.Module):
             edge_index_dict = {key: x for key, x in edge_index_dict.items() if
                                (key[0] == self.target_node_type) and (key[2] == self.target_node_type)}
 
-        out = self.lin(x_dict[self.target_node_type])
-
-        return out
+        return x_dict[self.target_node_type]
 
 
 # Models
+
 class STGNN(torch.nn.Module):
     def __init__(self,
                  hidden_channels,
@@ -734,6 +717,7 @@ class STGNN(torch.nn.Module):
                  n_quantiles=1,
                  heads=1,
                  dropout=0.0,
+                 tweedie_out=False,
                  skip_connection=True,
                  layer_type='HAN'):
 
@@ -742,14 +726,21 @@ class STGNN(torch.nn.Module):
         self.edge_types = metadata[1]
         self.time_steps = time_steps
         self.n_quantiles = n_quantiles
+        self.tweedie_out = tweedie_out
         self.layer_type = layer_type
+        self.num_rnn_layers = num_rnn_layers
+
+        # lstm & projection layers
+        self.sequence_layer = torch.nn.LSTM(input_size=hidden_channels, hidden_size=hidden_channels,
+                                            num_layers=num_rnn_layers, batch_first=True)
+        self.projection_layer = Linear(hidden_channels, self.n_quantiles)
 
         if layer_type == 'SAGE':
             self.gnn_model = HeteroGraphSAGE(in_channels=(-1, -1),
                                              hidden_channels=hidden_channels,
                                              num_layers=num_layers,
                                              num_rnn_layers=num_rnn_layers,
-                                             out_channels=int(n_quantiles * time_steps),
+                                             out_channels=hidden_channels,
                                              dropout=dropout,
                                              node_types=self.node_types,
                                              edge_types=self.edge_types,
@@ -757,7 +748,7 @@ class STGNN(torch.nn.Module):
                                              skip_connection=skip_connection)
         elif layer_type == 'HAN':
             self.gnn_model = HAN(in_channels=-1,
-                                 out_channels=int(n_quantiles * time_steps),
+                                 out_channels=hidden_channels,
                                  num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
@@ -766,7 +757,7 @@ class STGNN(torch.nn.Module):
                                  dropout=dropout)
         elif layer_type == 'BasicHAN':
             self.gnn_model = BasicHAN(in_channels=-1,
-                                      out_channels=int(n_quantiles * time_steps),
+                                      out_channels=hidden_channels,
                                       num_rnn_layers=num_rnn_layers,
                                       metadata=metadata,
                                       target_node_type=target_node,
@@ -775,7 +766,7 @@ class STGNN(torch.nn.Module):
                                       dropout=dropout)
         elif layer_type == 'SageHAN':
             self.gnn_model = SageHAN(in_channels=-1,
-                                     out_channels=int(n_quantiles * time_steps),
+                                     out_channels=hidden_channels,
                                      num_rnn_layers=num_rnn_layers,
                                      target_node_type=target_node,
                                      node_types=self.node_types,
@@ -786,7 +777,7 @@ class STGNN(torch.nn.Module):
 
         elif layer_type == 'HGT':
             self.gnn_model = HGT(in_channels=-1,
-                                 out_channels=int(n_quantiles * time_steps),
+                                 out_channels=hidden_channels,
                                  metadata=metadata,
                                  target_node_type=target_node,
                                  num_layers=num_layers,
@@ -797,7 +788,7 @@ class STGNN(torch.nn.Module):
             self.gnn_model = HeteroGAT(in_channels=(-1, -1),
                                        hidden_channels=hidden_channels,
                                        num_layers=num_layers,
-                                       out_channels=int(n_quantiles * time_steps),
+                                       out_channels=hidden_channels,
                                        dropout=dropout,
                                        heads=heads,
                                        node_types=self.node_types,
@@ -805,54 +796,111 @@ class STGNN(torch.nn.Module):
                                        target_node_type=target_node,
                                        skip_connection=skip_connection)
 
-        else:
-            self.han_model = HAN(in_channels=-1,
-                                 out_channels=int(n_quantiles * time_steps),
-                                 num_rnn_layers=num_rnn_layers,
-                                 metadata=metadata,
-                                 target_node_type=target_node,
-                                 hidden_channels=hidden_channels,
-                                 heads=heads,
-                                 dropout=dropout)
+    def sum_over_index(self, x,  x_wt, x_index):
+        # re-scale outputs
+        x = torch.mul(x, x_wt)
+        return torch.index_select(x, 0, x_index).sum(dim=0)
 
-            self.sage_model = HeteroGraphSAGE(in_channels=(-1, -1),
-                                              hidden_channels=hidden_channels,
-                                              num_layers=num_layers,
-                                              num_rnn_layers=num_rnn_layers,
-                                              out_channels=int(n_quantiles * time_steps),
-                                              dropout=dropout,
-                                              node_types=self.node_types,
-                                              edge_types=self.edge_types,
-                                              target_node_type=target_node,
-                                              skip_connection=skip_connection)
-            # weight
-            self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
+    def log_transformed_sum_over_index(self, x, x_wt, x_index):
+        """
+        For tweedie, the output is expected to be the log of required prediction, so, reverse log transform before aggregating.
+        """
+        x = torch.exp(x)
+        x = torch.mul(x, x_wt)
+        return torch.index_select(x, 0, x_index).sum(dim=0)
 
     def forward(self, x_dict, edge_index_dict):
-        if self.layer_type in ['HAN', 'SAGE', 'HGT', 'GAT', 'SageHAN', 'BasicHAN']:
-            # gnn model
-            out = self.gnn_model(x_dict, edge_index_dict)
-            out = torch.reshape(out, (-1, self.time_steps, self.n_quantiles))
+        # get keybom
+        keybom = x_dict['keybom']
+        keybom = keybom.type(torch.int64)
+        scaler = x_dict['scaler']
+
+        # get key_aggregation_status
+        key_agg_status = x_dict['key_aggregation_status']
+        agg_indices = (key_agg_status == 1).nonzero(as_tuple=True)[0].tolist()
+
+        # del keybom from x_dict
+        del x_dict['keybom']
+        del x_dict['key_aggregation_status']
+        del x_dict['scaler']
+
+        # gnn model
+        gnn_embedding = self.gnn_model(x_dict, edge_index_dict)
+
+        # get device
+        device_int = gnn_embedding.get_device()
+        if device_int == -1:
+            device = torch.device('cpu')
         else:
-            # han out
-            han_out = self.han_model(x_dict, edge_index_dict)
-            han_out = torch.reshape(han_out, (-1, self.time_steps, self.n_quantiles))
-            # sage out
-            sage_out = self.sage_model(x_dict, edge_index_dict)
-            sage_out = torch.reshape(sage_out, (-1, self.time_steps, self.n_quantiles))
-            # weighted sum
-            wt = torch.nn.Sigmoid()(self.out_weight)
-            # print("wt: ", wt)
-            out = han_out * wt + (1 - wt) * sage_out
+            device = torch.device('cuda')
+
+        # loop over rest of time steps
+        inp = gnn_embedding
+        out_list = []
+        h, c = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
+        for _ in range(self.time_steps):
+            o, (h, c) = self.sequence_layer(input=torch.unsqueeze(inp, dim=1), h0=h, c0=c)
+            out_list.append(o[:, -1, :])
+            inp = torch.add(inp, o[:, -1, :])
+
+        out = torch.stack(out_list, dim=1)  # (n_nodes, ts, hidden_channels)
+        # projection
+        out = self.projection_layer(out)  # (n_nodes, ts, n_quantiles)
+
+        # fallback to this approach (slower) in case vmap doesn't work
+        # constrain the higher level key o/ps to be the sum of their constituents
+        """
+        for i in agg_indices:
+            out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
+        """
+
+        # vectorized approach follows:
+
+        dummy_out = torch.zeros(1, out.shape[1], out.shape[2]).to(device)
+        # add a zero vector to the out tensor as workaround to the limitation of vmap of not being able to process
+        # nested/dynamic shape tensors
+        out = torch.cat([out, dummy_out], dim=0)
+
+        # add dummy scale for last row in out
+        scaler = torch.unsqueeze(scaler, 2)
+        dummy_scaler = torch.ones(1, scaler.shape[1], scaler.shape[2]).to(device)
+        scaler = torch.cat([scaler, dummy_scaler], dim=0)
+
+        # replace -1 from key bom with last dim in out
+        #keybom[keybom == -1] = int(out.shape[0] - 1)
+
+        if keybom.shape[-1] == 1:
+            # for rare non-hierarchical cases
+            keybom[keybom == -1] = int(0)
+        elif keybom.shape[-1] == 0:
+            keybom = torch.zeros((1, 1), dtype=torch.int64).to(device)
+        else:
+            keybom[keybom == -1] = int(out.shape[0] - 1)
+
+        # call vmap on sum_over_index function
+        if self.tweedie_out:
+            batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, None, 0), randomness='error')
+            out = batched_sum_over_index(out, scaler, keybom)
+            # scale back
+            out = out / scaler[:-1]
+            # again do the log_transform on the aggregates
+            out = torch.log(out)
+        else:
+            batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, None, 0), randomness='error')
+            out = batched_sum_over_index(out, scaler, keybom)
+            # scale back
+            out = out / scaler[:-1]
+
+        # returned shape of out should be same as that before cat with dummy_out
 
         return out
 
 
 # Graph Object
 
-class graphmodel():
+class graphmodel:
     def __init__(self, 
-                 col_dict, 
+                 col_dict,
                  max_target_lags,
                  max_covar_lags,
                  max_leads,
@@ -870,9 +918,10 @@ class graphmodel():
                  accum_iter=1,
                  scaling_method='mean_scaling',
                  log1p_transform=False,
+                 tweedie_out=False,
                  estimate_tweedie_p=False,
                  tweedie_p_range=[1.01, 1.95],
-                 tweedie_variance_power=[1.1],
+                 tweedie_variance_power=1.1,
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -886,10 +935,16 @@ class graphmodel():
                  PARALLEL_DATA_JOBS_BATCHSIZE=128):
         """
         col_dict: dictionary of various column groups {id_col:'',
-                                                       target_col:'',
-                                                       time_index_col:'',
-                                                       global_context_col_list:[],
-                                                       static_cat_col_list:[],
+                                                       key_combinations:[(),(),...],
+                                                       key_combination_weights:{key_combination_1: wt, key_combination_2: wt,...}
+                                                       lowest_key_combination: (),
+                                                       highest_key_combination: (),
+                                                       target_col: '',
+                                                       time_index_col: '',
+                                                       global_context_col_list: [],
+                                                       static_cat_col_list: [],
+                                                       subgraph_samples_col:None,
+                                                       subgraph_sample_size:100,
                                                        temporal_known_num_col_list:[],
                                                        temporal_unknown_num_col_list:[],
                                                        temporal_known_cat_col_list:[],
@@ -904,7 +959,7 @@ class graphmodel():
         min_nz: min. no. of non-zeros in the target input series to be eligible for train/test batch
         scaling_method: 'mean_scaling','no_scaling'
         rolling_features_list: [('col','stat','periods','min_periods'), ...], 'stat' : ['mean','std']
-        
+
         """
         super().__init__()
         
@@ -929,12 +984,13 @@ class graphmodel():
         self.test_random_percentage = test_random_percentage
         self.autoregressive_target = autoregressive_target
         self.rolling_features_list = rolling_features_list
-
+        
         self.batch = batch
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
         self.log1p_transform = log1p_transform
+        self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
         self.tweedie_p_range = tweedie_p_range
         self.tweedie_variance_power = tweedie_variance_power if isinstance(tweedie_variance_power, list) else [tweedie_variance_power]
@@ -952,7 +1008,19 @@ class graphmodel():
         self.pad_constant = 0
 
         # extract column sets from col_dict
-        self.id_col = self.col_dict.get('id_col', None)
+        # hierarchy specific keys
+        self.id_col = self.col_dict.get('id_col')
+        self.key_combinations = self.col_dict.get('key_combinations')
+        self.key_hierarchy = self.col_dict.get('key_hierarchy', None)
+        self.key_combination_weights = self.col_dict.get('key_combination_weights', None)
+        self.lowest_key_combination = self.col_dict.get('lowest_key_combination')
+        self.highest_key_combination = self.col_dict.get('highest_key_combination')
+        self.new_key_cols = []
+        self.key_levels_dict = {}
+        self.key_levels_weight_dict = {}
+        self.covar_key_level = None
+        self.key_targets_dict = {}
+
         self.target_col = self.col_dict.get('target_col', None)
         self.time_index_col = self.col_dict.get('time_index_col', None)
         self.datetime_format = self.col_dict.get('datetime_format', None)
@@ -961,13 +1029,25 @@ class graphmodel():
         self.wt_col = self.col_dict.get('wt_col', None)
         self.global_context_col_list = self.col_dict.get('global_context_col_list', [])
         self.static_cat_col_list = self.col_dict.get('static_cat_col_list', [])
+        self.subgraph_sample_col = self.col_dict.get('subgraph_sample_col', None)
+        self.subgraph_sample_size = self.col_dict.get('subgraph_sample_size', 100)
         self.temporal_known_num_col_list = self.col_dict.get('temporal_known_num_col_list', [])
         self.temporal_unknown_num_col_list = self.col_dict.get('temporal_unknown_num_col_list', [])
         self.temporal_known_cat_col_list = self.col_dict.get('temporal_known_cat_col_list', [])
         self.temporal_unknown_cat_col_list = self.col_dict.get('temporal_unknown_cat_col_list', [])
 
-        if (self.id_col is None) or (self.target_col is None) or (self.time_index_col is None):
+        if (self.id_col is None) or (self.target_col is None) or (self.time_index_col is None) or (self.key_combinations is None) or (self.lowest_key_combination is None):
             raise ValueError("Id Column, Target Column or Index Column not specified!")
+
+        # check for tuples in key_combinations
+        for k in self.key_combinations:
+            res = type(k) is tuple
+            if not res:
+                raise ValueError("non-tuple found in key_combinations list!")
+
+        # check for non-tuple in lowest_key_combination
+        if (type(self.lowest_key_combination) is not tuple) or (type(self.highest_key_combination) is not tuple):
+            raise ValueError("non-tuple found for lowest_key_combination or highest_key_combination!")
 
         # full column set for train/test/infer
         self.col_list = [self.id_col] + [self.target_col] + [self.time_index_col] + \
@@ -975,14 +1055,19 @@ class graphmodel():
                          self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
-        self.cat_col_list = self.global_context_col_list + self.static_cat_col_list + self.temporal_known_cat_col_list +\
-                            self.temporal_unknown_cat_col_list
+        self.cat_col_list = self.global_context_col_list + self.static_cat_col_list + \
+                            self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
+
+        self.multistep_target = []
+        self.multistep_mask = []
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
                          self.global_context_col_list
+        self.temporal_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
+                                 self.temporal_known_num_col_list + self.temporal_unknown_num_col_list
 
         self.global_context_onehot_cols = []
         self.known_onehot_cols = []
@@ -1001,7 +1086,7 @@ class graphmodel():
         else:
             self.tweedie_p_col = []
 
-    def get_memory_usage(self,):
+    def get_memory_usage(self, ):
         return np.round(psutil.Process(os.getpid()).memory_info()[0] / 2. ** 30, 2)
 
     def reduce_mem_usage(self, df, verbose=True):
@@ -1030,7 +1115,8 @@ class graphmodel():
                         df[col] = df[col].astype(np.float64)
         end_mem = df.memory_usage().sum() / 1024 ** 2
         if verbose:
-            print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (start_mem - end_mem) / start_mem))
+            print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (
+                        start_mem - end_mem) / start_mem))
         return df
 
     def check_data_sufficiency(self, df):
@@ -1041,38 +1127,143 @@ class graphmodel():
 
         return df
 
+    def create_new_keys(self, df):
+        for i, k in enumerate(self.key_combinations):
+            key = "key_" + "_".join(k)
+            self.new_key_cols.append(key)
+            df[key] = df[list(k)].astype(str).apply(lambda x: "_".join(x), axis=1)
+            self.key_levels_dict[key] = list(k)  # (",".join(k))
+            if k == self.lowest_key_combination:
+                self.covar_key_level = key  # ",".join(k)
+
+        if self.key_combination_weights is not None:
+            for k, v in self.key_combination_weights.items():
+                key = "key_" + "_".join(k)
+                self.key_levels_weight_dict[key] = v
+        else:
+            for key, _ in self.key_levels_dict.items():
+                self.key_levels_weight_dict[key] = 1
+
+        print("created new key cols: ", self.new_key_cols)
+        print("created new key to subkeys mapping: ", self.key_levels_dict)
+        print("covariates applied at this key level: ", self.covar_key_level)
+        return df
+
+    def create_new_targets(self, df):
+        for key in self.new_key_cols:
+            df[f'{key}_target'] = df.groupby([key, self.time_index_col])[self.target_col].transform(lambda x: x.sum())
+            self.key_targets_dict[key] = f'{key}_target'
+        return df
+
+    def get_keybom(self, df):
+        """
+        For every key at every key_level, obtain a list of constituent keys
+        """
+        keybom_list = []
+        for key in self.new_key_cols:
+            df_key_map = df.groupby([key, self.time_index_col])[self.covar_key_level].apply(lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={key: self.id_col})
+            keybom_list.append(df_key_map)
+        df_keybom = pd.concat(keybom_list, axis=0)
+        df_keybom = df_keybom.reset_index(drop=True)
+
+        return df_keybom
+
+    def get_keybom_hierarchy(self, df):
+        """
+        For given hierarchy of key combinations, obtain list of constituent keys as keys in the level below
+        """
+        keybom_list = []
+        for l1_key, l2_key in self.key_hierarchy.items():
+            base_key = "key_" + "_".join(l1_key)
+            agg_key = "key_" + "_".join(l2_key)
+            df_key_map = df.groupby([agg_key, self.time_index_col])[base_key].apply(
+                lambda x: x.unique().tolist()).rename('key_list').reset_index().rename(columns={agg_key: self.id_col})
+            keybom_list.append(df_key_map)
+        df_keybom = pd.concat(keybom_list, axis=0)
+        df_keybom = df_keybom.reset_index(drop=True)
+
+        return df_keybom
+
+    def stack_key_level_dataframes(self, df, df_keybom):
+        df_stack_list = []
+        for (k, v), (k2, v2) in zip(self.key_levels_dict.items(), self.key_targets_dict.items()):
+            if k == k2:
+                if k == self.covar_key_level:
+                    if self.wt_col is None:
+                        df_temp = df[[k, v2,
+                                      self.time_index_col] + v + self.global_context_col_list + self.static_cat_col_list + self.temporal_col_list]
+                    else:
+                        df_temp = df[[k, v2, self.time_index_col,
+                                      self.wt_col] + v + self.global_context_col_list + self.static_cat_col_list + self.temporal_col_list]
+                    df_temp = df_temp.drop_duplicates()
+                else:
+                    df_temp = df[
+                        [k, v2, self.time_index_col] + v + self.global_context_col_list + self.static_cat_col_list]
+                    df_temp = df_temp.drop_duplicates(subset=[k, v2, self.time_index_col] + v)
+                df_temp[self.id_col] = df[k]
+                df_temp[self.target_col] = df[v2]
+                df_temp["key_level"] = k
+                df_temp = df_temp.merge(df_keybom, on=[self.id_col, self.time_index_col], how='inner')
+                df_temp = df_temp.drop(columns=[k, v2])
+                df_temp = df_temp.loc[:, ~df_temp.columns.duplicated()].reset_index(drop=True)
+                df_stack_list.append(df_temp)
+
+        # replace df with stacked dataframe
+        df = pd.concat(df_stack_list, axis=0, ignore_index=True)
+        # Add 'Key_Level_Weight' col
+
+        # normalized key level weight by key count
+        key_levels_weight_dict = {}
+        total_keys = df[self.id_col].nunique()
+        for k in df['key_level'].unique().tolist():
+            key_levels_weight_dict[k] = total_keys / df[df['key_level'] == k][self.id_col].nunique()
+
+        df['Key_Level_Weight'] = df['key_level'].map(key_levels_weight_dict)
+        print("Derived key_level weights: \n", key_levels_weight_dict)
+
+        """
+        # user assigned
+        df['Key_Level_Weight'] = df['key_level'].map(self.key_levels_weight_dict)
+        """
+
+        # Add 'Key_Weight' col
+        if self.wt_col is None:
+            df['Key_Weight'] = 1
+        else:
+            df['Key_Weight'] = np.where(df['key_level'] == self.covar_key_level, df[self.wt_col], 1)
+            # df['Key_Weight'] = np.where(df[self.wt_col].isnull(), 1, df[self.wt_col])
+        # new col list
+        self.col_list = df.columns.tolist()
+        return df
+
     def power_optimization_loop(self, df):
         # initialization constants
         init_power = 1.01
         max_iterations = 100
 
         try:
-            endog = df[df[self.time_index_col] <= self.test_till][self.target_col].astype(np.float32).to_numpy()
-            exog = df[df[self.time_index_col] <= self.test_till][self.temporal_known_num_col_list].astype(np.float32).to_numpy()
-
-            # add a tiny positive value to prevent overflow
-            #endog = endog + 0.01
-
-            # use only positive value for p determination
-            nz_index = endog > 0
-            endog = endog[nz_index]
-            exog = exog[nz_index]
+            endog = df[self.target_col].astype(np.float32).to_numpy()
+            exog = df[self.temporal_known_num_col_list].astype(np.float32).to_numpy()
 
             # fit glm model
             @exit_after(60)
             def glm_fit(endog, exog, power):
-                res = sm.GLM(endog, exog, family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
-
+                res = sm.GLM(endog, exog,
+                             family=sm.families.Tweedie(link=sm.families.links.Log(), var_power=power)).fit()
                 return res.mu, res.scale, res._endog
 
             # optimize 1 iter
             @exit_after(60)
             def optimize_power(res_mu, res_scale, power, res_endog):
+                """
+                returns optimized power as opt.x
+                """
+
                 def loglike_p(power):
                     return -tweedie(mu=res_mu, p=power, phi=res_scale).logpdf(res_endog).sum()
 
                 try:
-                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.9), method='Bounded')
+                    opt = sp.optimize.minimize_scalar(loglike_p, bounds=(1.02, 1.95), method='Bounded')
                 except RuntimeWarning as e:
                     print(f'There was a RuntimeWarning: {e}')
 
@@ -1109,18 +1300,88 @@ class graphmodel():
         Individually obtain 'p' parameter for tweedie loss
         """
         groups = df.groupby([self.id_col])
-        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.power_optimization_loop)(gdf) for _, gdf in groups)
+        p_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend,
+                          timeout=timeout)(delayed(self.power_optimization_loop)(gdf) for _, gdf in groups)
         gdf = pd.concat(p_gdfs, axis=0)
         gdf = gdf.reset_index(drop=True)
         get_reusable_executor().shutdown(wait=True)
         return gdf
+
+    """ 
+    def scale_target(self, df):
+        #Scale using scalers for the highest key combination in the hierarchy
+        
+        if self.scaling_method == 'mean_scaling':
+            # the global scaler is used for scaling keys which do not have an observation within the training period
+            # high quantiles 0.8, 0.9 etc. can also be a good substitute
+            npd_scale = np.maximum(df[df[self.time_index_col] <= self.train_till][self.target_col].quantile(0.9),
+                                   df[df[self.time_index_col] <= self.train_till][self.target_col].mean())
+            highest_key_cols = list(self.highest_key_combination)
+            df['scaler'] = df[df[self.time_index_col] <= self.train_till].groupby(highest_key_cols)[self.target_col].transform(lambda x: np.maximum(x.mean()+1, 1.0))
+            df['scaler'] = df.groupby(highest_key_cols)['scaler'].transform(lambda x: x.ffill().bfill().fillna(npd_scale))
+            df[self.target_col] = df[self.target_col]/df['scaler']
+
+        elif self.scaling_method == 'no_scaling':
+            df['scaler'] = 1.0
+            df[self.target_col] = df[self.target_col] / df['scaler']
+
+        return df
+
+    def scale_covariates(self, df):
+        #Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
+        
+        groups = df.groupby([self.id_col])
+        scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE, backend=backend, timeout=timeout)(delayed(self.df_scaler)(gdf) for _, gdf in groups)
+        gdf = pd.concat(scaled_gdfs, axis=0)
+        gdf = gdf.reset_index(drop=True)
+        get_reusable_executor().shutdown(wait=True)
+
+        return gdf
+
+    def df_scaler(self, gdf):
+        #Scale co-variates for lowest_key_level only
+
+        # obtain scalers
+        
+        scale_gdf = gdf.reset_index(drop=True)
+
+        if scale_gdf['key_level'].unique().tolist()[0] == self.covar_key_level:
+
+            # for lowest level keys, scale both target & co-variates
+            if self.scaling_method == 'mean_scaling':
+
+                if len(self.temporal_known_num_col_list) > 0:
+                    known_nz_count = np.maximum(np.count_nonzero(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                    known_sum = np.sum(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0)
+                    known_scale = np.divide(known_sum, known_nz_count) + 1.0
+                    # use max scale for known co-variates
+                    #known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                else:
+                    known_scale = 1.0
+
+            elif self.scaling_method == 'no_scaling':
+                if len(self.temporal_known_num_col_list) > 0:
+                    # use max scale for known co-variates
+                    known_scale = np.maximum(np.nanmax(np.abs(scale_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                else:
+                    known_scale = 1
+
+            # reset index
+            gdf = gdf.reset_index(drop=True)
+
+            # scale each feature independently
+            if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
+                gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
+
+        return gdf
+    """
 
     def scale_dataset(self, df):
         """
         Individually scale each 'id' & concatenate them all in one dataframe. Uses Joblib for parallelization.
         """
         # filter out ids with insufficient timestamps (at least one datapoint should be before train cutoff period)
-        #df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
+        # df = df.groupby(self.id_col).filter(lambda x: x[self.time_index_col].min() < self.train_till)
 
         groups = df.groupby([self.id_col])
         scaled_gdfs = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
@@ -1132,7 +1393,7 @@ class graphmodel():
 
     def df_scaler(self, gdf):
         """
-        Scales a dataframe based on the chosen scaling method & columns specification 
+        Scales a dataframe based on the chosen scaling method & columns specification
         """
         # obtain scalers
         if self.train_till <= gdf[self.time_index_col].min():
@@ -1149,7 +1410,8 @@ class graphmodel():
             scale = np.divide(target_sum, target_nz_count) + 1.0
 
             if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_nz_count = np.maximum(
+                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
                 """
@@ -1161,7 +1423,8 @@ class graphmodel():
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
             else:
                 unknown_scale = 1
 
@@ -1171,7 +1434,8 @@ class graphmodel():
             scale = [scale_mu, scale_std]
 
             if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_nz_count = np.maximum(
+                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
                 """
@@ -1183,7 +1447,8 @@ class graphmodel():
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
             else:
                 unknown_scale = 1
 
@@ -1194,7 +1459,8 @@ class graphmodel():
             scale = [med, np.maximum(iqr, 1.0)]
 
             if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_nz_count = np.maximum(
+                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
                 """
@@ -1206,7 +1472,8 @@ class graphmodel():
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
             else:
                 unknown_scale = 1
 
@@ -1220,7 +1487,8 @@ class graphmodel():
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
             else:
                 unknown_scale = 1
 
@@ -1229,19 +1497,19 @@ class graphmodel():
 
         # scale each feature independently
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            gdf[self.target_col] = gdf[self.target_col]/scale
-            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
-            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
+            gdf[self.target_col] = gdf[self.target_col] / scale
+            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
+            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
 
         elif self.scaling_method == 'quantile_scaling':
             gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
             gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
             gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
-        
+
         elif self.scaling_method == 'standard_scaling':
-            gdf[self.target_col] = (gdf[self.target_col] - scale[0])/scale[1]
-            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list]/known_scale
-            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list]/unknown_scale
+            gdf[self.target_col] = (gdf[self.target_col] - scale[0]) / scale[1]
+            gdf[self.temporal_known_num_col_list] = gdf[self.temporal_known_num_col_list] / known_scale
+            gdf[self.temporal_unknown_num_col_list] = gdf[self.temporal_unknown_num_col_list] / unknown_scale
 
         # limits for o/p clipping
         output_upper_limit = 1.5 * scale_gdf[self.target_col].max()
@@ -1258,7 +1526,7 @@ class graphmodel():
         elif self.scaling_method == 'standard_scaling':
             gdf['scaler_mu'] = scale[0]
             gdf['scaler_std'] = scale[1]
-        
+
         return gdf
 
     def log1p_transform_target(self, df):
@@ -1272,6 +1540,15 @@ class graphmodel():
             df[self.target_col] = np.log1p(df[self.target_col])
         else:
             pass
+
+        return df
+
+    def apply_agg_power_correction(self, df):
+        """
+        Applies power correction of p=0 for aggregate time-series in hierarchy as they are typically log-normally distributed
+
+        """
+        df['tweedie_p'] = np.where(df['key_level'] == self.covar_key_level, df['tweedie_p'], 0)
 
         return df
 
@@ -1317,14 +1594,12 @@ class graphmodel():
         return null_status, null_cols
 
     def onehot_encode(self, df):
-        """
-        Onehot encode categorical columns
-        """
+        
         onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
                           self.global_context_col_list
-
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')],
                        axis=1, join='inner')
+        
         return df
 
     def create_lead_lag_features(self, df):
@@ -1333,7 +1608,8 @@ class graphmodel():
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
-                   self.unknown_onehot_cols:
+                   self.unknown_onehot_cols + \
+                   self.rolling_feature_cols:
 
             # instantiate with empty lists
             self.lead_lag_features_dict[col] = []
@@ -1342,6 +1618,13 @@ class graphmodel():
                 for lag in range(self.max_target_lags, self.lag_offset, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
                     self.lead_lag_features_dict[col].append(f'{col}_lag_{lag}')
+                for lead in range(0, self.fh):
+                    df[f'{col}_fh_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead, fill_value=0)
+                    self.multistep_target.append(f'{col}_fh_{lead}')
+            elif col == 'y_mask':
+                for lead in range(0, self.fh):
+                    df[f'{col}_fh_{lead}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=-lead)
+                    self.multistep_mask.append(f'{col}_fh_{lead}')
             else:
                 for lag in range(self.max_covar_lags, 0, -1):
                     df[f'{col}_lag_{lag}'] = df.groupby(self.id_col, sort=False)[col].shift(periods=lag, fill_value=0)
@@ -1386,29 +1669,36 @@ class graphmodel():
                         feat_name = f'rolling_{stat}_by_{col}_win_{window_size}_offset_{offset}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col, col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').std().fillna(0))
                         self.rolling_feature_cols.append(feat_name)
                     else:
                         feat_name = f'rolling_{stat}_win_{window_size}_offset_{offset}'
                         if stat == 'mean':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').mean())
                         elif stat == 'quantile':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').quantile(parameter))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').quantile(parameter))
                         elif stat == 'std':
                             df[feat_name] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').std().fillna(0))
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').std().fillna(0))
                         elif stat == 'trend_disruption':
                             # mv avg
                             df[feat_name + '_mvavg'] = df.groupby([self.id_col])[self.target_col].transform(
-                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1, closed='right').mean())
+                                lambda x: x.shift(periods=offset).rolling(window_size, min_periods=1,
+                                                                          closed='right').mean())
                             # actual/mvavg ratio
                             df[feat_name + '_r1'] = df[self.target_col] / df[feat_name + '_mvavg']
                             # trend disruption ratio
@@ -1429,7 +1719,8 @@ class graphmodel():
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
             
-            for col in self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + self.tweedie_p_col:
+            for col in self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + \
+                       self.tweedie_p_col + ['key_level', 'key_list', 'Key_Level_Weight', 'Key_Weight']:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
                 
@@ -1514,11 +1805,30 @@ class graphmodel():
 
         # check data sufficiency
         df = self.check_data_sufficiency(data)
-            
-        # get weights
-        print("   preprocessing dataframe - get id weights...")
-        df = self.get_key_weights(df)
-        
+
+        # create new keys
+        print("   preprocessing dataframe - creating aggregate keys...")
+        df = self.create_new_keys(df)
+
+        # create new targets
+        print("   preprocessing dataframe - creating new targets for aggregate keys...")
+        df = self.create_new_targets(df)
+
+        # create keybom
+        print("   preprocessing dataframe - creating key bom...")
+        if self.key_hierarchy is None:
+            df_keybom = self.get_keybom(df)
+        else:
+            df_keybom = self.get_keybom_hierarchy(df)
+
+        # stack subkey level dfs into one df
+        print("   preprocessing dataframe - consolidating all keys into one df...")
+        df = self.stack_key_level_dataframes(df, df_keybom)
+
+        # del keybom
+        del df_keybom
+        gc.collect()
+
         # sort
         print("   preprocessing dataframe - sort by datetime & id...")
         df = self.sort_dataset(df)
@@ -1528,6 +1838,9 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
+                # apply power correction if required
+                # print("   applying tweedie p correction for continuous ts, if applicable ...")
+                # df = self.apply_agg_power_correction(df)
             # scale dataset
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
@@ -1538,7 +1851,9 @@ class graphmodel():
             if self.estimate_tweedie_p:
                 print("   estimating tweedie p using GLM ...")
                 df = self.parallel_tweedie_p_estimate(df)
-            # scale dataset
+                # apply power correction if required
+                # print("   applying tweedie p correction for continuous ts, if applicable ...")
+                # df = self.apply_agg_power_correction(df)
             print("   preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
 
@@ -1547,7 +1862,6 @@ class graphmodel():
         df = self.onehot_encode(df)
 
         print("   preprocessing dataframe - gather node specific feature cols...")
-
         # get onehot features
         for node in self.node_cols:
             if node in self.global_context_col_list:
@@ -1557,27 +1871,26 @@ class graphmodel():
                 self.global_context_onehot_cols += onehot_col_features
             elif node in self.temporal_known_cat_col_list:
                 # one-hot col names
-                onehot_cols_prefix = str(node)+'_' 
+                onehot_cols_prefix = str(node) + '_'
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.known_onehot_cols += onehot_col_features
             elif node in self.temporal_unknown_cat_col_list:
                 # one-hot col names
-                onehot_cols_prefix = str(node)+'_' 
+                onehot_cols_prefix = str(node) + '_'
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
                 self.unknown_onehot_cols += onehot_col_features
 
-        print("   preprocessed known_onehot_cols: ", self.known_onehot_cols)
-        print("\n")
-        print("   preprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
-        print("\n")
-        print("   preprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
-        print("\n")
-        print("   preprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
-        print("\n")
-        print("   preprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
+        print("\npreprocessed known_onehot_cols: ", self.known_onehot_cols)
+        print("\npreprocessed unknown_onehot_cols: ", self.unknown_onehot_cols)
+        print("\npreprocessed global_context_onehot_cols: ", self.global_context_onehot_cols)
+        print("\npreprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
+        print("\npreprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
+        print("\nTotal Keys across hierarchy: ", df[self.id_col].nunique())
+        for k in df['key_level'].unique().tolist():
+            print("Total Keys for level {}: {}".format(k, df[df['key_level'] == k][self.id_col].nunique()))
 
         return df
-
+    
     def node_indexing(self, df, node_cols):
         # hold the indices <-> col_value map in a dict
         col_id_map = {}
@@ -1596,23 +1909,28 @@ class graphmodel():
         return col_id_map
     
     def create_snapshot_graph(self, df_snap, period):
-
         # index nodes
         col_map_dict = self.node_indexing(df_snap, [self.id_col]+self.static_cat_col_list+self.global_context_col_list)
         
         # map id to indices
         for col, id_map in col_map_dict.items():
             df_snap[col] = df_snap[col].map(id_map["index"]).astype(int)
-            
+
+        # convert 'key_list' to key indices
+        df_snap = df_snap.assign(mapped_key_list=[[col_map_dict[self.id_col]['index'][k] for k in literal_eval(row) if col_map_dict[self.id_col]['index'].get(k)] for row in df_snap['key_list']])
+        df_snap['mapped_key_list_arr'] = df_snap['mapped_key_list'].apply(lambda x: np.array(x))
+        keybom_nested = torch.nested.nested_tensor(list(df_snap['mapped_key_list_arr'].values), dtype=torch.int16, requires_grad=False)
+        keybom_padded = torch.nested.to_padded_tensor(keybom_nested, -1)
+
         # Create HeteroData Object
-        data = HeteroData({"y_mask": None, "y_weight": None})
+        data = HeteroData({"y_mask": None, "y_weight": None, "y_level_weight": None})
         
         # get node features
-
         data[self.target_col].x = torch.tensor(df_snap[self.lead_lag_features_dict[self.target_col]].to_numpy(), dtype=torch.float)
-        data[self.target_col].y = torch.tensor(df_snap[self.target_col].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1,1), dtype=torch.float)
-        data[self.target_col].y_mask = torch.tensor(df_snap['y_mask'].to_numpy().reshape(-1,1), dtype=torch.float)
+        data[self.target_col].y = torch.tensor(df_snap[self.multistep_target].to_numpy().reshape(-1, self.fh), dtype=torch.float)
+        data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].y_level_weight = torch.tensor(df_snap['Key_Level_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
+        data[self.target_col].y_mask = torch.tensor(df_snap[self.multistep_mask].to_numpy().reshape(-1, self.fh), dtype=torch.float)
 
         # in case target lags are not to be used as a feature
         if not self.autoregressive_target:
@@ -1620,8 +1938,10 @@ class graphmodel():
 
         if len(self.scaler_cols) == 1:
             data[self.target_col].scaler = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
+            data['scaler'].x = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
         else:
             data[self.target_col].scaler = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
+            data['scaler'].x = torch.tensor(df_snap[self.scaler_cols].to_numpy().reshape(-1, 2), dtype=torch.float)
 
         # applies only to tweedie
         if self.estimate_tweedie_p:
@@ -1629,6 +1949,12 @@ class graphmodel():
 
         if self.recency_weights:
             data[self.target_col].recency_weight = torch.tensor(df_snap['recency_weights'].to_numpy().reshape(-1, 1), dtype=torch.float)
+
+        # get keybom for index_select in the model
+        data['keybom'].x = keybom_padded
+
+        # get status of key based on whether key_level == covar_key_level
+        data['key_aggregation_status'].x = torch.tensor(np.where(df_snap['key_level'] == self.covar_key_level, 0, 1).reshape(-1, 1), dtype=torch.int64)
 
         # store snapshot period
         data[self.target_col].time_attr = period
@@ -1651,60 +1977,122 @@ class graphmodel():
             onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
             data[col].x = torch.tensor(df_snap[onehot_col_features].to_numpy(), dtype=torch.float)
                 
-        # directed edges from global context node to target_col nodes
+        # directed edges between global context node & target_col nodes
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
-
+            
             edges_stack = []
             for value in col_unique_values:
                 # get subset of all nodes with common col value
-                edges = df_snap[df_snap[col] == value][[col, self.id_col]].to_numpy()
+                edges = df_snap[(df_snap[col] == value) & (df_snap['key_level'] == self.covar_key_level)][[col, self.id_col]].to_numpy()
                 edges_stack.append(edges)
 
-            # edges
+            # reverse edges
             edges = np.concatenate(edges_stack, axis=0)
             edge_name = (col, '{}_context'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
             
         # bidirectional edges exist between target_col nodes related by various static cols
-        for col in self.static_cat_col_list:
-            col_unique_values = sorted(df_snap[col].unique().tolist())
-        
-            fwd_edges_stack = []
-            rev_edges_stack = []
-            for value in col_unique_values:
-                # get subset of all nodes with common col value
-                nodes = df_snap[df_snap[col] == value][self.id_col].to_numpy()
-                # Build all combinations of connected nodes
-                permutations = list(itertools.combinations(nodes, 2))
-                edges_source = [e[0] for e in permutations]
-                edges_target = [e[1] for e in permutations]
-                edges = np.column_stack([edges_source, edges_target])
-                rev_edges = np.column_stack([edges_target, edges_source])
-                fwd_edges_stack.append(edges)
-                rev_edges_stack.append(rev_edges)
-                    
-            # edge names
-            edge_name = (self.target_col, 'related_by_{}'.format(col), self.target_col)
-            rev_edge_name = (self.target_col, 'rev_related_by_{}'.format(col), self.target_col)
-            # add edges to Data()
-            edges = np.concatenate(fwd_edges_stack, axis=0)
-            rev_edges = np.concatenate(rev_edges_stack, axis=0)
-            data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-            data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+
+        # get all key levels
+        key_levels = df_snap['key_level'].unique().tolist()
+
+        # for each key_level created intra key_level edges
+        intra_key_level_edges = {}
+
+        for key_level in key_levels:
+
+            for col in self.static_cat_col_list:
+                col_unique_values = sorted(df_snap[col].unique().tolist())
+
+                fwd_edges_stack = []
+                rev_edges_stack = []
+                for value in col_unique_values:
+                    # get subset of all nodes with common col value
+                    nodes = df_snap[(df_snap[col] == value) & (df_snap['key_level'] == key_level)][self.id_col].to_numpy()
+                    # Build all combinations of connected nodes
+                    permutations = list(itertools.combinations(nodes, 2))
+                    intra_key_level_edges[key_level] = permutations
+                    edges_source = [e[0] for e in permutations]
+                    edges_target = [e[1] for e in permutations]
+                    edges = np.column_stack([edges_source, edges_target])
+                    rev_edges = np.column_stack([edges_target, edges_source])
+                    fwd_edges_stack.append(edges)
+                    rev_edges_stack.append(rev_edges)
+
+                # edge names
+                edge_name = (self.target_col, 'related_by_{}_at_{}'.format(col, key_level), self.target_col)
+                rev_edge_name = (self.target_col, 'rev_related_by_{}_at_{}'.format(col, key_level), self.target_col)
+                # add edges to Data()
+                edges = np.concatenate(fwd_edges_stack, axis=0)
+                rev_edges = np.concatenate(rev_edges_stack, axis=0)
+                data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+                data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
+
+        # get inter key_level edges based on static col similarities, using the following algo:
+        # 1. get all the possible edges between all the keys not in current key_level
+        # 2. subtract the set of intra key_level edges, leaving us with only aggregation edges
+
+        for key_level in key_levels:
+
+            for col in self.static_cat_col_list:
+                col_unique_values = sorted(df_snap[col].unique().tolist())
+
+                fwd_edges_stack = []
+                rev_edges_stack = []
+                for value in col_unique_values:
+                    # get subset of all nodes with common col value
+                    nodes = df_snap[(df_snap[col] == value) & (df_snap['key_level'] != key_level)][self.id_col].to_numpy()
+                    # Build all combinations of connected nodes
+                    permutations = list(itertools.combinations(nodes, 2))
+                    # remove intra key_level edges
+                    for k, v in intra_key_level_edges.items():
+                        if k != key_level:
+                            permutations = list(set(permutations) - set(v))
+
+                    edges_source = [e[0] for e in permutations]
+                    edges_target = [e[1] for e in permutations]
+                    edges = np.column_stack([edges_source, edges_target])
+                    rev_edges = np.column_stack([edges_target, edges_source])
+                    fwd_edges_stack.append(edges)
+                    rev_edges_stack.append(rev_edges)
+
+                # edge names
+                edge_name = (self.target_col, 'aggregated_by_{}_minus_{}'.format(col, key_level), self.target_col)
+                rev_edge_name = (self.target_col, 'rev_aggregated_by_{}_minus_{}'.format(col, key_level), self.target_col)
+                # add edges to Data()
+                edges = np.concatenate(fwd_edges_stack, axis=0)
+                rev_edges = np.concatenate(rev_edges_stack, axis=0)
+                data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+                data[rev_edge_name].edge_index = torch.tensor(rev_edges.transpose(), dtype=torch.long)
 
         # directed edges are from co-variates to target
-        for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+\
-                   self.unknown_onehot_cols:
-            nodes = df_snap[self.id_col].to_numpy()
+        
+        for col in self.temporal_known_num_col_list+self.temporal_unknown_num_col_list+self.known_onehot_cols+self.unknown_onehot_cols:
+
+            nodes = df_snap[df_snap['key_level'] == self.covar_key_level][self.id_col].to_numpy()
             edges = np.column_stack([nodes, nodes])
+                
             edge_name = (col, '{}_effects'.format(col), self.target_col)
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
 
         # validate dataset
         #print("validate snapshot graph ...")
         #data.validate(raise_on_error=True)
-        
+
+        # get memory consumption
+        #target_tensor_size = (data[self.target_col].y.element_size() * data[self.target_col].y.nelement())
+        #input_tensor_size = (data[self.target_col].x.element_size() * data[self.target_col].x.nelement())
+        #mask_tensor_size = (data[self.target_col].y_mask.element_size() * data[self.target_col].y_mask.nelement())
+        #weight_tensor_size = (data[self.target_col].y_weight.element_size() * data[self.target_col].y_weight.nelement())
+        #keybom_tensor_size = (data['keybom'].x.element_size() * data['keybom'].x.nelement())
+        #scaler_tensor_size = (data['scaler'].x.element_size() * data['scaler'].x.nelement())
+        #key_level_tensor_size = (data[self.target_col].y_level_weight.element_size() * data[self.target_col].y_level_weight.nelement())
+
+        #print("total graph attribute memory usage: ", target_tensor_size+input_tensor_size+mask_tensor_size+weight_tensor_size+key_level_tensor_size+keybom_tensor_size+scaler_tensor_size)
+        #print("keybom tensor size: ", keybom_tensor_size)
+        #print("keybom shape: ", data['keybom'].x.shape)
+
         return data
 
     def onetime_dataprep(self, df):
@@ -1743,40 +2131,105 @@ class graphmodel():
 
         # for each split create graph dataset iterator
         print("gather snapshot graphs...")
-
         # restrict samples for very large datasets based on interleaving
         snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
 
         if self.interleave > 1:
             snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
-        snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
-                                 backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+        if self.subgraph_sample_col is not None:
+            all_subgraph_col_values = df[self.subgraph_sample_col].unique().tolist()
+            # shuffle
+            random.shuffle(all_subgraph_col_values)
+            # sample
+            snapshot_list = []
+            if self.subgraph_sample_size > 0:
+                train_snapshots = []
+                test_snapshots = []
+                for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
+                    df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i + self.subgraph_sample_size])]
+                    # sample snapshot graphs
+                    print("  gathering for subgraph_col_values: ", all_subgraph_col_values[i:i + self.subgraph_sample_size])
+                    sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in snap_periods_list)
 
-        # Create dataset iterators
-        num_total_snapshots = len(snapshot_list)
-        print("total samples picked: {}".format(num_total_snapshots))
+                    # split into train/test
+                    num_total_snapshots = len(sample_snapshot_list)
+                    print("total samples picked: {}".format(num_total_snapshots))
 
-        # split into train/test
-        # test = last 10% of snapshots + randomly selected 10% of rest of the snapshots
-        num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
-        num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
-        num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
-        val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
+                    num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
+                    num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
+                    num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
+                    val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
 
-        recent_val_snapshots = snapshot_list[-num_recent_val_snapshots:]
-        nonrecent_val_snapshots = [snapshot_list[i] for i in val_random_select_indices]
-        test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
-        train_snapshots = [snapshot_list[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
+                    recent_val_snapshots = sample_snapshot_list[-num_recent_val_snapshots:]
+                    nonrecent_val_snapshots = [sample_snapshot_list[i] for i in val_random_select_indices]
+                    test_snapshots += recent_val_snapshots + nonrecent_val_snapshots
+                    train_snapshots += [sample_snapshot_list[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
 
-        print("train samples picked: {}".format(len(train_snapshots)))
-        print("test samples picked: {}".format(len(test_snapshots)))
+                    del sample_snapshot_list
+                    gc.collect()
 
-        train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
-        test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                print("train samples picked: {}".format(len(train_snapshots)))
+                print("test samples picked: {}".format(len(test_snapshots)))
+                train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
 
-        del snapshot_list
-        gc.collect()
+            else:
+                # sample snapshot graphs
+                sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                snapshot_list.append(sample_snapshot_list)
+
+                # Create dataset iterators
+                num_total_snapshots = len(list(itertools.chain.from_iterable(snapshot_list)))
+                print("total samples picked: {}".format(num_total_snapshots))
+
+                # split into train/test
+                # test = last 10% of snapshots + randomly selected 10% of rest of the snapshots
+                num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
+                num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
+                num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
+                val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
+
+                recent_val_snapshots = list(itertools.chain.from_iterable(snapshot_list))[-num_recent_val_snapshots:]
+                nonrecent_val_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in val_random_select_indices]
+                test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
+                train_snapshots = [list(itertools.chain.from_iterable(snapshot_list))[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
+
+                print("train samples picked: {}".format(len(train_snapshots)))
+                print("test samples picked: {}".format(len(test_snapshots)))
+                train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+                test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+
+                del snapshot_list
+                gc.collect()
+
+        else:
+            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+
+            # Create dataset iterators
+            num_total_snapshots = len(snapshot_list)
+            print("total samples picked: {}".format(num_total_snapshots))
+
+            # split into train/test
+            # test = last 10% of snapshots + randomly selected 10% of rest of the snapshots
+            num_recent_val_snapshots = int(num_total_snapshots * self.test_recent_percentage)
+            num_random_val_snapshots = int(num_total_snapshots * self.test_random_percentage)
+            num_nonrecent_snapshots = int(num_total_snapshots - num_recent_val_snapshots)
+            val_random_select_indices = random.sample(range(num_nonrecent_snapshots), num_random_val_snapshots)
+
+            recent_val_snapshots = snapshot_list[-num_recent_val_snapshots:]
+            nonrecent_val_snapshots = [snapshot_list[i] for i in val_random_select_indices]
+            test_snapshots = recent_val_snapshots + nonrecent_val_snapshots
+            train_snapshots = [snapshot_list[i] for i in range(num_nonrecent_snapshots) if i not in val_random_select_indices]
+
+            print("train samples picked: {}".format(len(train_snapshots)))
+            print("test samples picked: {}".format(len(test_snapshots)))
+
+            train_dataset = DataLoader(train_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+            test_dataset = DataLoader(test_snapshots, batch_size=self.batch, shuffle=self.shuffle)
+
+            del snapshot_list
+            gc.collect()
 
         return train_dataset, test_dataset
 
@@ -1789,15 +2242,14 @@ class graphmodel():
         # create lagged features
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
-        print("lead_lag_features_dict: ", self.lead_lag_features_dict)
+
 
         # split into train,test,infer
         print("splitting dataframe for training & testing...")
         train_df = df[df[self.time_index_col] <= self.train_till]
         test_df = df[(df[self.time_index_col] > self.train_till) & (df[self.time_index_col] <= self.test_till)]
-
         df_dict = {'train': train_df, 'test': test_df}
-
+        
         def parallel_snapshot_graphs(df, period):
             df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
             snapshot_graph = self.create_snapshot_graph(df_snap, period)
@@ -1807,26 +2259,61 @@ class graphmodel():
         print("gather snapshot graphs...")
         datasets = {}
         for df_type, df in df_dict.items():
-            
-            snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
-            
-            # restrict samples for very large datasets based on interleaving
-            if df_type == 'train':
-                snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
 
-            if (self.interleave > 1) and (df_type == 'train'):
-                snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
-            
-            print("picking {} samples for {}".format(len(snap_periods_list), df_type))
-            
-            snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE,
-                                     backend=backend)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+            # sample from self.subgraph_samples_col for smaller graphs
+            if self.subgraph_sample_col is not None:
+                all_subgraph_col_values = df[self.subgraph_sample_col].unique().tolist()
+                # shuffle
+                random.shuffle(all_subgraph_col_values)
+                # sample
+                snapshot_list = []
+                # all snapshot timestamps
+                snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
 
-            # Create a dataset iterator
-            dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle) # Load full graph for each timestep
-            
-            # append
-            datasets[df_type] = dataset
+                if self.subgraph_sample_size > 0:
+                    for i in range(0, len(all_subgraph_col_values), int(self.subgraph_sample_size)):
+                        df_sample = df[df[self.subgraph_sample_col].isin(all_subgraph_col_values[i:i+self.subgraph_sample_size])]
+                        # sample snapshot graphs
+                        print("  gathering for subgraph_col_values: ", all_subgraph_col_values[i:i+self.subgraph_sample_size])
+                        sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df_sample, period) for period in snap_periods_list)
+                        snapshot_list.append(sample_snapshot_list)
+                else:
+                    # sample snapshot graphs
+                    sample_snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS,
+                                                    batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+                    snapshot_list.append(sample_snapshot_list)
+
+                # Create a dataset iterator
+                print("total {} samples picked: {}".format(df_type, len(list(itertools.chain.from_iterable(snapshot_list)))))
+                dataset = DataLoader(list(itertools.chain.from_iterable(snapshot_list)), batch_size=self.batch, shuffle=self.shuffle)
+
+                # append
+                datasets[df_type] = dataset
+
+            else:
+                # all snapshot timestamps
+                snap_periods_list = sorted(df[self.time_index_col].unique(), reverse=False)
+
+                # restrict samples for very large datasets based on interleaving
+                if df_type == 'train':
+                    snap_periods_list = snap_periods_list[int(self.max_target_lags - 1):]
+                if (self.interleave > 1) and (df_type == 'train'):
+                    snap_periods_list = snap_periods_list[0::self.interleave] + [snap_periods_list[-1]]
+
+                print("picking {} samples for {}".format(len(snap_periods_list), df_type))
+
+                # sample snapshot graphs
+                snapshot_list = Parallel(n_jobs=self.PARALLEL_DATA_JOBS, batch_size=self.PARALLEL_DATA_JOBS_BATCHSIZE)(delayed(parallel_snapshot_graphs)(df, period) for period in snap_periods_list)
+
+                dataset = DataLoader(snapshot_list, batch_size=self.batch, shuffle=self.shuffle)
+
+                # append
+                datasets[df_type] = dataset
 
         del df_dict
         gc.collect()
@@ -1835,14 +2322,14 @@ class graphmodel():
 
         return train_dataset, test_dataset
 
-    def create_infer_dataset(self, df, infer_till):
+    def create_infer_dataset(self, df, infer_start):
 
         # drop lead/lag features if present
         try:
             df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols, inplace=True)
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_feature_cols))
         except:
-            print("lead lag cols not present")
+            pass
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
@@ -1851,10 +2338,7 @@ class graphmodel():
         print("create lead & lag features...")
         df = self.create_lead_lag_features(df)
 
-        infer_df = df[df[self.time_index_col] <= infer_till]
-        # check for nulls
-        print("checking for nulls ...")
-        # print("  null cols in infer df: ", infer_df.columns[infer_df.isnull().any()])
+        infer_df = df[df[self.time_index_col] == infer_start]
         df_dict = {'infer': infer_df}
         
         # for each split create graph dataset iterator
@@ -1867,11 +2351,11 @@ class graphmodel():
             # create individual snapshot graphs
             snapshot_list = []
             for period in [snap_periods_list]:
-                df_snap = df[df[self.time_index_col]==period].reset_index(drop=True)
+                df_snap = df[df[self.time_index_col] == period].reset_index(drop=True)
                 snapshot_graph = self.create_snapshot_graph(df_snap, period)
                 snapshot_list.append(snapshot_graph)
                 # get node index map
-                df_node_map_index = df[df[self.time_index_col]==period].reset_index(drop=True)
+                df_node_map_index = df[df[self.time_index_col] == period].reset_index(drop=True)
                 self.node_index_map = self.node_indexing(df_node_map_index, [self.id_col])
 
             # Create a dataset iterator
@@ -1913,33 +2397,29 @@ class graphmodel():
         infer_df = infer_df.groupby(self.id_col, sort=False).apply(lambda x: x[-1:]).reset_index(drop=True)
         print(infer_df[self.time_index_col].unique().tolist())
 
-        infer_df = infer_df[[self.id_col, self.target_col, self.time_index_col] + self.static_cat_col_list +
-                            self.global_context_col_list + self.scaler_cols + self.tweedie_p_col +
-                            ['output_upper_limit', 'output_lower_limit']]
+        infer_df = infer_df[[self.id_col, 'key_level', self.target_col, self.time_index_col] +
+                            self.static_cat_col_list + self.global_context_col_list +
+                            self.scaler_cols + self.tweedie_p_col]
         
         model_output = model_output.reshape(-1, 1)
         output = pd.DataFrame(data=model_output, columns=['forecast'])
         
         # merge forecasts with infer df
-        output = pd.concat([infer_df, output], axis=1)
-
-        # if output clipping enabled
-        if self.output_clipping:
-            output['forecast'] = np.clip(output['forecast'], a_min=output['output_lower_limit'], a_max=output['output_upper_limit'])
-            output.drop(columns=['output_upper_limit', 'output_lower_limit'], inplace=True)
+        output = pd.concat([infer_df, output], axis=1)    
 
         return output
         
     def update_dataframe(self, df, output):
         
         # merge output & base_df
-        reduced_output_df = output[[self.id_col, self.time_index_col, 'forecast']]
-        df_updated = df.merge(reduced_output_df, on=[self.id_col, self.time_index_col], how='left')
+        reduced_output_df = output[[self.id_col, 'key_level', self.time_index_col, 'forecast']]
+        df_updated = df.merge(reduced_output_df, on=[self.id_col, 'key_level', self.time_index_col], how='left')
         
         # update target for current ts with forecasts
         df_updated[self.target_col] = np.where(df_updated['forecast'].isnull(),
                                                df_updated[self.target_col],
                                                df_updated['forecast'])
+        
         # drop forecast column
         df_updated = df_updated.drop(columns=['forecast'])
         
@@ -1974,7 +2454,7 @@ class graphmodel():
               dropout=0,
               skip_connection=False,
               device='cpu'):
-        
+
         # key metadata for model def
         self.metadata = self.get_metadata(self.train_dataset)
         self.forecast_quantiles = forecast_quantiles
@@ -1993,42 +2473,43 @@ class graphmodel():
                            num_rnn_layers=num_rnn_layers,
                            heads=heads,
                            dropout=dropout,
+                           tweedie_out=self.tweedie_out,
                            skip_connection=skip_connection,
                            layer_type=layer_type)
-        
+
         # init model
         self.model = self.model.to(self.device)
-        
+
         # Lazy init.
         with torch.no_grad():
             sample_batch = sample_batch.to(self.device)
             out = self.model(sample_batch.x_dict, sample_batch.edge_index_dict)
-            
+
         # parameters count
         try:
             pytorch_total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print("total model params: ", pytorch_total_params)
         except:
-            pytorch_total_params = sum([0 if isinstance(p, torch.nn.parameter.UninitializedParameter) else p.numel() for p in self.model.parameters()])
+            pytorch_total_params = sum(
+                [0 if isinstance(p, torch.nn.parameter.UninitializedParameter) else p.numel() for p in
+                 self.model.parameters()])
             print("total model params: ", pytorch_total_params)
 
-    def train(self, 
-              lr, 
-              min_epochs, 
-              max_epochs, 
-              patience, 
-              min_delta, 
+    def train(self,
+              lr,
+              min_epochs,
+              max_epochs,
+              patience,
+              min_delta,
               model_prefix,
-              loss='Quantile',  # 'Tweedie','SMAPE','RMSE','Poisson'
+              loss='Quantile',  # 'Tweedie','SMAPE','RMSE'
               delta=1.0,  # for Huber
               epsilon=0.01,  # for SMAPE
               use_amp=False,
-              use_lr_scheduler=True, 
+              use_lr_scheduler=True,
               scheduler_params={'factor': 0.5, 'patience': 3, 'threshold': 0.0001, 'min_lr': 0.00001},
               sample_weights=False,
               stop_training_criteria='loss'):
-
-        # stop_training_criteria: ['loss','mse','mae']
 
         self.loss = loss
 
@@ -2044,40 +2525,38 @@ class graphmodel():
             loss_fn = RMSE()
         elif self.loss == 'Huber':
             loss_fn = Huber(delta=delta)
-        elif self.loss == 'Poisson':
-            loss_fn = Poisson()
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         if use_lr_scheduler:
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-                                                                   mode='min', 
-                                                                   factor=scheduler_params['factor'], 
-                                                                   patience=scheduler_params['patience'], 
-                                                                   threshold=scheduler_params['threshold'], 
-                                                                   threshold_mode='rel', 
-                                                                   cooldown=0, 
-                                                                   min_lr=scheduler_params['min_lr'], 
-                                                                   eps=1e-08, 
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                   mode='min',
+                                                                   factor=scheduler_params['factor'],
+                                                                   patience=scheduler_params['patience'],
+                                                                   threshold=scheduler_params['threshold'],
+                                                                   threshold_mode='rel',
+                                                                   cooldown=0,
+                                                                   min_lr=scheduler_params['min_lr'],
+                                                                   eps=1e-08,
                                                                    verbose=False)
         # init training data structures & vars
         model_list = []
         self.best_model = None
         time_since_improvement = 0
         train_loss_hist = []
-        train_metric_hist = []
         val_loss_hist = []
-        val_metric_hist = []
+        # metrics
+        train_rmse_hist = []
+        val_rmse_hist = []
 
         # torch.amp -- for mixed precision training
         scaler = torch.cuda.amp.GradScaler()
 
         def train_fn():
             self.model.train(True)
-            total_examples = 0 
+            total_examples = 0
             total_loss = 0
-            total_metric = 0
-
+            total_mse = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -2108,13 +2587,26 @@ class graphmodel():
                     wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                 else:
                     wt = 1
+
+                # key level weight
+                key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
+
                 # recency wt
                 if self.recency_weights:
                     recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                 else:
                     recency_wt = 1
-                
-                weighted_loss = torch.mean(loss*mask*wt*recency_wt)
+
+                weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
+                # metric
+                if self.loss == 'Tweedie':
+                    out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                else:
+                    out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -2130,32 +2622,16 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
 
-                # compute metric for reporting
-                if stop_training_criteria == 'mse':
-                    if self.loss == 'Tweedie':
-                        out = torch.exp(out)
-                        if self.log1p_transform:
-                            out = torch.expm1(out)
-                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                    total_metric += mse_err
-                elif stop_training_criteria == 'mae':
-                    if self.loss == 'Tweedie':
-                        out = torch.exp(out)
-                        if self.log1p_transform:
-                            out = torch.expm1(out)
-                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-                    total_metric += mae_err
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
-            return total_loss / total_examples, total_metric / total_examples
-        
         def test_fn():
             self.model.train(False)
-            total_examples = 0 
+            total_examples = 0
             total_loss = 0
-            total_metric = 0
-
-            with torch.no_grad(): 
+            total_mse = 0
+            with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
                     batch = batch.to(self.device)
@@ -2169,7 +2645,8 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss == 'Tweedie':
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp,
+                                            scaler=batch[self.target_col].scaler,
                                             log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
@@ -2181,40 +2658,36 @@ class graphmodel():
                     else:
                         wt = 1
 
+                    # key level weight
+                    key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
+
                     if self.recency_weights:
                         recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
 
-                    weighted_loss = torch.mean(loss*mask*wt*recency_wt)
+                    weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
+                    # metric
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    else:
+                        out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                    actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
+
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
+                    total_mse += mse_err
 
-                    # compute metric for reporting
-                    if stop_training_criteria == 'mse':
-                        if self.loss == 'Tweedie':
-                            out = torch.exp(out)
-                            if self.log1p_transform:
-                                out = torch.expm1(out)
-                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                        total_metric += mse_err
-                    elif stop_training_criteria == 'mae':
-                        if self.loss == 'Tweedie':
-                            out = torch.exp(out)
-                            if self.log1p_transform:
-                                out = torch.expm1(out)
-                        mae_err = (
-                            torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-                        total_metric += mae_err
-                    
-            return total_loss / total_examples, total_metric / total_examples
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
         def train_amp_fn():
             self.model.train(True)
             total_examples = 0
             total_loss = 0
-            total_metric = 0
-
+            total_mse = 0
             for i, batch in enumerate(self.train_dataset):
 
                 if not self.grad_accum:
@@ -2234,8 +2707,7 @@ class graphmodel():
 
                     # compute loss masking out N/A targets -- last snapshot
                     if self.loss == 'Tweedie':
-                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
-                                            log1p_transform=self.log1p_transform)
+                        loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
                     else:
                         loss = loss_fn.loss(out, batch[self.target_col].y)
 
@@ -2246,13 +2718,26 @@ class graphmodel():
                         wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                     else:
                         wt = 1
+
+                    # key level weight
+                    key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
+
                     # recency wt
                     if self.recency_weights:
                         recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
 
-                    weighted_loss = torch.mean(loss * mask * wt * recency_wt)
+                    weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+
+                    # metric
+                    if self.loss == 'Tweedie':
+                        out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    else:
+                        out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                    actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                    mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
                 if self.grad_accum:
@@ -2270,31 +2755,15 @@ class graphmodel():
 
                 total_examples += batch_size
                 total_loss += float(weighted_loss)
+                total_mse += mse_err
 
-                # compute metric for reporting
-                if stop_training_criteria == 'mse':
-                    if self.loss == 'Tweedie':
-                        out = torch.exp(out)
-                        if self.log1p_transform:
-                            out = torch.expm1(out)
-                    mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                    total_metric += mse_err
-                elif stop_training_criteria == 'mae':
-                    if self.loss == 'Tweedie':
-                        out = torch.exp(out)
-                        if self.log1p_transform:
-                            out = torch.expm1(out)
-                    mae_err = (torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-                    total_metric += mae_err
-
-            return total_loss / total_examples, total_metric / total_examples
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
         def test_amp_fn():
             self.model.train(False)
             total_examples = 0
             total_loss = 0
-            total_metric = 0
-
+            total_mse = 0
             with torch.no_grad():
                 for i, batch in enumerate(self.test_dataset):
                     batch_size = batch.num_graphs
@@ -2311,119 +2780,77 @@ class graphmodel():
 
                         # compute loss masking out N/A targets -- last snapshot
                         if self.loss == 'Tweedie':
-                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler,
-                                                log1p_transform=self.log1p_transform)
+                            loss = loss_fn.loss(y_pred=out, y_true=batch[self.target_col].y, p=tvp, scaler=batch[self.target_col].scaler, log1p_transform=self.log1p_transform)
                         else:
                             loss = loss_fn.loss(out, batch[self.target_col].y)
 
                         mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
 
-                        # key weight
                         if sample_weights:
                             wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
                         else:
                             wt = 1
-                        # recency wt
+
+                        # key level weight
+                        key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
+
                         if self.recency_weights:
                             recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                         else:
                             recency_wt = 1
 
-                        weighted_loss = torch.mean(loss * mask * wt * recency_wt)
+                        weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                        # metric
+                        if self.loss == 'Tweedie':
+                            out = torch.exp(out) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                        else:
+                            out = out * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+
+                        actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch[self.target_col].scaler, dim=2)
+                        mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
 
                     total_examples += batch_size
                     total_loss += float(weighted_loss)
+                    total_mse += mse_err
 
-                    # compute metric for reporting
-                    if stop_training_criteria == 'mse':
-                        if self.loss == 'Tweedie':
-                            out = torch.exp(out)
-                            if self.log1p_transform:
-                                out = torch.expm1(out)
-                        mse_err = ((batch[self.target_col].scaler * (out - batch[self.target_col].y)) ** 2).mean().data
-                        total_metric += mse_err
-                    elif stop_training_criteria == 'mae':
-                        if self.loss == 'Tweedie':
-                            out = torch.exp(out)
-                            if self.log1p_transform:
-                                out = torch.expm1(out)
-                        mae_err = (
-                            torch.abs(batch[self.target_col].scaler * (out - batch[self.target_col].y))).mean().data
-                        total_metric += mae_err
+            return total_loss / total_examples, math.sqrt(total_mse / total_examples)
 
-            return total_loss / total_examples, total_metric / total_examples
-        
         for epoch in range(max_epochs):
 
             if use_amp:
-                loss, metric = train_amp_fn()
-                val_loss, val_metric = test_amp_fn()
+                loss, rmse = train_amp_fn()
+                val_loss, val_rmse = test_amp_fn()
             else:
-                loss, metric = train_fn()
-                val_loss, val_metric = test_fn()
+                loss, rmse = train_fn()
+                val_loss, val_rmse = test_fn()
 
-            if stop_training_criteria in ['mse', 'mae']:
-                print('EPOCH {}: Train loss: {}, Train metric: {}, Val loss: {}, Val metric: {}'.format(epoch,
-                                                                                                        loss,
-                                                                                                        metric,
-                                                                                                        val_loss,
-                                                                                                        val_metric))
-            else:
-                print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+            print('EPOCH {}: Train loss: {}, Val loss: {}'.format(epoch, loss, val_loss))
+            print('EPOCH {}: Train rmse: {}, Val rmse: {}'.format(epoch, rmse, val_rmse))
 
             if use_lr_scheduler:
                 scheduler.step(val_loss)
 
-            # if using one of the metrics as stop_training_criteria
-            if stop_training_criteria in ['mse', 'mae']:
-                train_metric_hist.append(metric.cpu().numpy())
-                val_metric_hist.append(val_metric.cpu().numpy())
-                train_loss_hist.append(loss)
-                val_loss_hist.append(val_loss)
-            else:
-                train_loss_hist.append(loss)
-                val_loss_hist.append(val_loss)
+            train_loss_hist.append(loss)
+            val_loss_hist.append(val_loss)
 
-            # append model path
-            model_path = model_prefix + '_' + str(epoch) 
+            train_rmse_hist.append(rmse)
+            val_rmse_hist.append(val_rmse)
+
+            model_path = model_prefix + '_' + str(epoch)
             model_list.append(model_path)
-            
+
             # compare loss
             if epoch == 0:
-                prev_min_train_loss = np.min(train_loss_hist)
-                prev_min_val_loss = np.min(val_loss_hist)
+                prev_min_loss = np.min(val_loss_hist)
             else:
-                prev_min_train_loss = np.min(train_loss_hist[:-1])
-                prev_min_val_loss = np.min(val_loss_hist[:-1])
+                prev_min_loss = np.min(val_loss_hist[:-1])
 
-            # compare metric
-            if stop_training_criteria in ['mse', 'mae']:
-                if epoch == 0:
-                    prev_min_train_metric = np.min(train_metric_hist)
-                    prev_min_val_metric = np.min(val_metric_hist)
-                else:
-                    prev_min_train_metric = np.min(train_metric_hist[:-1])
-                    prev_min_val_metric = np.min(val_metric_hist[:-1])
+            current_min_loss = np.min(val_loss_hist)
+            delta = current_min_loss - prev_min_loss
 
-            # loss delta
-            current_min_train_loss = np.min(train_loss_hist)
-            train_loss_delta = current_min_train_loss - prev_min_train_loss
-            current_min_val_loss = np.min(val_loss_hist)
-            val_loss_delta = current_min_val_loss - prev_min_val_loss
+            save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-delta > min_delta)) or (epoch == 0)
 
-            # metric delta
-            if stop_training_criteria in ['mse', 'mae']:
-                current_min_train_metric = np.min(train_metric_hist)
-                train_metric_delta = current_min_train_metric - prev_min_train_metric
-                current_min_val_metric = np.min(val_metric_hist)
-                val_metric_delta = current_min_val_metric - prev_min_val_metric
-
-            if stop_training_criteria in ['mse', 'mae']:
-                save_condition = ((val_metric_hist[epoch] == np.min(val_metric_hist)) and (val_loss_hist[epoch] == np.min(val_loss_hist)) and (-val_loss_delta > min_delta)) or (epoch == 0)
-                print("Improvement delta (min_delta {}):  {}".format(min_delta, val_loss_delta))
-            else:
-                save_condition = ((val_loss_hist[epoch] == np.min(val_loss_hist)) and (-val_loss_delta > min_delta)) or (epoch == 0)
-                print("Improvement delta (min_delta {}):  {}".format(min_delta, val_loss_delta))
+            print("Improvement delta (min_delta {}):  {}".format(min_delta, delta))
 
             # track & save best model
             if save_condition:
@@ -2456,110 +2883,96 @@ class graphmodel():
         self.change_device(device="cuda")
         torch.backends.cudnn.enabled = False
 
-    def infer(self, infer_start, infer_end, select_quantile):
+    def infer(self, infer_start, select_quantile):
 
-        # Reduce dataset for inference - use history = max_target_lags + lag_offset
         base_df = self.onetime_prep_df
-
-        # get list of infer periods
-        infer_periods = sorted(base_df[(base_df[self.time_index_col] >= infer_start) & (base_df[self.time_index_col] <= infer_end)][self.time_index_col].unique().tolist())
-
-        infer_hist_length = int(self.max_target_lags + self.lag_offset + len(infer_periods))
-        base_df = base_df.groupby([self.id_col], sort=False).tail(infer_hist_length)
-
-        print("min, max periods in onetime_prep_df: ", self.onetime_prep_df[self.time_index_col].min(), self.onetime_prep_df[self.time_index_col].max())
-        print("min, max periods in base_df: ", base_df[self.time_index_col].min(), base_df[self.time_index_col].max())
 
         # print model used for inference
         print("running inference using best saved model: ", self.best_model)
-        
-        forecast_df = pd.DataFrame() 
-        
+
         # infer fn
-        def infer_fn(model, model_path, infer_dataset):
-            model.load_state_dict(torch.load(model_path), strict=True)
+        def infer_fn(model, model_path, infer_data):
+            model.load_state_dict(torch.load(model_path))
             model.eval()
             output = []
-            with torch.no_grad(): 
-                for i, batch in enumerate(infer_dataset):
+            with torch.no_grad():
+                for i, batch in enumerate(infer_data):
                     batch = batch.to(self.device)
                     out = model(batch.x_dict, batch.edge_index_dict)
                     output.append(out)
             return output
 
-        for i, t in enumerate(infer_periods):
-            
-            print("forecasting period {} at lag {}".format(t, i))
+        print("forecasting starting period {}".format(infer_start))
 
-            # infer dataset creation 
-            infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_till=t)
-            output = infer_fn(self.model, self.best_model, infer_dataset)
-            
-            # select output quantile
-            output_arr = output[0]
-            output_arr = output_arr.cpu().numpy()
-            
-            # quantile selection
-            min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+        # infer dataset creation
+        infer_df, infer_dataset = self.create_infer_dataset(base_df, infer_start=infer_start)
+        output = infer_fn(self.model, self.best_model, infer_dataset)
 
-            assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
+        # select output quantile
+        output_arr = output[0]
+        output_arr = output_arr.cpu().numpy()
 
-            if self.loss in ['Tweedie', 'Poisson']:
-                output_arr = output_arr[:, :, 0]
-                output_arr = np.exp(output_arr)
-            elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
-                output_arr = output_arr[:, :, 0]
-            else:
-                try:
-                    q_index = self.forecast_quantiles.index(select_quantile)
-                    output_arr = output_arr[:, :, q_index]
-                except:
-                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                    q_lower = int(q_upper - 1)
-                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower] )/(self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                    q_lower_weight = 1 - q_upper_weight
-                    output_arr = q_upper_weight*output_arr[:,:,q_upper] + q_lower_weight*output_arr[:,:,q_lower]
+        # quantile selection
+        min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
-            # show current o/p
-            output = self.process_output(infer_df, output_arr)
-            # append forecast
-            forecast_df = pd.concat([forecast_df, output], axis=0)
-            # update df
-            base_df = self.update_dataframe(base_df, output)
+        assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
+        if self.loss == 'Tweedie':
+            output_arr = output_arr[:, :, 0]
+            output_arr = np.exp(output_arr)
+        elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
+            output_arr = output_arr[:, :, 0]
+        else:
+            try:
+                q_index = self.forecast_quantiles.index(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                        self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+
+        # show current o/p
+        forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
+
+        # reverse log1p transform after re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+            for col in forecast_cols:
+                forecast_df[col] = np.expm1(forecast_df[col])
+            for col in self.multistep_targets:
+                forecast_df[col] = np.expm1(forecast_df[col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
-        return forecast_df
+        return forecast_df, forecast_cols
 
-    def infer_sim(self, infer_start, infer_end, select_quantile, sim_df):
-
-        # get list of infer periods
-        infer_periods = sorted(
-            sim_df[(sim_df[self.time_index_col] >= infer_start) & (sim_df[self.time_index_col] <= infer_end)][
-                self.time_index_col].unique().tolist())
+    def infer_sim(self, infer_start, select_quantile, sim_df):
 
         # print model used for inference
         print("running simulated inference using best saved model: ", self.best_model)
-
-        forecast_df = pd.DataFrame()
 
         # infer fn
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
+            model.train(False)
             output = []
             with torch.no_grad():
                 for _, batch in enumerate(infer_dataset):
@@ -2568,62 +2981,63 @@ class graphmodel():
                     output.append(out)
             return output
 
-        for i, t in enumerate(infer_periods):
+        print("forecasting starting period {}".format(infer_start))
 
-            print("forecasting period {} at lag {}".format(t, i))
+        # infer dataset creation
+        infer_df, infer_dataset = self.create_infer_dataset(sim_df, infer_start=infer_start)
+        output = infer_fn(self.model, self.best_model, infer_dataset)
 
-            # infer dataset creation
-            infer_df, infer_dataset = self.create_infer_dataset(sim_df, infer_till=t)
-            output = infer_fn(self.model, self.best_model, infer_dataset)
+        # select output quantile
+        output_arr = output[0]
+        output_arr = output_arr.cpu().numpy()
 
-            # select output quantile
-            output_arr = output[0]
-            output_arr = output_arr.cpu().numpy()
+        # quantile selection
+        min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
 
-            # quantile selection
-            min_qtile, max_qtile = min(self.forecast_quantiles), max(self.forecast_quantiles)
+        assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
 
-            assert min_qtile <= select_quantile <= max_qtile, "selected quantile out of bounds!"
+        if self.loss == 'Tweedie':
+            output_arr = output_arr[:, :, 0]
+            output_arr = np.exp(output_arr)
+        elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
+            output_arr = output_arr[:, :, 0]
+        else:
+            try:
+                q_index = self.forecast_quantiles.index(select_quantile)
+                output_arr = output_arr[:, :, q_index]
+            except:
+                q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
+                q_lower = int(q_upper - 1)
+                q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
+                        self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
+                q_lower_weight = 1 - q_upper_weight
+                output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
 
-            if self.loss in ['Tweedie', 'Poisson']:
-                output_arr = output_arr[:, :, 0]
-                output_arr = np.exp(output_arr)
-            elif self.loss in ['RMSE', 'SMAPE', 'Huber']:
-                output_arr = output_arr[:, :, 0]
-            else:
-                try:
-                    q_index = self.forecast_quantiles.index(select_quantile)
-                    output_arr = output_arr[:, :, q_index]
-                except:
-                    q_upper = next(x for x, q in enumerate(self.forecast_quantiles) if q > select_quantile)
-                    q_lower = int(q_upper - 1)
-                    q_upper_weight = (select_quantile - self.forecast_quantiles[q_lower]) / (
-                                self.forecast_quantiles[q_upper] - self.forecast_quantiles[q_lower])
-                    q_lower_weight = 1 - q_upper_weight
-                    output_arr = q_upper_weight * output_arr[:, :, q_upper] + q_lower_weight * output_arr[:, :, q_lower]
+        # show current o/p
+        forecast_df, forecast_cols = self.process_output(infer_df, output_arr)
 
-            # show current o/p
-            output = self.process_output(infer_df, output_arr)
-            # append forecast
-            forecast_df = pd.concat([forecast_df, output], axis=0)
-            # update df
-            sim_df = self.update_dataframe(sim_df, output)
-
+        # reverse log1p transform after re-scaling
         if self.log1p_transform:
-            forecast_df['forecast'] = np.expm1(forecast_df['forecast'])
-            forecast_df[self.target_col] = np.expm1(forecast_df[self.target_col])
+            for col in forecast_cols:
+                forecast_df[col] = np.expm1(forecast_df[col])
+            for col in self.multistep_targets:
+                forecast_df[col] = np.expm1(forecast_df[col])
 
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_iqr'] + forecast_df[
-                'scaler_median']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
         else:
-            forecast_df['forecast'] = forecast_df['forecast'] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
-            forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df[
-                'scaler_mu']
+            for col in forecast_cols:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
+            for col in self.multistep_targets:
+                forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
-        return forecast_df
+        return forecast_df, forecast_cols
