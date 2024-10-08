@@ -2975,7 +2975,8 @@ class graphmodel:
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler']
             for col in self.multistep_target:
-                forecast_df[col] = forecast_df[col] * forecast_df['scaler']
+                print("target col dtype: ", col, forecast_df[col].dtype)
+                forecast_df[col] = forecast_df[col].astype('float') * forecast_df['scaler']
         elif self.scaling_method == 'quantile_scaling':
             for col in forecast_cols:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_iqr'] + forecast_df['scaler_median']
