@@ -1605,7 +1605,7 @@ class graphmodel:
 
     def create_lead_lag_features(self, df):
 
-        for col in [self.target_col] + \
+        for col in [self.target_col, 'y_mask'] + \
                    self.temporal_known_num_col_list + \
                    self.temporal_unknown_num_col_list + \
                    self.known_onehot_cols + \
@@ -2606,7 +2606,6 @@ class graphmodel:
                 # key weight
                 if sample_weights:
                     wt = torch.unsqueeze(batch[self.target_col].y_weight, dim=2)
-                    print("wt shape: ", wt.shape)
                 else:
                     wt = 1
 
@@ -2616,13 +2615,8 @@ class graphmodel:
                 # recency wt
                 if self.recency_weights:
                     recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
-                    print("recency shape: ", recency_wt.shape)
                 else:
                     recency_wt = 1
-
-                print("loss shape: ", loss.shape)
-                print("mask shape: ", mask.shape)
-                print("key_level_wt shape: ", key_level_wt.shape)
 
                 weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
 
