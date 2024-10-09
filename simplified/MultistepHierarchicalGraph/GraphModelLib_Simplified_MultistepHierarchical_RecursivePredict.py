@@ -2345,8 +2345,9 @@ class graphmodel:
         try:
             df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols+self.multistep_target+self.forecast_periods, inplace=True)
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_feature_cols))
+            print("dropped derived features (to be recalculated) ...")
         except:
-            pass
+            print("Couldn't complete derived features drop ...")
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
@@ -2970,6 +2971,7 @@ class graphmodel:
             for col in self.multistep_target:
                 forecast_df[col] = np.expm1(forecast_df[col])
 
+        print("forecast_df cols: ", forecast_df.dtypes)
         # re-scale output
         if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
             for col in forecast_cols:
