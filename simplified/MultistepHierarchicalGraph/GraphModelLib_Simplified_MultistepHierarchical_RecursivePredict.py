@@ -2998,6 +2998,8 @@ class graphmodel:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         # melt forecast_df
+        forecast_df.drop(columns=[self.time_index_col], inplace=True)
+
         forecast_melt_df = pd.melt(forecast_df,
                                    id_vars=[self.id_col, 'key_level'],
                                    value_vars=forecast_cols,
@@ -3104,6 +3106,7 @@ class graphmodel:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         # melt forecast_df
+        forecast_df.drop(columns=[self.time_index_col], inplace=True)
         forecast_melt_df = pd.melt(forecast_df, id_vars=[self.id_col, 'key_level'], value_vars=forecast_cols,
                                    var_name='forecast_type', value_name='forecast')
 
