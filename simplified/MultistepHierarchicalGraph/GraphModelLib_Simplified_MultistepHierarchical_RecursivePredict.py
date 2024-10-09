@@ -2997,7 +2997,35 @@ class graphmodel:
             for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
-        return forecast_df, forecast_cols
+        # melt forecast_df
+        forecast_melt_df = pd.melt(forecast_df,
+                                   id_vars=[self.id_col, 'key_level'],
+                                   value_vars=forecast_cols,
+                                   var_name='forecast_type',
+                                   value_name='forecast')
+
+        target_melt_df = pd.melt(forecast_df,
+                                 id_vars=[self.id_col, 'key_level'],
+                                 value_vars=self.multistep_target,
+                                 var_name=f'{self.target_col}_type',
+                                 value_name=self.target_col)
+
+        period_melt_df = pd.melt(forecast_df,
+                                 id_vars=[self.id_col, 'key_level'],
+                                 value_vars=self.forecast_periods,
+                                 var_name=f'{self.time_index_col}_type',
+                                 value_name=self.time_index_col)
+
+        forecast_melt_df = forecast_melt_df.set_index([self.id_col, 'key_level', forecast_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+        target_melt_df = target_melt_df.set_index([self.id_col, 'key_level', target_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+        period_melt_df = period_melt_df.set_index([self.id_col, 'key_level', period_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+
+        forecast_df = (pd.concat([forecast_melt_df, target_melt_df, period_melt_df], axis=1).sort_index(level=2).reset_index(level=2, drop=True).reset_index())
+        # convert target_col to string to allow use in merge cols
+        forecast_df[self.target_col] = forecast_df[self.target_col].apply(repr)
+        merge_cols = [self.id_col, 'key_level', self.time_index_col, self.target_col]
+
+        return forecast_df, merge_cols
 
     def infer_sim(self, infer_start, select_quantile, sim_df):
 
@@ -3008,7 +3036,6 @@ class graphmodel:
         def infer_fn(model, model_path, infer_dataset):
             model.load_state_dict(torch.load(model_path))
             model.eval()
-            model.train(False)
             output = []
             with torch.no_grad():
                 for _, batch in enumerate(infer_dataset):
@@ -3076,4 +3103,23 @@ class graphmodel:
             for col in self.multistep_target:
                 forecast_df[col] = forecast_df[col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
-        return forecast_df, forecast_cols
+        # melt forecast_df
+        forecast_melt_df = pd.melt(forecast_df, id_vars=[self.id_col, 'key_level'], value_vars=forecast_cols,
+                                   var_name='forecast_type', value_name='forecast')
+
+        target_melt_df = pd.melt(forecast_df, id_vars=[self.id_col, 'key_level'], value_vars=self.multistep_target,
+                                 var_name=f'{self.target_col}_type', value_name=self.target_col)
+
+        period_melt_df = pd.melt(forecast_df, id_vars=[self.id_col, 'key_level'], value_vars=self.forecast_periods,
+                                 var_name=f'{self.time_index_col}_type', value_name=self.time_index_col)
+
+        forecast_melt_df = forecast_melt_df.set_index([self.id_col, 'key_level', forecast_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+        target_melt_df = target_melt_df.set_index([self.id_col, 'key_level', target_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+        period_melt_df = period_melt_df.set_index([self.id_col, 'key_level', period_melt_df.groupby([self.id_col, 'key_level']).cumcount()])
+
+        forecast_df = (pd.concat([forecast_melt_df, target_melt_df, period_melt_df], axis=1).sort_index(level=2).reset_index(level=2, drop=True).reset_index())
+        # convert target_col to string to allow use in merge cols
+        forecast_df[self.target_col] = forecast_df[self.target_col].apply(repr)
+        merge_cols = [self.id_col, 'key_level', self.time_index_col, self.target_col]
+
+        return forecast_df, merge_cols

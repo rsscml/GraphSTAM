@@ -274,13 +274,21 @@ class gml(object):
             self.infer_config.pop('select_quantile')
             self.infer_config.update({'select_quantile': quantile})
             self.infer_config['infer_start'] = infer_start
-            f_df, forecast_cols = self.graphobj.infer(**self.infer_config)
+            f_df, merge_cols = self.graphobj.infer(**self.infer_config)
+            f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df = f_df.set_index(merge_cols)
+
+            """
+            # old 
             f_df[forecast_cols] = np.clip(f_df[forecast_cols], a_min=0, a_max=None)
 
             f_df = f_df.rename(columns={col: col + '_' + str(quantile) for col in forecast_cols})
+            """
+
             f_df_list.append(f_df)
 
         self.forecast = pd.concat(f_df_list, axis=1)
+        self.forecast = self.forecast.reset_index()
 
         return self.forecast
 
@@ -364,8 +372,7 @@ class gml(object):
 
         # check all "remove_effects_col_list" have been assigned 0
         for col in baseline_num_cols+baseline_cat_onehot_cols:
-            baseline_data[col] = np.where(baseline_data[self.graphobj.time_index_col] >= infer_start, 0,
-                                          baseline_data[col])
+            baseline_data[col] = np.where(baseline_data[self.graphobj.time_index_col] >= infer_start, 0, baseline_data[col])
             num_unique = baseline_data[baseline_data[self.graphobj.time_index_col] >= infer_start][col].unique()
             print("Unique values in the baseline period >= {} for feature {}: {}".format(infer_start, col, num_unique))
 
@@ -385,14 +392,22 @@ class gml(object):
             baseline_infer_config.pop('select_quantile')
             baseline_infer_config.update({'select_quantile': quantile})
             baseline_infer_config['infer_start'] = infer_start
-            f_df, forecast_cols = self.graphobj.infer_sim(**baseline_infer_config)
+            f_df, merge_cols = self.graphobj.infer_sim(**baseline_infer_config)
+            f_df = f_df.rename(columns={'forecast': 'forecast_' + str(quantile)})
+            f_df = f_df.set_index(merge_cols)
+
+            """
+            # old
             f_df[forecast_cols] = np.clip(f_df[forecast_cols], a_min=0, a_max=None)
 
             f_df = f_df.rename(columns={col: 'baseline_' + col + '_' + str(quantile) for col in forecast_cols})
+            """
+
             f_df_list.append(f_df)
 
         self.baseline_forecast = pd.concat(f_df_list, axis=1)
-        self.baseline_forecast = self.baseline_forecast.T.drop_duplicates().T
+        self.baseline_forecast = self.baseline_forecast.reset_index()
+        # self.baseline_forecast = self.baseline_forecast.T.drop_duplicates().T
 
         return self.baseline_forecast
         
