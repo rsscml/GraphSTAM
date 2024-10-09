@@ -1059,9 +1059,11 @@ class graphmodel:
         self.cat_col_list = self.global_context_col_list + self.static_cat_col_list + \
                             self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
 
+        # interim collections
         self.multistep_target = []
         self.multistep_mask = []
         self.forecast_periods = []
+        self.rolling_feature_cols = []
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
@@ -1606,11 +1608,8 @@ class graphmodel:
 
     def create_lead_lag_features(self, df):
 
-        for col in [self.target_col, self.time_index_col, 'y_mask'] + \
-                   self.temporal_known_num_col_list + \
-                   self.temporal_unknown_num_col_list + \
-                   self.known_onehot_cols + \
-                   self.unknown_onehot_cols + \
+        for col in [self.target_col, self.time_index_col, 'y_mask'] + self.temporal_known_num_col_list + \
+                   self.temporal_unknown_num_col_list + self.known_onehot_cols + self.unknown_onehot_cols + \
                    self.rolling_feature_cols:
 
             # instantiate with empty lists
@@ -1653,7 +1652,6 @@ class graphmodel:
         """"
         Can be run once
         """
-        self.rolling_feature_cols = []
 
         if len(self.rolling_features_list) > 0:
             for tup in self.rolling_features_list:
@@ -2346,8 +2344,18 @@ class graphmodel:
             df.drop(columns=self.all_lead_lag_cols+self.rolling_feature_cols+self.multistep_target+self.forecast_periods, inplace=True)
             self.temporal_unknown_num_col_list = list(set(self.temporal_unknown_num_col_list) - set(self.rolling_feature_cols))
             print("dropped derived features (to be recalculated) ...")
+            self.multistep_target = []
+            self.multistep_mask = []
+            self.forecast_periods = []
+            self.rolling_feature_cols = []
+            print("re-init multistep collections & rolling features ...")
         except:
             print("Couldn't complete derived features drop ...")
+            self.multistep_target = []
+            self.multistep_mask = []
+            self.forecast_periods = []
+            self.rolling_feature_cols = []
+            print("re-init multistep collections & rolling features ...")
 
         print("create rolling features...")
         df = self.derive_rolling_features(df)
