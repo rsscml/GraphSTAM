@@ -413,10 +413,11 @@ class HeteroForecastSageConv(torch.nn.Module):
 
 class HeteroGraphSAGE(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_layers, num_rnn_layers, out_channels, dropout, node_types, edge_types,
-                 target_node_type, skip_connection=True):
+                 target_node_type, feature_extraction_node_types, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
         self.skip_connection = skip_connection
         self.num_layers = num_layers
         self.num_rnn_layers = num_rnn_layers
@@ -435,7 +436,7 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
-            if node_type == target_node_type:
+            if (node_type == target_node_type) or (node_type in self.feature_extraction_node_types):
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=self.num_rnn_layers,
@@ -462,7 +463,7 @@ class HeteroGraphSAGE(torch.nn.Module):
 
         # transform target node
         for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
+            if (node_type == self.target_node_type) or (node_type in self.feature_extraction_node_types):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
             else:
@@ -503,10 +504,11 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 class HeteroGAT(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, heads, node_types, edge_types,
-                 target_node_type, skip_connection=True):
+                 target_node_type, feature_extraction_node_types, skip_connection=True):
         super().__init__()
 
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
         self.skip_connection = skip_connection
         self.num_layers = num_layers
         self.project_lin = Linear(hidden_channels, out_channels)
@@ -517,6 +519,16 @@ class HeteroGAT(torch.nn.Module):
         for node_type in node_types:
             self.node_proj[node_type] = Linear(-1, hidden_channels)
         """
+
+        self.transformed_feat_dict = torch.nn.ModuleDict()
+        for node_type in node_types:
+            if (node_type == target_node_type) or (node_type in self.feature_extraction_node_types):
+                self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
+                                                                      hidden_size=hidden_channels,
+                                                                      num_layers=num_rnn_layers,
+                                                                      batch_first=True)
+            else:
+                self.transformed_feat_dict[node_type] = Linear(-1, hidden_channels)
 
         # Conv Layers
         self.conv_layers = torch.nn.ModuleList()
@@ -540,6 +552,14 @@ class HeteroGAT(torch.nn.Module):
             x_dict[node_type] = self.node_proj[node_type](x).relu()
         """
 
+        # transform target node
+        for node_type, x in x_dict.items():
+            if (node_type == self.target_node_type) or (node_type in self.feature_extraction_node_types):
+                o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
+                x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
+            else:
+                x_dict[node_type] = self.transformed_feat_dict[node_type](x)
+
         # run convolutions
         for i, conv in enumerate(self.conv_layers):
             x_dict = conv(x_dict, edge_index_dict)
@@ -552,15 +572,16 @@ class HeteroGAT(torch.nn.Module):
 # HAN Models
 
 class BasicHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, num_rnn_layers, metadata, target_node_type, hidden_channels=128, heads=1,
-                 dropout=0.1):
+    def __init__(self, in_channels, out_channels, num_rnn_layers, metadata, target_node_type, feature_extraction_node_types,
+                 hidden_channels, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
         node_types = metadata[0]
 
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
-            if node_type == target_node_type:
+            if (node_type == target_node_type) or (node_type in self.feature_extraction_node_types):
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=num_rnn_layers,
@@ -581,7 +602,7 @@ class BasicHAN(torch.nn.Module):
 
         # transform target node
         for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
+            if (node_type == self.target_node_type) or (node_type in self.feature_extraction_node_types):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
             else:
@@ -594,10 +615,11 @@ class BasicHAN(torch.nn.Module):
 
 
 class HAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, metadata, num_rnn_layers, target_node_type, hidden_channels=128, heads=1,
-                 dropout=0.1):
+    def __init__(self, in_channels, out_channels, metadata, num_rnn_layers, target_node_type, feature_extraction_node_types,
+                 hidden_channels, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
 
         # Conv Layers
         self.conv = CustomLayers.ModHANConv(in_channels=in_channels,
@@ -606,6 +628,7 @@ class HAN(torch.nn.Module):
                                             dropout=dropout,
                                             metadata=metadata,
                                             target_node_type=target_node_type,
+                                            feature_extraction_node_types=feature_extraction_node_types,
                                             num_rnn_layers=num_rnn_layers)
 
         self.lin = torch.nn.Linear(hidden_channels, out_channels)
@@ -617,16 +640,17 @@ class HAN(torch.nn.Module):
 
 
 class SageHAN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, num_rnn_layers, target_node_type, node_types, edge_types,
-                 hidden_channels=128, heads=1, dropout=0.1):
+    def __init__(self, in_channels, out_channels, num_rnn_layers, target_node_type, feature_extraction_node_types, node_types, edge_types,
+                 hidden_channels, heads=1, dropout=0.1):
         super().__init__()
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
         target_edge_types = [edge_type for edge_type in edge_types if
                              (edge_type[0] == target_node_type) and (edge_type[2] == target_node_type)]
 
         self.transformed_feat_dict = torch.nn.ModuleDict()
         for node_type in node_types:
-            if node_type == target_node_type:
+            if (node_type == target_node_type) or (node_type in self.feature_extraction_node_types):
                 self.transformed_feat_dict[node_type] = torch.nn.LSTM(input_size=1,
                                                                       hidden_size=hidden_channels,
                                                                       num_layers=num_rnn_layers,
@@ -664,7 +688,7 @@ class SageHAN(torch.nn.Module):
 
         # transform target node
         for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
+            if (node_type == self.target_node_type) or (node_type in self.feature_extraction_node_types):
                 o, _ = self.transformed_feat_dict[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
             else:
@@ -730,6 +754,7 @@ class STGNN(torch.nn.Module):
                  num_rnn_layers,
                  metadata,
                  target_node,
+                 feature_extraction_node_types,
                  time_steps=1,
                  n_quantiles=1,
                  heads=1,
@@ -754,6 +779,7 @@ class STGNN(torch.nn.Module):
                                              node_types=self.node_types,
                                              edge_types=self.edge_types,
                                              target_node_type=target_node,
+                                             feature_extraction_node_types=feature_extraction_node_types,
                                              skip_connection=skip_connection)
         elif layer_type == 'HAN':
             self.gnn_model = HAN(in_channels=-1,
@@ -761,6 +787,7 @@ class STGNN(torch.nn.Module):
                                  num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 feature_extraction_node_types=feature_extraction_node_types,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
@@ -770,6 +797,7 @@ class STGNN(torch.nn.Module):
                                       num_rnn_layers=num_rnn_layers,
                                       metadata=metadata,
                                       target_node_type=target_node,
+                                      feature_extraction_node_types=feature_extraction_node_types,
                                       hidden_channels=hidden_channels,
                                       heads=heads,
                                       dropout=dropout)
@@ -778,6 +806,7 @@ class STGNN(torch.nn.Module):
                                      out_channels=int(n_quantiles * time_steps),
                                      num_rnn_layers=num_rnn_layers,
                                      target_node_type=target_node,
+                                     feature_extraction_node_types=feature_extraction_node_types,
                                      node_types=self.node_types,
                                      edge_types=self.edge_types,
                                      hidden_channels=hidden_channels,
@@ -803,6 +832,7 @@ class STGNN(torch.nn.Module):
                                        node_types=self.node_types,
                                        edge_types=self.edge_types,
                                        target_node_type=target_node,
+                                       feature_extraction_node_types=feature_extraction_node_types,
                                        skip_connection=skip_connection)
 
         else:
@@ -811,6 +841,7 @@ class STGNN(torch.nn.Module):
                                  num_rnn_layers=num_rnn_layers,
                                  metadata=metadata,
                                  target_node_type=target_node,
+                                 feature_extraction_node_types=feature_extraction_node_types,
                                  hidden_channels=hidden_channels,
                                  heads=heads,
                                  dropout=dropout)
@@ -824,6 +855,7 @@ class STGNN(torch.nn.Module):
                                               node_types=self.node_types,
                                               edge_types=self.edge_types,
                                               target_node_type=target_node,
+                                              feature_extraction_node_types=feature_extraction_node_types,
                                               skip_connection=skip_connection)
             # weight
             self.out_weight = torch.nn.Parameter(data=torch.Tensor(1, self.time_steps, self.n_quantiles))
@@ -872,7 +904,7 @@ class graphmodel():
                  log1p_transform=False,
                  estimate_tweedie_p=False,
                  tweedie_p_range=[1.01, 1.95],
-                 tweedie_variance_power=[1.1],
+                 tweedie_variance_power=[],
                  iqr_high=0.75,
                  iqr_low=0.25,
                  categorical_onehot_encoding=True,
@@ -961,6 +993,8 @@ class graphmodel():
         self.wt_col = self.col_dict.get('wt_col', None)
         self.global_context_col_list = self.col_dict.get('global_context_col_list', [])
         self.static_cat_col_list = self.col_dict.get('static_cat_col_list', [])
+
+        self.feature_extraction_col_list = self.col_dict.get('feature_extraction_col_list', [])
         self.temporal_known_num_col_list = self.col_dict.get('temporal_known_num_col_list', [])
         self.temporal_unknown_num_col_list = self.col_dict.get('temporal_unknown_num_col_list', [])
         self.temporal_known_cat_col_list = self.col_dict.get('temporal_known_cat_col_list', [])
@@ -1987,6 +2021,7 @@ class graphmodel():
         self.model = STGNN(hidden_channels=model_dim,
                            metadata=self.metadata,
                            target_node=self.target_col,
+                           feature_extraction_node_types=self.feature_extraction_col_list,
                            time_steps=self.fh,
                            n_quantiles=len(self.forecast_quantiles),
                            num_layers=num_layers,
@@ -2034,7 +2069,8 @@ class graphmodel():
 
         if self.loss == 'Tweedie':
             # convert tweedie_variance_power to tensors
-            self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]).to(self.device) for i in self.tweedie_variance_power]
+            if len(self.tweedie_variance_power) >= 1:
+                self.tweedie_variance_power = [torch.tensor(i, dtype=torch.float32).reshape([1, 1]).to(self.device) for i in self.tweedie_variance_power]
             loss_fn = TweedieLoss(p_list=self.tweedie_variance_power)
         elif self.loss == 'Quantile':
             loss_fn = QuantileLoss(quantiles=self.forecast_quantiles)

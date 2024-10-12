@@ -39,6 +39,7 @@ class ModHANConv(MessagePassing):
         out_channels: int,
         metadata: Metadata,
         target_node_type: str,
+        feature_extraction_node_types: List,
         num_rnn_layers: int,
         heads: int = 1,
         negative_slope=0.2,
@@ -56,13 +57,14 @@ class ModHANConv(MessagePassing):
         self.metadata = metadata
         self.num_rnn_layers = num_rnn_layers
         self.target_node_type = target_node_type
+        self.feature_extraction_node_types = feature_extraction_node_types
         self.dropout = dropout
         self.k_lin = nn.Linear(out_channels, out_channels)
         self.q = nn.Parameter(torch.empty(1, out_channels))
 
         self.proj = nn.ModuleDict()
         for node_type, in_channels in self.in_channels.items():
-            if node_type == target_node_type:
+            if (node_type == target_node_type) or (node_type in self.feature_extraction_node_types):
                 self.proj[node_type] = torch.nn.LSTM(input_size=1,
                                                      hidden_size=out_channels,
                                                      num_layers=num_rnn_layers,
@@ -132,7 +134,7 @@ class ModHANConv(MessagePassing):
 
         # Iterate over node types:
         for node_type, x in x_dict.items():
-            if node_type == self.target_node_type:
+            if (node_type == self.target_node_type) or (node_type in self.feature_extraction_node_types):
                 o, _ = self.proj[node_type](torch.unsqueeze(x, dim=2))  # lstm input is 3 -d (N,L,1)
                 x_node_dict[node_type] = o[:, -1, :]  # take last o/p (N,H)
             else:
