@@ -135,6 +135,7 @@ class RMSE:
         super().__init__()
 
     def loss(self, y_pred: torch.Tensor, target) -> torch.Tensor:
+        target = torch.unsqueeze(target, dim=2)
         loss = torch.pow(y_pred - target, 2)
         return loss
 
@@ -255,9 +256,11 @@ class Huber:
     def __init__(self, delta=1.0):
         super().__init__()
         self.delta = delta
+        self.loss_obj = torch.nn.HuberLoss(reduction='none', delta=self.delta)
 
     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        loss = torch.nn.functional.huber_loss(input=y_pred, target=y_true, reduction='none', delta=self.delta)
+        y_true = torch.unsqueeze(y_true, dim=2)
+        loss = self.loss_obj(input=y_pred, target=y_true)
         return loss
 
 
@@ -510,7 +513,7 @@ class HeteroGraphSAGE(torch.nn.Module):
 
 
 class HeteroGAT(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_layers, out_channels, dropout, heads, node_types, edge_types,
+    def __init__(self, in_channels, hidden_channels, num_layers, num_rnn_layers, out_channels, dropout, heads, node_types, edge_types,
                  target_node_type, feature_extraction_node_types, skip_connection=True):
         super().__init__()
 
@@ -754,7 +757,8 @@ class STGNN(torch.nn.Module):
                  dropout=0.0,
                  tweedie_out=False,
                  skip_connection=True,
-                 layer_type='HAN'):
+                 layer_type='HAN',
+                 chunk_size=None):
 
         super(STGNN, self).__init__()
         self.node_types = metadata[0]
@@ -764,12 +768,15 @@ class STGNN(torch.nn.Module):
         self.tweedie_out = tweedie_out
         self.layer_type = layer_type
         self.num_rnn_layers = num_rnn_layers
+        self.chunk_size = chunk_size
 
         # lstm & projection layers
-        self.sequence_layer = torch.nn.LSTM(input_size=int(2*hidden_channels),
+        self.sequence_layer = torch.nn.LSTM(input_size=int(hidden_channels),
                                             hidden_size=hidden_channels,
                                             num_layers=num_rnn_layers,
                                             batch_first=True)
+        
+        self.global_context_transform_layer = Linear(-1, hidden_channels)
         self.known_covar_transform_layer = Linear(-1, hidden_channels)
         self.projection_layer = Linear(hidden_channels, self.n_quantiles)
 
@@ -858,6 +865,7 @@ class STGNN(torch.nn.Module):
         keybom = keybom.type(torch.int64)
         scaler = x_dict['scaler']
         known_covars_future = x_dict['known_covars_future']
+        global_context = x_dict['global_context']
 
         # get key_aggregation_status
         key_agg_status = x_dict['key_aggregation_status']
@@ -868,6 +876,7 @@ class STGNN(torch.nn.Module):
         del x_dict['key_aggregation_status']
         del x_dict['scaler']
         del x_dict['known_covars_future']
+        del x_dict['global_context']
 
         # gnn model
         gnn_embedding = self.gnn_model(x_dict, edge_index_dict)
@@ -898,6 +907,7 @@ class STGNN(torch.nn.Module):
         out = self.projection_layer(out)  # (n_nodes, ts, n_quantiles)
         """
 
+        global_context = self.global_context_transform_layer(global_context)
         known_covars_future = self.known_covar_transform_layer(known_covars_future)
         # loop over rest of time steps
         inp = gnn_embedding
@@ -905,28 +915,30 @@ class STGNN(torch.nn.Module):
         h = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
         c = torch.zeros((self.num_rnn_layers, gnn_embedding.shape[0], gnn_embedding.shape[1])).to(device)
         for i in range(self.time_steps):
-            current_inp = torch.concat([inp, known_covars_future[:, i, :]], dim=1)
+            #current_inp = torch.concat([inp, known_covars_future[:, i, :]], dim=1)
+            current_inp = torch.add(torch.add(inp, known_covars_future[:, i, :]), global_context)
             o, (h, c) = self.sequence_layer(torch.unsqueeze(current_inp, dim=1), (h, c))
             out_list.append(o[:, -1, :])
             inp = torch.add(inp, o[:, -1, :])
-
         out = torch.stack(out_list, dim=1)  # (n_nodes, ts, hidden_channels)
         # projection
         out = self.projection_layer(out)  # (n_nodes, ts, n_quantiles)
 
         """
         # use gnn_embedding of past + future covars to forecast sequence
-        known_covars_future = self.known_covar_layer(known_covars_future)
-        known_covars_future = torch.add(known_covars_future, torch.unsqueeze(gnn_embedding, dim=1))
-        out, _ = self.sequence_layer(known_covars_future)
+        global_context = self.global_context_transform_layer(global_context)
+        known_covars_future = self.known_covar_transform_layer(known_covars_future)
+        known_covars_future = torch.add(torch.add(known_covars_future, torch.unsqueeze(gnn_embedding, dim=1)),
+                                        torch.unsqueeze(global_context, dim=1))
+        lstm_out, _ = self.sequence_layer(known_covars_future)
         # projection
-        out = self.projection_layer(out)  # (n_nodes, ts, n_quantiles)
+        out = self.projection_layer(lstm_out)  # (n_nodes, ts, n_quantiles)
+        """
 
+        """
         # fallback to this approach (slower) in case vmap doesn't work
         # constrain the higher level key o/ps to be the sum of their constituents
-        """
 
-        """
         for i in agg_indices:
             out[i] = torch.index_select(out, 0, keybom[i][keybom[i] != -1]).sum(dim=0)
         """
@@ -959,7 +971,7 @@ class STGNN(torch.nn.Module):
             # call vmap on sum_over_index function
             if self.tweedie_out:
                 batched_sum_over_index = torch.vmap(self.log_transformed_sum_over_index, in_dims=(None, None, 0),
-                                                    randomness='error')
+                                                    randomness='error', chunk_size=self.chunk_size)
                 out = batched_sum_over_index(out, scaler, keybom)
                 # scale back
                 out = out / scaler[:-1]
@@ -969,7 +981,8 @@ class STGNN(torch.nn.Module):
                 return out
 
             else:
-                batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, None, 0), randomness='error')
+                batched_sum_over_index = torch.vmap(self.sum_over_index, in_dims=(None, None, 0), randomness='error',
+                                                    chunk_size=self.chunk_size)
                 out = batched_sum_over_index(out, scaler, keybom)
                 # scale back
                 out = out / scaler[:-1]
@@ -993,7 +1006,9 @@ class graphmodel:
                  min_history=1,
                  fh=1,
                  recursive=False,
-                 batch=1,
+                 batch_size=1000,
+                 subgraph_sampling=False,
+                 samples_per_period=10,
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
@@ -1071,7 +1086,9 @@ class graphmodel:
         self.autoregressive_target = autoregressive_target
         self.rolling_features_list = rolling_features_list
 
-        self.batch = batch
+        self.batch_size = batch_size
+        self.subgraph_sampling = subgraph_sampling
+        self.samples_per_period = samples_per_period
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
@@ -1165,6 +1182,13 @@ class graphmodel:
         self.node_features_label = {}
         self.lead_lag_features_dict = {}
         self.all_lead_lag_cols = []
+
+        # subgraph sampling specific
+        self.num_key_levels = None
+        self.key_level_index_samplers = None
+        self.key_level_num_samples = None
+        self.chunk_size = None
+
         self.node_cols = [self.target_col] + self.temporal_known_num_col_list + self.temporal_unknown_num_col_list + \
                          self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + \
                          self.global_context_col_list
@@ -1893,6 +1917,11 @@ class graphmodel:
             print("preprocessing dataframe - scale numeric cols...")
             df = self.scale_dataset(df)
 
+        # add a dummy global context col if it's empty
+        if len(self.global_context_col_list) == 0:
+            self.global_context_col_list = ['dummy_global_context']
+            df['dummy_global_context'] = "dummy_context"
+
         # onehot encode
         print("preprocessing dataframe - onehot encode categorical columns...")
         df = self.onehot_encode(df)
@@ -2075,6 +2104,16 @@ class graphmodel:
 
         # get status of key based on whether key_level == covar_key_level
         data['key_aggregation_status'].x = torch.tensor(np.where(df_snap['key_level'] == self.covar_key_level, 0, 1).reshape(-1, 1), dtype=torch.int64)
+
+        # create attribute 'key_level' for sampling batches across various key combinations
+        key_level_index = {k: int(i) for i, k in enumerate(df_snap['key_level'].unique().tolist())}
+        df_snap['key_level_index'] = df_snap['key_level'].map(key_level_index)
+
+        key_level_count = df_snap.groupby(['key_level_index'])[self.id_col].nunique().to_dict()
+        df_snap['key_level_count'] = df_snap['key_level_index'].map(key_level_count)
+
+        data[self.target_col].key_level_index = torch.tensor(df_snap['key_level_index'].to_numpy().reshape(-1,1), dtype=torch.int16)
+        data[self.target_col].key_level_count = torch.tensor(df_snap['key_level_count'].to_numpy().reshape(-1,1), dtype=torch.int16)
 
         for col in self.temporal_known_num_col_list:
             data[col].x = torch.tensor(temporal_known_num_col_dict[col].to_numpy(), dtype=torch.float)
@@ -2370,6 +2409,82 @@ class graphmodel:
         infer_df, self.infer_dataset = self.create_infer_dataset(df=self.onetime_prep_df, infer_start=infer_start)
         return infer_df, self.infer_dataset
 
+    def init_sub_batch_variables(self,):
+        # get init batch
+        print("initializing sub_batch_variables ...")
+        batch = next(iter(self.train_dataset))
+        # define batch size
+        batch_size = self.batch_size
+
+        # get all indices
+        all_indices = torch.tensor(np.arange(batch[self.target_col].num_nodes).reshape(-1, 1))
+        key_level_index = batch[self.target_col].key_level_index
+        key_level_count = batch[self.target_col].key_level_count
+        self.num_key_levels = key_level_index.unique().tolist()
+
+        # combine index, key_level_index, key_level_count
+        index_sampler = torch.concat([key_level_index, all_indices, key_level_count], dim=1)
+
+        # num to sample from each key_level : roundup((n/len(all_indices)) * batch_size)
+        self.key_level_index_samplers = {}
+        self.key_level_num_samples = {}
+
+        for level in self.num_key_levels:
+            self.key_level_index_samplers[level] = index_sampler[index_sampler[:, 0] == level][:, 1]
+            self.key_level_num_samples[level] = np.ceil((index_sampler[index_sampler[:, 0] == level].size()[0] / len(all_indices)) * batch_size)
+
+        print("initialized sub_batch_variables ...")
+
+    def get_sub_batch_sample(self, batch):
+        """
+        Given a HeteroData batch, this fn. sub-samples from it & ensures the sampling is done proportionally across all
+        key levels. It also remaps original keybom to new indices & reduces the no. of elements in the keybom tensor for
+        each node thereby making torch.index_select operation in the model quicker & more memory efficient.
+        The variables in fn. 'init_sub_batch_variables' must have been initialized before calling this fn
+        """
+        # sample indices for each key level
+        batch_sample_indices = []
+
+        for l in self.num_key_levels:
+            sampler = self.key_level_index_samplers[l]
+            num_samples = self.key_level_num_samples[l]
+            if len(sampler) == 1:
+                l_samples = sampler
+            else:
+                l_idx = torch.multinomial(sampler.type(torch.float), int(num_samples))
+                l_samples = sampler[l_idx]
+            batch_sample_indices.append(l_samples)
+
+        idx = torch.concat(batch_sample_indices, dim=0).to(self.device)
+        # obtain subgraph
+        sub_batch = batch.subgraph(subset_dict={node: idx for node in batch.node_types})
+        # map old indices to new
+        new_index = torch.tensor(np.arange(sub_batch[self.target_col].num_nodes)).to(self.device)
+        old_new_index_map = torch.concat([idx.reshape(-1, 1), new_index.reshape(-1, 1)], dim=1).to(self.device)
+
+        # in keybom, mask values not present in sub-batch -- this needs to be done on a per-row basis
+        # implement vmap routine to parallelize new_keybom creation
+        def remap_keybom(keybom):
+            mask = keybom == old_new_index_map[:, :1]
+            new_keybom = (mask * old_new_index_map[:, 1:]).sum(dim=0)
+            # sort new_keybom in descending order
+            new_keybom, _ = torch.sort(new_keybom, descending=True)
+
+            return new_keybom
+
+        # obtain new keybom using vmap
+        new_keybom = torch.vmap(remap_keybom, chunk_size=self.chunk_size)(sub_batch['keybom'].x)
+        # finding max length of keybom vector across all nodes required
+        max_keybom_elements = torch.count_nonzero(new_keybom, dim=1).max()
+        # replace all 0s with -1
+        new_keybom[new_keybom == 0] = -1
+        # new_keybom is still as wide as before, restrict it to max batch_size
+        new_keybom = new_keybom[:, :max_keybom_elements + 1]
+        # assign new_keybom to sub_batch
+        sub_batch['keybom'].x = new_keybom
+
+        return sub_batch
+
     def batch_generator(self, graph_dataset, mode, device):
         graph = next(iter(graph_dataset))
         #graph = graph.to(device)
@@ -2402,10 +2517,17 @@ class graphmodel:
                         batch[node_type].x = torch.zeros_like(batch[node_type].x)
                 elif node_type in self.temporal_unknown_num_col_list:
                     batch[node_type].x = batch[node_type].x[:, index - self.max_covar_lags:index]
-                elif node_type in ['scaler', 'keybom', 'key_aggregation_status', 'tweedie_p']:
+                elif node_type in ['scaler', 'keybom', 'key_aggregation_status', 'tweedie_p'] + self.global_context_col_list:
                     pass
                 else:
                     batch[node_type].x = batch[node_type].x[:, index - self.max_covar_lags:index + self.max_leads]
+
+            # merge global context col node types into one
+            global_context_x = []
+            for col in self.global_context_col_list:
+                global_context_x.append(batch[col].x)
+            global_context_tensor = torch.concat(global_context_x, dim=1)
+            batch['global_context'].x = global_context_tensor
 
             # merge all known covar node types into one
             known_covars_x = []
@@ -2413,27 +2535,36 @@ class graphmodel:
                 known_covars_x.append(torch.unsqueeze(batch[col].x, dim=2))
             known_covars_tensor = torch.concat(known_covars_x, dim=2)
             batch['known_covars_future'].x = known_covars_tensor[:, -self.fh:, :]
-            # batch['known_covars_past'].x = known_covars_tensor[:, :-self.fh, :]
+            batch['known_covars_past'].x = known_covars_tensor[:, :-self.fh, :]
 
+            """
             # merge all unknown covar node types into one
-            #unknown_covars_x = []
-            #for col in self.temporal_unknown_num_col_list:
-            #    unknown_covars_x.append(torch.unsqueeze(batch[col].x, dim=2))
-            #unknown_covars_tensor = torch.concat(unknown_covars_x, dim=2)
-            #batch['unknown_covars_past'].x = unknown_covars_tensor
+            unknown_covars_x = []
+            for col in self.temporal_unknown_num_col_list:
+                unknown_covars_x.append(torch.unsqueeze(batch[col].x, dim=2))
+            unknown_covars_tensor = torch.concat(unknown_covars_x, dim=2)
+            batch['unknown_covars_past'].x = unknown_covars_tensor
+
+            # modify target node
+            batch[self.target_col].x = torch.concat([torch.unsqueeze(batch[self.target_col].x, dim=2),
+                                                     batch['known_covars_past'].x,
+                                                     batch['unknown_covars_past'].x], dim=2)
 
             # drop all other nodes
-            #for col in self.temporal_known_num_col_list:
-            #    del batch[col]
-            #for col in self.temporal_unknown_num_col_list:
-            #    del batch[col]
+            for col in self.temporal_known_num_col_list + self.temporal_unknown_num_col_list:
+                del batch[col]
 
             # drop all non-target edges
-            #for edge in batch.edge_types:
-            #    if edge[0] != edge[2]:
-            #        del batch[edge]
+            for edge in batch.edge_types:
+                if (edge[0] != edge[2]) and (edge[0] not in self.global_context_col_list):
+                    del batch[edge]
+            """
 
-            yield batch
+            # if subsampling enabled, return the sub-batch
+            if self.subgraph_sampling and mode == 'train':
+                yield self.get_sub_batch_sample(batch.to(self.device))
+            else:
+                yield batch
 
     def build(self,
               layer_type='HAN',
@@ -2443,6 +2574,7 @@ class graphmodel:
               heads=1,
               forecast_quantiles=[0.5, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.9],
               dropout=0,
+              chunk_size=None,
               skip_connection=False,
               device='cpu'):
 
@@ -2450,6 +2582,11 @@ class graphmodel:
         self.forecast_quantiles = forecast_quantiles
         # target device to train on ['cuda','cpu']
         self.device = torch.device(device)
+        # chunk size for larger datasets
+        self.chunk_size = chunk_size
+        # init subgraph_sampling_variables
+        self.init_sub_batch_variables()
+        # get a sample batch
         sample_batch = next(iter(self.batch_generator(self.train_dataset, 'train', self.device)))
         self.metadata = sample_batch.metadata()
 
@@ -2466,7 +2603,8 @@ class graphmodel:
                            dropout=dropout,
                            tweedie_out=self.tweedie_out,
                            skip_connection=skip_connection,
-                           layer_type=layer_type)
+                           layer_type=layer_type,
+                           chunk_size=chunk_size)
 
         # init model
         self.model = self.model.to(self.device)
