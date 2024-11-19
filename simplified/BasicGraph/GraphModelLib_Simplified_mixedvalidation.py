@@ -1462,15 +1462,20 @@ class graphmodel():
         def fillgrpid(x):
             id_val = x[self.id_col].unique().tolist()[0]
             x = dateindex.merge(x, on=[self.time_index_col], how='left').fillna({self.id_col: id_val})
-            
+
+            """
             for col in self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + self.tweedie_p_col:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
-                
+    
             for col in self.static_cat_col_list:
                 x[col] = x[col].fillna(method='ffill')
                 x[col] = x[col].fillna(method='bfill')
-                
+            """
+            fill_cols = self.global_context_col_list + self.global_context_onehot_cols + self.scaler_cols + self.tweedie_p_col + self.static_cat_col_list
+            x.loc[:, fill_cols] = x.loc[:, fill_cols].ffill()
+            x.loc[:, fill_cols] = x.loc[:, fill_cols].bfill()
+
             if self.categorical_onehot_encoding:
                 for col in self.known_onehot_cols:
                     x[col] = x[col].fillna(0)

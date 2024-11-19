@@ -1293,6 +1293,7 @@ class graphmodel:
             return wt_sum
 
         if self.wt_col is not None:
+            print("creating weights at all key levels")
             for key in self.new_key_cols:
                 grouped_key_weight = df.groupby([key]).apply(lambda x: select_latest_weight(x))
                 df[f'{key}_weight'] = df[key].map(grouped_key_weight)
@@ -1372,15 +1373,16 @@ class graphmodel:
         if self.wt_col is None:
             df['Key_Weight'] = 1
         else:
-            # check for null weights
             print("check key weights ...")
             for key_level in df['key_level'].unique().tolist():
                 null_status = df[df['key_level'] == key_level][self.wt_col].isnull().any()
                 min_wt = df[df['key_level'] == key_level][self.wt_col].min()
                 max_wt = df[df['key_level'] == key_level][self.wt_col].max()
                 print(f"Level {key_level} null weights present: {null_status}. Min-Max weights: {min_wt} - {max_wt}")
-
+            # TODO -- test better weight distribution scheme. Overriding for now
+            # df['Key_Weight'] = np.where(df['key_level'] == self.covar_key_level, df[self.wt_col], 1)
             df['Key_Weight'] = df[self.wt_col]
+
         # new col list
         self.col_list = df.columns.tolist()
         return df
@@ -2020,15 +2022,8 @@ class graphmodel:
         # Create HeteroData Object
         data = HeteroData({"y_mask": None, "y_weight": None, "y_level_weight": None})
 
-        # use chunking for pivot_table
-        id_list = df_snap[self.id_col].drop_duplicates().values.tolist()
-        chunk_size = 1000
-        chunks_list = [id_list[i:i + chunk_size] for i in range(0, len(id_list), chunk_size)]
-        print("total id_chunks: ", len(chunks_list))
-
         # ensure temporal columns are not categorical
         df_snap[self.temporal_known_num_col_list] = df_snap[self.temporal_known_num_col_list].astype('float')
-        print("df_snap null check: ", df_snap.columns[df_snap.isnull().any()])
 
         if len(self.temporal_unknown_num_col_list) > 0:
             df_snap[self.temporal_unknown_num_col_list] = df_snap[self.temporal_unknown_num_col_list].astype('float')
@@ -2038,137 +2033,40 @@ class graphmodel:
             df_snap[self.unknown_onehot_cols] = df_snap[self.unknown_onehot_cols].astype('float')
 
         # target sequence processing
-        lead_lag_columns = df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()
-        lead_lag_columns_dict = {}
-        for col in lead_lag_columns:
-            lead_lag_columns_dict[col] = f'{self.target_col}_{col}'
-
-        df_snap_target_chunks = []
-        lead_lag_columns_order = [f'{self.target_col}_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-        for chunk in chunks_list:
-            df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-            df_snap_target = pd.pivot_table(df_chunk, values=self.target_col, index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-            df_snap_target = df_snap_target.rename(columns=lead_lag_columns_dict)
-            df_snap_target_chunks.append(df_snap_target)
-        df_snap_target = pd.concat(df_snap_target_chunks, axis=0)
-        df_snap_target = df_snap_target.reindex(lead_lag_columns_order, axis=1)  # get rid of id col
-        print("target sequence processed. Check null: ", df_snap_target.isnull().any().any())
+        df_snap_target = df_snap.groupby([self.id_col, self.time_index_col]).agg({self.target_col: np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
 
         # target mask processing
-        mask_columns_dict = {}
-        for col in lead_lag_columns:
-            mask_columns_dict[col] = f'y_mask_{col}'
-
-        df_snap_mask_chunks = []
-        mask_columns_order = [f'y_mask_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-        for chunk in chunks_list:
-            df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-            df_snap_mask = pd.pivot_table(df_chunk, values='y_mask', index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-            df_snap_mask = df_snap_mask.rename(columns=mask_columns_dict)
-            df_snap_mask_chunks.append(df_snap_mask)
-        df_snap_mask = pd.concat(df_snap_mask_chunks, axis=0)
-        df_snap_mask = df_snap_mask.reindex(mask_columns_order, axis=1)  # get rid of id col
-        print("mask sequence processed. Check null: ", df_snap_mask.isnull().any().any())
+        df_snap_mask = df_snap.groupby([self.id_col, self.time_index_col]).agg({'y_mask': np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
 
         # recency_weights processing
-        recency_wt_col_dict = {}
-        for col in lead_lag_columns:
-            recency_wt_col_dict[col] = f'recency_weights_{col}'
-
-        df_snap_recency_chunks = []
-        recency_wt_columns_order = [f'recency_weights_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-        for chunk in chunks_list:
-            df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-            df_snap_recency_wt = pd.pivot_table(df_chunk, values='recency_weights', index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-            df_snap_recency_wt = df_snap_recency_wt.rename(columns=recency_wt_col_dict)
-            df_snap_recency_chunks.append(df_snap_recency_wt)
-        df_snap_recency_wt = pd.concat(df_snap_recency_chunks, axis=0)
-        df_snap_recency_wt = df_snap_recency_wt.reindex(recency_wt_columns_order, axis=1)  # get rid of id col
-        print("recency weights processed. Check null: ", df_snap_recency_wt.isnull().any().any())
+        df_snap_recency_wt = df_snap.groupby([self.id_col, self.time_index_col]).agg({'recency_weights': np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
 
         # self.temporal_known_num_col_list processing
         temporal_known_num_col_dict = {}
         for known_col in self.temporal_known_num_col_list:
-            known_columns_dict = {}
-            for col in lead_lag_columns:
-                known_columns_dict[col] = f'{known_col}_{col}'
-
-            df_snap_known_num_col_chunks = []
-            known_columns_order = [f'{known_col}_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-            for chunk in chunks_list:
-                df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-                df_snap_known_num_col = pd.pivot_table(df_chunk, values=known_col, index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-                df_snap_known_num_col = df_snap_known_num_col.rename(columns=known_columns_dict)
-                df_snap_known_num_col = df_snap_known_num_col.reindex(known_columns_order, axis=1)  # get rid of id col
-                df_snap_known_num_col_chunks.append(df_snap_known_num_col)
-            df_snap_known_num_col = pd.concat(df_snap_known_num_col_chunks, axis=0)
+            df_snap_known_num_col = df_snap.groupby([self.id_col, self.time_index_col]).agg({known_col: np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
             temporal_known_num_col_dict[known_col] = df_snap_known_num_col
-            print(f"{known_col} sequences processed. Check null: ", df_snap_known_num_col.isnull().any().any())
-        print("temporal known num sequences processed")
 
         # self.temporal_unknown_num_col_list processing
         temporal_unknown_num_col_dict = {}
         for unknown_col in self.temporal_unknown_num_col_list:
-            unknown_columns_dict = {}
-            for col in lead_lag_columns:
-                unknown_columns_dict[col] = f'{unknown_col}_{col}'
-
-            df_snap_unknown_num_col_chunks = []
-            unknown_columns_order = [f'{unknown_col}_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-            for chunk in chunks_list:
-                df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-                df_snap_unknown_num_col = pd.pivot_table(df_chunk, values=unknown_col, index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-                df_snap_unknown_num_col = df_snap_unknown_num_col.rename(columns=unknown_columns_dict)
-                df_snap_unknown_num_col = df_snap_unknown_num_col.reindex(unknown_columns_order, axis=1)  # get rid of id col
-                df_snap_unknown_num_col_chunks.append(df_snap_unknown_num_col)
-            df_snap_unknown_num_col = pd.concat(df_snap_unknown_num_col_chunks, axis=0)
+            df_snap_unknown_num_col = df_snap.groupby([self.id_col, self.time_index_col]).agg({unknown_col: np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
             temporal_unknown_num_col_dict[unknown_col] = df_snap_unknown_num_col
-            print(f"{unknown_col} sequences processed. Check null: ", df_snap_unknown_num_col.isnull().any().any())
-        print("temporal unknown num sequences processed")
 
         # self.known_onehot_cols processing
         temporal_known_onehot_col_dict = {}
         for known_onehot_col in self.known_onehot_cols:
-            known_onehot_columns_dict = {}
-            for col in lead_lag_columns:
-                known_onehot_columns_dict[col] = f'{known_onehot_col}_{col}'
-
-            df_snap_known_onehot_col_chunks = []
-            known_onehot_columns_order = [f'{known_onehot_col}_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-            for chunk in chunks_list:
-                df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-                df_snap_known_onehot_col = pd.pivot_table(df_chunk, values=known_onehot_col, index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-                df_snap_known_onehot_col = df_snap_known_onehot_col.rename(columns=known_onehot_columns_dict)
-                df_snap_known_onehot_col = df_snap_known_onehot_col.reindex(known_onehot_columns_order, axis=1)  # get rid of id col
-                df_snap_known_onehot_col_chunks.append(df_snap_known_onehot_col)
-            df_snap_known_onehot_col = pd.concat(df_snap_known_onehot_col_chunks, axis=0)
+            df_snap_known_onehot_col = df_snap.groupby([self.id_col, self.time_index_col]).agg({known_onehot_col: np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
             temporal_known_onehot_col_dict[known_onehot_col] = df_snap_known_onehot_col
-            print(f"{known_onehot_col} sequences processed")
-        print("known categorical sequences processed")
 
         # self.unknown_onehot_cols processing
         temporal_unknown_onehot_col_dict = {}
         for unknown_onehot_col in self.unknown_onehot_cols:
-            unknown_onehot_columns_dict = {}
-            for col in lead_lag_columns:
-                unknown_onehot_columns_dict[col] = f'{unknown_onehot_col}_{col}'
-
-            df_snap_unknown_onehot_col_chunks = []
-            unknown_onehot_columns_order = [f'{unknown_onehot_col}_{col}' for col in df_snap[self.time_index_col].sort_values(ascending=True).unique().tolist()]
-            for chunk in chunks_list:
-                df_chunk = df_snap[df_snap[self.id_col].isin(chunk)]
-                df_snap_unknown_onehot_col = pd.pivot_table(df_chunk, values=unknown_onehot_col, index=self.id_col, columns=self.time_index_col, dropna=False, sort=False).reset_index(drop=False)
-                df_snap_unknown_onehot_col = df_snap_unknown_onehot_col.rename(columns=unknown_onehot_columns_dict)
-                df_snap_unknown_onehot_col = df_snap_unknown_onehot_col.reindex(unknown_onehot_columns_order, axis=1)  # get rid of id col
-                df_snap_unknown_onehot_col_chunks.append(df_snap_unknown_onehot_col)
-            df_snap_unknown_onehot_col = pd.concat(df_snap_unknown_onehot_col_chunks, axis=0)
+            df_snap_unknown_onehot_col = df_snap.groupby([self.id_col, self.time_index_col]).agg({unknown_onehot_col: np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
             temporal_unknown_onehot_col_dict[unknown_onehot_col] = df_snap_unknown_onehot_col
-            print(f"{unknown_onehot_col} sequences processed")
-        print("unknown categorical sequences processed")
 
         # drop numeric & onehot cols from df_snap & de-duplicate
         print("df_snap pre-dedup size: ", df_snap.shape)
-
         df_snap = df_snap[df_snap[self.time_index_col] == period]
         print("df_snap post-dedup size: ", df_snap.shape)
         print("df_snap columns: ", df_snap.columns)
@@ -2622,6 +2520,8 @@ class graphmodel:
                 if node_type == self.target_col:
                     batch[node_type].y = batch[node_type].x[:, index:index + self.fh]
                     batch[node_type].y_mask = batch[node_type].y_mask[:, -self.fh:]
+                    if self.recency_weights:
+                        batch[node_type].recency_weight = batch[node_type].recency_weight[:, -self.fh:]
                     batch[node_type].x = batch[node_type].x[:, index - context_len:index]
                     if not self.autoregressive_target:
                         batch[node_type].x = torch.zeros_like(batch[node_type].x)
@@ -2645,9 +2545,10 @@ class graphmodel:
                 known_covars_x.append(torch.unsqueeze(batch[col].x, dim=2))
             known_covars_tensor = torch.concat(known_covars_x, dim=2)
             batch['known_covars_future'].x = known_covars_tensor[:, -self.fh:, :]
-            batch['known_covars_past'].x = known_covars_tensor[:, :-self.fh, :]
 
             """
+            batch['known_covars_past'].x = known_covars_tensor[:, :-self.fh, :]
+            
             # merge all unknown covar node types into one
             unknown_covars_x = []
             for col in self.temporal_unknown_num_col_list:
@@ -2699,6 +2600,7 @@ class graphmodel:
         # get a sample batch
         sample_batch = next(iter(self.batch_generator(self.train_dataset, 'train', self.device)))
         self.metadata = sample_batch.metadata()
+        print("graph metadata: \n", self.metadata)
 
         # build model
         self.model = STGNN(hidden_channels=model_dim,
@@ -2833,7 +2735,7 @@ class graphmodel:
                 if self.hierarchical_weights:
                     key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
                 else:
-                    key_level_wt = 1
+                    key_level_wt = 0
 
                 # recency wt
                 if self.recency_weights:
@@ -2841,7 +2743,7 @@ class graphmodel:
                 else:
                     recency_wt = 1
 
-                weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                weighted_loss = torch.mean(loss * mask * (wt + key_level_wt) * recency_wt)
 
                 # metric
                 if self.loss == 'Tweedie':
@@ -2850,7 +2752,6 @@ class graphmodel:
                     out = out * torch.unsqueeze(batch['scaler'].x, dim=2)
 
                 actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch['scaler'].x, dim=2)
-                #mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
                 mse_err = (mask * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
@@ -2910,14 +2811,14 @@ class graphmodel:
                     if self.hierarchical_weights:
                         key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
                     else:
-                        key_level_wt = 1
+                        key_level_wt = 0
 
                     if self.recency_weights:
                         recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                     else:
                         recency_wt = 1
 
-                    weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                    weighted_loss = torch.mean(loss * mask * (wt + key_level_wt) * recency_wt)
 
                     # metric
                     if self.loss == 'Tweedie':
@@ -2926,7 +2827,6 @@ class graphmodel:
                         out = out * torch.unsqueeze(batch['scaler'].x, dim=2)
 
                     actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch['scaler'].x, dim=2)
-                    #mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
                     mse_err = (mask * (out - actual) * (out - actual)).mean().data
 
                     total_examples += batch_size
@@ -2977,7 +2877,7 @@ class graphmodel:
                     if self.hierarchical_weights:
                         key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
                     else:
-                        key_level_wt = 1
+                        key_level_wt = 0
 
                     # recency wt
                     if self.recency_weights:
@@ -2985,7 +2885,7 @@ class graphmodel:
                     else:
                         recency_wt = 1
 
-                    weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                    weighted_loss = torch.mean(loss * mask * (wt + key_level_wt) * recency_wt)
 
                     # metric
                     if self.loss == 'Tweedie':
@@ -2994,7 +2894,6 @@ class graphmodel:
                         out = out * torch.unsqueeze(batch['scaler'].x, dim=2)
 
                     actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch['scaler'].x, dim=2)
-                    #mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
                     mse_err = (mask * (out - actual) * (out - actual)).mean().data
 
                 # normalize loss to account for batch accumulation
@@ -3056,14 +2955,14 @@ class graphmodel:
                         if self.hierarchical_weights:
                             key_level_wt = torch.unsqueeze(batch[self.target_col].y_level_weight, dim=2)
                         else:
-                            key_level_wt = 1
+                            key_level_wt = 0
 
                         if self.recency_weights:
                             recency_wt = torch.unsqueeze(batch[self.target_col].recency_weight, dim=2)
                         else:
                             recency_wt = 1
 
-                        weighted_loss = torch.mean(loss * mask * wt * key_level_wt * recency_wt)
+                        weighted_loss = torch.mean(loss * mask * (wt + key_level_wt) * recency_wt)
                         # metric
                         if self.loss == 'Tweedie':
                             out = torch.exp(out) * torch.unsqueeze(batch['scaler'].x, dim=2)
@@ -3071,7 +2970,6 @@ class graphmodel:
                             out = out * torch.unsqueeze(batch['scaler'].x, dim=2)
 
                         actual = torch.unsqueeze(batch[self.target_col].y, dim=2) * torch.unsqueeze(batch['scaler'].x, dim=2)
-                        #mse_err = (recency_wt * mask * wt * (out - actual) * (out - actual)).mean().data
                         mse_err = (mask * (out - actual) * (out - actual)).mean().data
 
                     total_examples += batch_size
