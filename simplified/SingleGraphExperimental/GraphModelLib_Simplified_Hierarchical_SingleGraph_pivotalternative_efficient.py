@@ -7,7 +7,7 @@ import torch
 import copy
 import torch.nn.functional as F
 import torch_geometric
-from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv, aggr, DirGNNConv
+from torch_geometric.nn import Linear, HeteroConv, SAGEConv, BatchNorm, LayerNorm, HANConv, HGTConv, GATv2Conv, aggr
 from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 import simplified.CustomLayers as CustomLayers
@@ -30,7 +30,6 @@ from tweedie import tweedie
 import pandas as pd
 import numpy as np
 import itertools
-import functools
 from sklearn import preprocessing
 import warnings
 
@@ -266,14 +265,14 @@ class Huber:
 
 
 class DirSageConv(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, alpha, aggr):
+    def __init__(self, input_dim, output_dim, alpha):
         super(DirSageConv, self).__init__()
 
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.conv_src_to_dst = SAGEConv(input_dim, output_dim, aggr=aggr, flow="source_to_target", root_weight=False)
-        self.conv_dst_to_src = SAGEConv(input_dim, output_dim, aggr=aggr, flow="target_to_source", root_weight=False)
+        self.conv_src_to_dst = SAGEConv(input_dim, output_dim, flow="source_to_target", root_weight=False)
+        self.conv_dst_to_src = SAGEConv(input_dim, output_dim, flow="target_to_source", root_weight=False)
         self.lin_self = Linear(input_dim, output_dim)
         self.alpha = alpha
 
@@ -378,27 +377,23 @@ class HeteroForecastSageConv(torch.nn.Module):
             if e[0] == e[2]:
                 conv_dict[e] = SAGEConv(in_channels=-1,
                                         out_channels=out_channels,
-                                        aggr='mean', #aggr.SoftmaxAggregation(learn = True, channels = out_channels), # 'mean',
+                                        aggr='mean',
                                         project=False,
                                         normalize=False,
                                         bias=True)
-
-                #conv_dict[e] = DirSageConv(input_dim=-1, output_dim=out_channels, alpha=0.5, aggr=aggr.SoftmaxAggregation(learn = True, channels = out_channels))
             else:
                 if first_layer:
                     if e[0] == e[2]:
                         conv_dict[e] = SAGEConv(in_channels=-1,
                                                 out_channels=out_channels,
-                                                aggr='mean', #aggr.SoftmaxAggregation(learn = True, channels = out_channels), # 'mean',
+                                                aggr='mean',
                                                 project=False,
                                                 normalize=False,
                                                 bias=True)
-
-                        #conv_dict[e] = DirSageConv(input_dim=-1, output_dim=out_channels, alpha=0.5, aggr=aggr.SoftmaxAggregation(learn = True, channels = out_channels))
                     else:
                         conv_dict[e] = SAGEConv(in_channels=in_channels,
                                                 out_channels=out_channels,
-                                                aggr='mean', #aggr.SoftmaxAggregation(learn = True, channels = out_channels), # 'mean',
+                                                aggr='sum',
                                                 project=False,
                                                 normalize=False,
                                                 bias=True)
@@ -1025,7 +1020,6 @@ class graphmodel:
                  grad_accum=False,
                  accum_iter=1,
                  scaling_method='mean_scaling',
-                 outlier_threshold=10,
                  log1p_transform=False,
                  tweedie_out=False,
                  estimate_tweedie_p=False,
@@ -1107,7 +1101,6 @@ class graphmodel:
         self.grad_accum = grad_accum
         self.accum_iter = accum_iter
         self.scaling_method = scaling_method
-        self.outlier_threshold = outlier_threshold
         self.log1p_transform = log1p_transform
         self.tweedie_out = tweedie_out
         self.estimate_tweedie_p = estimate_tweedie_p
@@ -1510,7 +1503,8 @@ class graphmodel:
             scale = np.divide(target_sum, target_nz_count) + 1.0
 
             if len(self.temporal_known_num_col_list) > 0:
-                known_nz_count = np.maximum(np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
+                known_nz_count = np.maximum(
+                    np.count_nonzero(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0), 1.0)
                 known_sum = np.sum(np.abs(covar_gdf[self.temporal_known_num_col_list].values), axis=0)
                 known_scale = np.divide(known_sum, known_nz_count) + 1.0
                 """
@@ -1522,7 +1516,8 @@ class graphmodel:
 
             if len(self.temporal_unknown_num_col_list) > 0:
                 # use max scale for known co-variates
-                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0), 1.0)
+                unknown_scale = np.maximum(np.max(np.abs(scale_gdf[self.temporal_unknown_num_col_list].values), axis=0),
+                                           1.0)
             else:
                 unknown_scale = 1
 
@@ -1846,11 +1841,8 @@ class graphmodel:
             if len(self.unknown_onehot_cols) > 0:
                 x.loc[:, self.unknown_onehot_cols] = x.loc[:, self.unknown_onehot_cols].fillna(0)
 
-            # add missing data mask
+            # add mask
             x['y_mask'] = np.where(x[self.target_col].isnull(), 0, 1)
-
-            # add outlier mask
-            x['y_outlier_mask'] = np.where(np.abs(x[self.target_col]) > self.outlier_threshold, 0, 1)
 
             # pad target col
             if self.scaling_method == 'mean_scaling' or self.scaling_method == 'no_scaling':
@@ -2054,9 +2046,6 @@ class graphmodel:
         # target mask processing
         df_snap_mask = df_snap.groupby([self.id_col, self.time_index_col]).agg({'y_mask': np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
 
-        # outlier mask processing
-        df_snap_outlier_mask = df_snap.groupby([self.id_col, self.time_index_col]).agg({'y_outlier_mask': np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
-
         # recency_weights processing
         df_snap_recency_wt = df_snap.groupby([self.id_col, self.time_index_col]).agg({'recency_weights': np.sum}).unstack(level=self.time_index_col).reset_index(drop=True)
 
@@ -2110,7 +2099,6 @@ class graphmodel:
         data[self.target_col].y_weight = torch.tensor(df_snap['Key_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_level_weight = torch.tensor(df_snap['Key_Level_Weight'].to_numpy().reshape(-1, 1), dtype=torch.float)
         data[self.target_col].y_mask = torch.tensor(df_snap_mask.to_numpy(), dtype=torch.float)  # shape (n_key, n_period)
-        data[self.target_col].y_outlier_mask = torch.tensor(df_snap_outlier_mask.to_numpy(), dtype=torch.float)  # shape (n_key, n_period)
 
         if len(self.scaler_cols) == 1:
             data['scaler'].x = torch.tensor(df_snap['scaler'].to_numpy().reshape(-1, 1), dtype=torch.float)
@@ -2569,8 +2557,6 @@ class graphmodel:
                 if node_type == self.target_col:
                     batch[node_type].y = batch[node_type].x[:, index:index + self.fh]
                     batch[node_type].y_mask = batch[node_type].y_mask[:, -self.fh:]
-                    batch[node_type].y_outlier_mask = batch[node_type].y_outlier_mask[:, -self.fh:]
-
                     if self.recency_weights:
                         batch[node_type].recency_weight = batch[node_type].recency_weight[:, -self.fh:]
                     batch[node_type].x = batch[node_type].x[:, index - context_len:index]
@@ -2788,7 +2774,6 @@ class graphmodel:
                     loss = loss_fn.loss(out, batch[self.target_col].y)
 
                 mask = torch.unsqueeze(batch[self.target_col].y_mask, dim=2)
-                outlier_mask = torch.unsqueeze(batch[self.target_col].y_outlier_mask, dim=2)
 
                 # key weight
                 if sample_weights:
@@ -2808,7 +2793,7 @@ class graphmodel:
                 else:
                     recency_wt = 1
 
-                weighted_loss = torch.mean(loss * mask * outlier_mask * (wt + key_level_wt) * recency_wt)
+                weighted_loss = torch.mean(loss * mask * (wt + key_level_wt) * recency_wt)
 
                 # metric
                 if self.loss == 'Tweedie':
@@ -3342,135 +3327,3 @@ class graphmodel:
             forecast_df[self.target_col] = forecast_df[self.target_col] * forecast_df['scaler_std'] + forecast_df['scaler_mu']
 
         return forecast_df
-
-
-
-# GNN Forest
-def gml_ensemble(data, config_dict, train_val_cutoffs, infer_start, infer_end):
-    """
-    :param data: pandas dataframe
-    :param config_dict: config dict
-    :param train_val_cutoffs: [(train_till, test_till), ...]
-    :param infer_start: 1st forecast period
-    :param infer_end: last forecast period
-    :return: forecast dataframe
-
-    config_dict = {"data_config": {"col_dict": model_cols_dict,
-                                    "max_target_lag": 90,
-                                    "max_covar_lags": 28,
-                                    "max_leads": 14,
-                                    "test_recent_percentage": None,
-                                    "test_random_percentage": None,
-                                    "autoregressive_target": True,
-                                    "lag_offset": 0,
-                                    "rolling_features_list": rolling_features_list,
-                                    "min_history": 1,
-                                    "fh": 14,
-                                    "recursive": False,
-                                    "batch_size": 1000,
-                                    "subgraph_sampling": False,
-                                    "samples_per_period": 1,
-                                    "grad_accum": False,
-                                    "accum_iter": 1,
-                                    "scaling_method": 'mean_scaling',
-                                    "outlier_threshold": 3.0,
-                                    "log1p_transform": False,
-                                    "tweedie_out": False,
-                                    "estimate_tweedie_p": estimate_tweedie_p,
-                                    "tweedie_p_range": tweedie_p_range,
-                                    "tweedie_variance_power": tweedie_variance_power,
-                                    "interleave": 1,
-                                    "hierarchical_weights": True,
-                                    "recency_weights": False,
-                                    "recency_alpha": 1,
-                                    "output_clipping": False,
-                                    "PARALLEL_DATA_JOBS": 4,
-                                    "PARALLEL_DATA_JOBS_BATCHSIZE": 128},
-                        "model_config": {"layer_type": 'SAGE',
-                                        "model_dim": model_dim,
-                                        "num_layers": 1,
-                                        "num_rnn_layers": 2,
-                                        "heads": 1,
-                                        "forecast_quantiles": [0.5],
-                                        "dropout": 0,
-                                        "chunk_size": None,
-                                        "skip_connection": False,
-                                        "device": 'cuda'},
-                        "train_config": {"lr": 0.001,
-                                         "min_epochs": 1,
-                                         "max_epochs": 1,
-                                         "patience": 20,
-                                         "min_delta": 0,
-                                         "model_prefix": model_prefix,
-                                         "loss": 'Quantile',
-                                         "delta": 1,
-                                         "use_amp": False,
-                                         "use_lr_scheduler": True,
-                                         "scheduler_params": {'factor':0.5, 'patience':5, 'threshold':0.0001, 'min_lr':0.0001, 'clip_gradients': False, 'max_norm': 2.0, 'norm_type': 2},
-                                         "sample_weights": True,
-                                         "stop_training_criteria": 'loss'},
-                        "infer_config": { "infer_start": infer_start,
-                                          "infer_end": infer_end,
-                                          "select_quantile": [0.5]
-                                          }
-                        }
-
-    """
-    # get periods list for sampling train/test limits
-    k = len(train_val_cutoffs)
-    target_col = config_dict['data_config']['col_dict']['target_col']
-
-    def model_train(df, model_num):
-        # set train_till, test_till
-        train_till, test_till = train_val_cutoffs[model_num][0], train_val_cutoffs[model_num][1]
-        config_dict['data_config']['train_till'] = train_till
-        config_dict['data_config']['test_till'] = test_till
-
-        # set quantile
-        if config_dict['infer_config'].get('select_quantile',None) is None:
-            config_dict['infer_config']['select_quantile'] = [0.5]
-        elif len(config_dict['infer_config']['select_quantile']) == 0:
-            config_dict['infer_config']['select_quantile'] = [0.5]
-
-        # set model_prefix
-        model_prefix = config_dict['train_config']['model_prefix']
-        config_dict['train_config']['model_prefix'] = f"{model_prefix}_{str(model_num)}"
-        
-        # get various parameter collections
-        init_params_dict = config_dict['data_config']
-        model_params_dict = config_dict['model_config']
-        train_params_dict = config_dict['train_config']
-        infer_params_dict = config_dict['infer_config']
-
-        # train
-        gml_object = graphmodel(**init_params_dict)
-        gml_object.build_dataset(df)
-        gml_object.build(**model_params_dict)
-        gml_object.train(**train_params_dict)
-
-        # infer
-        f_df_list = []
-        for q in infer_params_dict['quantiles']:
-            f_df = gml_object.infer(infer_start=infer_params_dict['infer_start'] , infer_end=infer_params_dict['infer_end'], select_quantile=q)
-            f_df.rename(columns={'forecast': f"forecast_{q}"}, inplace=True)
-            f_df_list.append(f_df)
-
-        common_cols = list(set(f_df_list[0].columns.tolist()) - set([i for i in f_df_list[0].columns.tolist() if i.startswith('forecast_')]))
-
-        if len(f_df_list) > 1:
-            forecasts = functools.reduce(lambda left, right: pd.merge(left,right,on=common_cols), f_df_list)
-        else:
-            forecasts = f_df_list[0]
-
-        return forecasts, common_cols
-
-    results = Parallel(n_jobs=k)(delayed(model_train)(data, m) for m in range(k))
-    forecast_dfs = [result[0] for result in results]
-    group_cols = [result[1] for result in results]
-    group_cols = list(itertools.chain.from_iterable(group_cols))
-    group_cols = list(set(group_cols) - set([target_col,'scaler']))
-    forecasts = pd.concat(forecast_dfs, axis=0).reset_index(drop=True)
-    # mean forecast df
-    forecasts = forecasts.groupby(group_cols).mean().reset_index()
-
-    return forecasts

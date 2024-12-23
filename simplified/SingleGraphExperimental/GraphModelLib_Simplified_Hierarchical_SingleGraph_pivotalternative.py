@@ -1188,6 +1188,7 @@ class graphmodel:
         self.all_lead_lag_cols = []
 
         # subgraph sampling specific
+        self.num_target_nodes = None
         self.num_key_levels = None
         self.key_level_index_samplers = None
         self.key_level_num_samples = None
@@ -1681,7 +1682,7 @@ class graphmodel:
 
     def onehot_encode(self, df):
 
-        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list + self.global_context_col_list
+        onehot_col_list = self.temporal_known_cat_col_list + self.temporal_unknown_cat_col_list
         df = pd.concat([df[onehot_col_list], pd.get_dummies(data=df, columns=onehot_col_list, prefix_sep='_')], axis=1, join='inner')
 
         return df
@@ -1973,12 +1974,8 @@ class graphmodel:
         print("preprocessing dataframe - gather node specific feature cols...")
         # get onehot features
         for node in self.node_cols:
-            if node in self.global_context_col_list:
-                # one-hot col names
-                onehot_cols_prefix = str(node) + '_'
-                onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
-                self.global_context_onehot_cols += onehot_col_features
-            elif node in self.temporal_known_cat_col_list:
+
+            if node in self.temporal_known_cat_col_list:
                 # one-hot col names
                 onehot_cols_prefix = str(node) + '_'
                 onehot_col_features = [col for col in df.columns.tolist() if col.startswith(onehot_cols_prefix)]
@@ -1995,6 +1992,7 @@ class graphmodel:
         print("\npreprocessed temporal_known_num_col_list: ", self.temporal_known_num_col_list)
         print("\npreprocessed temporal_unknown_num_col_list: ", self.temporal_unknown_num_col_list)
         print("\nTotal Keys across hierarchy: ", df[self.id_col].nunique())
+
         for k in df['key_level'].unique().tolist():
             print("Total Keys for level {}: {}".format(k, df[df['key_level'] == k][self.id_col].nunique()))
 
@@ -2133,12 +2131,16 @@ class graphmodel:
             data[col].x = torch.tensor(temporal_unknown_onehot_col_dict[col].to_numpy(), dtype=torch.float)
 
         # global context node features (one-hot features)
+        df_global_var_snap = df_snap[[self.id_col] + self.global_context_col_list]
+        df_global_var_snap = pd.concat([df_global_var_snap[self.global_context_col_list], pd.get_dummies(data=df_global_var_snap, columns=self.global_context_col_list, prefix_sep='_')], axis=1, join='inner')
+
         for col in self.global_context_col_list:
             onehot_cols_prefix = str(col) + '_'
-            onehot_col_features = [f for f in df_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
-            data[col].x = torch.tensor(df_snap[onehot_col_features].to_numpy(), dtype=torch.float)
+            onehot_col_features = [f for f in df_global_var_snap.columns.tolist() if f.startswith(onehot_cols_prefix)]
+            data[col].x = torch.tensor(df_global_var_snap[onehot_col_features].to_numpy(), dtype=torch.float)
 
         print("node attributes created")
+
         # directed edges between global context node & target_col nodes
         for col in self.global_context_col_list:
             col_unique_values = sorted(df_snap[col].unique().tolist())
@@ -2155,6 +2157,7 @@ class graphmodel:
             data[edge_name].edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
 
         print("global context edges created")
+
         # bidirectional edges exist between target_col nodes related by various static cols
 
         # get all key levels
@@ -2423,6 +2426,7 @@ class graphmodel:
         batch = next(iter(self.train_dataset))
         # define batch size
         batch_size = self.batch_size
+        self.num_target_nodes = int(batch[self.target_col].num_nodes)
 
         # get all indices
         all_indices = torch.tensor(np.arange(batch[self.target_col].num_nodes).reshape(-1, 1))
@@ -2490,6 +2494,10 @@ class graphmodel:
         new_keybom = new_keybom[:, :max_keybom_elements + 1]
         # assign new_keybom to sub_batch
         sub_batch['keybom'].x = new_keybom
+
+        # rescale key_level_weight
+        sub_batch_num_target_nodes = int(sub_batch[self.target_col].num_nodes)
+        sub_batch[self.target_col].y_level_weight = torch.clamp(sub_batch[self.target_col].y_level_weight * (sub_batch_num_target_nodes/self.num_target_nodes), min=1)
 
         return sub_batch
 
